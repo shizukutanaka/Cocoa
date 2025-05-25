@@ -62,6 +62,10 @@ cocoa/
 │   └── utils/       # Utility functions
 ├── plugins/          # Custom plugins
 ├── setup/           # Setup scripts
+│   ├── win/        # Windows setup
+│   │   └── setup.bat
+│   └── mac/        # Mac setup
+│       └── setup.sh
 └── locales/         # Language files
 ```
 
