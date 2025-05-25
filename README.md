@@ -15,6 +15,49 @@ Cocoa is a powerful configuration and plugin management system designed for mana
 - Parameter optimization
 - Performance analysis
 - Notification system
+- Advanced preset management
+
+### Advanced Preset Management
+
+Cocoa now includes an advanced preset manager that:
+
+1. Loads and manages presets
+2. Validates preset data
+3. Compares presets
+4. Merges presets
+5. Provides error handling
+
+To use the preset manager:
+
+```python
+from main.preset_manager import PresetManager
+from main.logging_manager import Logger
+
+# Initialize logger and preset manager
+logger = Logger()
+preset_manager = PresetManager(logger)
+
+# Load all presets
+preset_manager.load_presets()
+
+# Save a new preset
+preset_data = {
+    'name': 'my_preset',
+    'version': '1.0',
+    'parameters': {
+        'param1': 'value1',
+        'param2': 'value2'
+    }
+}
+preset_manager.save_preset('my_preset', preset_data)
+
+# Compare two presets
+comparison = preset_manager.compare_presets('preset1', 'preset2')
+print(f"Differences found: {len(comparison['differences'])}")
+
+# Merge presets
+merged = preset_manager.merge_presets('base_preset', 'update_preset')
+```
 
 ### Notification System
 
