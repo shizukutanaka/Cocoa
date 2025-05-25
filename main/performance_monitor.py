@@ -239,52 +239,6 @@ class PerformanceMonitor:
             "packets_recv": net_io.packets_recv
         }
     
-    def _get_default_stats(self) -> Dict[str, Any]:
-        """Get default statistics"""
-        return {
-            "timestamp": datetime.now().isoformat(),
-            "memory": {
-                "total": 0,
-                "used": 0,
-                "percent": 0
-            },
-            "cpu": {
-                "usage": 0,
-                "count": 0
-            },
-            "disk_io": {
-                "read_bytes": 0,
-                "write_bytes": 0
-            },
-            "network": {
-                "bytes_sent": 0,
-                "bytes_recv": 0
-            },
-            "avatar_processing": self.avatar_timer.get_stats(),
-            "preset_processing": self.preset_timer.get_stats(),
-            "disk_processing": self.disk_timer.get_stats(),
-            "network_processing": self.network_timer.get_stats()
-        }
-    
-    async def _log_stats(self, stats: Dict[str, Any]) -> None:
-        """Log performance statistics"""
-        try:
-            # Log to file
-            log_file = self.config.config_path.parent / "performance.log"
-            async with aiofiles.open(log_file, 'a', encoding='utf-8') as f:
-                await f.write(json.dumps(stats) + "\n")
-                
-            # Update metrics history
-            for metric in stats:
-                if metric in self.metrics_history:
-                    self.metrics_history[metric].append({
-                        'timestamp': stats['timestamp'],
-                        'value': stats[metric]['value'] if isinstance(stats[metric], dict) else stats[metric]
-                    })
-                    
-        except Exception as e:
-            logger.error(f"Error logging performance stats: {str(e)}")
-    
     def get_performance_report(self) -> Dict[str, Any]:
         """Get detailed performance report"""
         return {
