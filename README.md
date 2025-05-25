@@ -16,6 +16,38 @@ Cocoa is a powerful configuration and plugin management system designed for mana
 - Performance analysis
 - Notification system
 - Advanced preset management
+- Configuration validation system
+
+### Configuration Validation System
+
+Cocoa now includes a robust configuration validation system that:
+
+1. Validates configuration against schema
+2. Checks required fields
+3. Validates field types
+4. Validates constraints
+5. Validates relationships between fields
+
+To use the configuration validator:
+
+```python
+from main.config_validator import ConfigValidator
+from main.logging_manager import Logger
+
+# Initialize logger and validator
+logger = Logger()
+validator = ConfigValidator(logger)
+
+# Validate a configuration file
+validation_result = validator.validate("config.json")
+
+if validation_result['valid']:
+    print("Configuration is valid!")
+else:
+    print("Validation errors:")
+    for error in validation_result['errors']:
+        print(f"- {error}")
+```
 
 ### Advanced Preset Management
 
