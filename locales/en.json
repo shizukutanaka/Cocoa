@@ -1,0 +1,14 @@
+{
+  "title": "Cocoa Web Admin",
+  "hello": "Hello!",
+  "desc": "This UI automatically switches language and font.",
+  "user": "User",
+  "logout": "Logout",
+  "history": "Preset History",
+  "userlog": "User Action Log",
+  "operation": "Operation",
+  "time": "Time",
+  "preset": "Preset",
+  "type": "Type",
+  "note": "Note"
+}

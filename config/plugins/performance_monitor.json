@@ -1,0 +1,12 @@
+{
+    "enabled": true,
+    "settings": {
+        "interval": 5,  // 監視間隔（秒）
+        "memory_threshold": 80,  // メモリ使用率閾値（%）
+        "cpu_threshold": 90,  // CPU使用率閾値（%）
+        "avatar_processing_threshold": 100,  // アバター処理時間閾値（ms）
+        "preset_processing_threshold": 50,  // プレセット処理時間閾値（ms）
+        "alert_enabled": true,
+        "alert_threshold": 3  // 連続アラート閾値
+    }
+}

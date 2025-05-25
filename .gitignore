@@ -1,0 +1,16 @@
+# Cocoa用 gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.env
+.cache
+.idea/
+.vscode/
+Assets/
+Tests/
+*.log
+*.bak
+*.swp
+# その他一時・生成ファイル
