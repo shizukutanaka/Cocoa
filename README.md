@@ -50,6 +50,11 @@ cocoa/
 ├── config/           # Configuration files
 │   ├── config.json   # Main configuration
 │   └── plugins/      # Plugin configurations
+├── launch/          # Launch scripts
+│   ├── win/         # Windows launch scripts
+│   │   └── run_cocoa.bat
+│   └── mac/         # Mac launch scripts
+│       └── run_cocoa.sh
 ├── main/             # Main application code
 │   ├── avatar/       # Avatar management
 │   ├── parameters/   # Parameter management
