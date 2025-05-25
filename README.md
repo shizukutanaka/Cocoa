@@ -5,11 +5,18 @@ Cocoa is a powerful configuration and plugin management system designed for mana
 ## Features
 
 - Multi-language support
+- Advanced error handling
+- Task scheduling
 - Plugin system
-- Configuration validation
 - Performance monitoring
+- Configuration validation
 - Automatic backups
+- Backup scheduling
 - Environment variable support
+- Dynamic plugin loading
+- Enhanced configuration versioning
+- Enhanced backup scheduler
+- Enhanced performance monitoring
 - Parameter management
 - Preset management
 - Parameter optimization
