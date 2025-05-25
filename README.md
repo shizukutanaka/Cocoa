@@ -14,6 +14,44 @@ Cocoa is a powerful configuration and plugin management system designed for mana
 - Preset management
 - Parameter optimization
 - Performance analysis
+- Notification system
+
+### Notification System
+
+Cocoa now includes a notification system that:
+
+1. Supports multiple notification handlers
+2. Provides console, file, and web notifications
+3. Includes notification history
+4. Supports different notification levels
+
+To use the notification system:
+
+```python
+from main.notification_system import NotificationSystem
+from main.logging_manager import Logger
+
+# Initialize logger and notification system
+logger = Logger()
+notification_system = NotificationSystem(logger)
+
+# Register notification handlers
+notification_system.register_handler(ConsoleNotificationHandler(logger))
+notification_system.register_handler(FileNotificationHandler(logger, "notifications.log"))
+
+# Send a notification
+notification_system.send_notification(
+    title="System Status",
+    message="System is running normally",
+    level="info"
+)
+
+# Get notification history
+notifications = notification_system.get_notifications()
+
+# Clear notification history
+notification_system.clear_notifications()
+```
 
 ### Performance Analysis
 
