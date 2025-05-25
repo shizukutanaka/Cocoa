@@ -12,6 +12,7 @@ Cocoa is a powerful configuration and plugin management system designed for mana
 - Environment variable support
 - Parameter management
 - Preset management
+- Parameter optimization
 
 ## Getting Started
 
