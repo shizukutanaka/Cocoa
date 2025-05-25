@@ -66,6 +66,11 @@ cocoa/
 │   │   └── setup.bat
 │   └── mac/        # Mac setup
 │       └── setup.sh
+├── backup/         # Backup scripts
+│   ├── win/       # Windows backup
+│   │   └── backup_cocoa.bat
+│   └── mac/       # Mac backup
+│       └── backup_cocoa.sh
 └── locales/         # Language files
 ```
 
