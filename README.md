@@ -13,6 +13,40 @@ Cocoa is a powerful configuration and plugin management system designed for mana
 - Parameter management
 - Preset management
 - Parameter optimization
+- Performance analysis
+
+### Performance Analysis
+
+Cocoa now includes a performance analyzer that:
+
+1. Monitors CPU usage
+2. Tracks memory usage
+3. Analyzes disk performance
+4. Monitors network activity
+5. Provides detailed performance reports
+
+To use the performance analyzer:
+
+```python
+from main.performance_analyzer import PerformanceAnalyzer
+from main.logging_manager import Logger
+
+# Initialize logger and analyzer
+logger = Logger()
+analyzer = PerformanceAnalyzer(logger)
+
+# Start monitoring (every 5 seconds)
+analyzer.start_monitoring(5)
+
+# Get current metrics
+metrics = analyzer.get_metrics()
+
+# Analyze performance
+analysis = analyzer.analyze_performance()
+
+# Stop monitoring
+analyzer.stop_monitoring()
+```
 
 ## Getting Started
 
