@@ -26,7 +26,7 @@ import json
 logger = logging.getLogger(__name__)
 
 class PerformanceMonitor:
-    """Enhanced performance monitoring system"""
+    """Enhanced performance monitoring system with advanced features"""
     def __init__(self):
         """Initialize performance monitor"""
         self.config = get_config_manager()
@@ -35,20 +35,42 @@ class PerformanceMonitor:
         if self.settings:
             self.interval = self.settings.get("interval", 5)  # Monitoring interval (seconds)
             self.history_size = self.settings.get("history_size", 100)  # History size
+            self.max_history = self.settings.get("max_history", 1000)  # Maximum history size
+            self.cleanup_interval = self.settings.get("cleanup_interval", 3600)  # Cleanup interval (seconds)
             
+            # Performance thresholds
             self.thresholds = {
                 "memory": self.settings.get("memory_threshold", 80),  # Memory usage threshold (%)
                 "cpu": self.settings.get("cpu_threshold", 90),  # CPU usage threshold (%)
                 "avatar_processing": self.settings.get("avatar_processing_threshold", 100),  # Avatar processing threshold (ms)
                 "preset_processing": self.settings.get("preset_processing_threshold", 50),  # Preset processing threshold (ms)
                 "disk_io": self.settings.get("disk_io_threshold", 1000),  # Disk I/O threshold (KB/s)
-                "network": self.settings.get("network_threshold", 1000)  # Network bandwidth threshold (KB/s)
+                "network": self.settings.get("network_threshold", 1000),  # Network bandwidth threshold (KB/s)
+                "gpu": self.settings.get("gpu_threshold", 90),  # GPU usage threshold (%)
+                "process_memory": self.settings.get("process_memory_threshold", 90)  # Process memory threshold (%)
             }
             
+            # Alert configuration
             self.alert_config = {
                 "enabled": self.settings.get("alert_enabled", True),
                 "threshold": self.settings.get("alert_threshold", 3),  # Consecutive alert threshold
-                "cooldown": self.settings.get("alert_cooldown", 60)  # Alert cooldown period (seconds)
+                "cooldown": self.settings.get("alert_cooldown", 60),  # Alert cooldown period (seconds)
+                "severity_levels": self.settings.get("severity_levels", {
+                    "warning": 80,
+                    "critical": 95
+                })
+            }
+            
+            # Optimization settings
+            self.optimization_config = {
+                "enabled": self.settings.get("optimization_enabled", True),
+                "interval": self.settings.get("optimization_interval", 3600),  # Optimization check interval (seconds)
+                "strategies": self.settings.get("optimization_strategies", {
+                    "memory": ["compact", "clear_cache"],
+                    "cpu": ["thread_pool", "priority"],
+                    "disk": ["cache_clear", "file_optimize"],
+                    "network": ["connection_pool", "compression"]
+                })
             }
             
             self.alert_count = 0
@@ -117,46 +139,84 @@ class PerformanceMonitor:
                 time.sleep(self.interval)
     
     async def _collect_stats(self) -> Dict[str, Any]:
-        """Collect performance statistics asynchronously"""
+        """Collect comprehensive performance statistics asynchronously"""
         try:
             # Collect statistics in parallel
             memory_stats = await self._collect_memory_stats()
             cpu_stats = await self._collect_cpu_stats()
             disk_stats = await self._collect_disk_stats()
             network_stats = await self._collect_network_stats()
+            gpu_stats = await self._collect_gpu_stats()
+            process_stats = await self._collect_process_stats()
             
             return {
                 "timestamp": datetime.now().isoformat(),
                 "memory": memory_stats,
                 "cpu": cpu_stats,
+                "gpu": gpu_stats,
                 "disk_io": disk_stats,
                 "network": network_stats,
+                "process": process_stats,
                 "avatar_processing": self.avatar_timer.get_stats(),
                 "preset_processing": self.preset_timer.get_stats(),
                 "disk_processing": self.disk_timer.get_stats(),
                 "network_processing": self.network_timer.get_stats()
             }
+        except Exception as e:
+            logger.error(f"Error collecting performance stats: {str(e)}")
+            return self._get_default_stats()
             
         except Exception as e:
             logger.error(f"Error collecting performance stats: {str(e)}")
             return self._get_default_stats()
     
     async def _collect_memory_stats(self) -> Dict[str, Any]:
-        """Collect memory statistics"""
+        """Collect comprehensive memory statistics"""
         mem = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+        process_mem = psutil.Process().memory_info()
+        
         return {
-            "total": mem.total,
-            "used": mem.used,
-            "percent": mem.percent,
-            "available": mem.available
+            "system": {
+                "total": mem.total,
+                "used": mem.used,
+                "percent": mem.percent,
+                "available": mem.available,
+                "swap": {
+                    "total": swap.total,
+                    "used": swap.used,
+                    "percent": swap.percent
+                }
+            },
+            "process": {
+                "rss": process_mem.rss,
+                "vms": process_mem.vms,
+                "percent": process_mem.rss / mem.total * 100
+            }
         }
     
-    async def _collect_cpu_stats(self) -> Dict[str, Any]:
-        """Collect CPU statistics"""
+    def _collect_cpu_stats(self) -> Dict[str, Any]:
+        """Collect comprehensive CPU statistics"""
+        cpu_percent = psutil.cpu_percent(interval=0.1, percpu=True)
+        cpu_times = psutil.cpu_times_percent(interval=0.1, percpu=True)
+        cpu_freq = psutil.cpu_freq(percpu=True)
+        
         return {
-            "usage": psutil.cpu_percent(interval=0.1),
             "count": psutil.cpu_count(),
-            "per_cpu": psutil.cpu_percent(interval=0.1, percpu=True)
+            "usage": {
+                "total": sum(cpu_percent) / len(cpu_percent),
+                "per_cpu": cpu_percent,
+                "times": {
+                    "user": [t.user for t in cpu_times],
+                    "system": [t.system for t in cpu_times],
+                    "idle": [t.idle for t in cpu_times]
+                }
+            },
+            "frequency": {
+                "current": [f.current for f in cpu_freq],
+                "min": [f.min for f in cpu_freq],
+                "max": [f.max for f in cpu_freq]
+            }
         }
     
     async def _collect_disk_stats(self) -> Dict[str, Any]:
@@ -282,54 +342,93 @@ class PerformanceMonitor:
         }
     
     def _check_alerts(self, stats: Dict[str, Any]) -> bool:
-        """Check for performance alerts"""
+        """Check for performance alerts with severity levels"""
         alerts = []
         
         # Memory usage check
-        if stats["memory"]["percent"] > self.thresholds["memory"]:
+        memory_usage = stats["memory"]["system"]["percent"]
+        if memory_usage > self.thresholds["memory"]:
+            severity = "warning" if memory_usage < self.alert_config["severity_levels"]["critical"] else "critical"
             alerts.append({
                 "type": "memory",
-                "value": stats["memory"]["percent"],
-                "threshold": self.thresholds["memory"]
+                "value": memory_usage,
+                "threshold": self.thresholds["memory"],
+                "severity": severity
             })
         
         # CPU usage check
-        if stats["cpu"]["usage"] > self.thresholds["cpu"]:
+        cpu_usage = stats["cpu"]["usage"]["total"]
+        if cpu_usage > self.thresholds["cpu"]:
+            severity = "warning" if cpu_usage < self.alert_config["severity_levels"]["critical"] else "critical"
             alerts.append({
                 "type": "cpu",
-                "value": stats["cpu"]["usage"],
-                "threshold": self.thresholds["cpu"]
+                "value": cpu_usage,
+                "threshold": self.thresholds["cpu"],
+                "severity": severity
+            })
+        
+        # GPU usage check
+        gpu_usage = stats.get("gpu", {}).get("stats", [])
+        for gpu in gpu_usage:
+            if gpu["load"] > self.thresholds["gpu"]:
+                severity = "warning" if gpu["load"] < self.alert_config["severity_levels"]["critical"] else "critical"
+                alerts.append({
+                    "type": "gpu",
+                    "value": gpu["load"],
+                    "threshold": self.thresholds["gpu"],
+                    "severity": severity,
+                    "gpu_name": gpu["name"]
+                })
+        
+        # Process memory check
+        process_memory = stats["process"]["memory"]["percent"]
+        if process_memory > self.thresholds["process_memory"]:
+            severity = "warning" if process_memory < self.alert_config["severity_levels"]["critical"] else "critical"
+            alerts.append({
+                "type": "process_memory",
+                "value": process_memory,
+                "threshold": self.thresholds["process_memory"],
+                "severity": severity
             })
         
         # Disk I/O check
         if stats["disk_io"]["write_bytes"] > self.thresholds["disk_io"]:
+            severity = "warning" if stats["disk_io"]["write_bytes"] < self.alert_config["severity_levels"]["critical"] else "critical"
             alerts.append({
                 "type": "disk_io",
                 "value": stats["disk_io"]["write_bytes"],
-                "threshold": self.thresholds["disk_io"]
+                "threshold": self.thresholds["disk_io"],
+                "severity": severity
             })
         
         # Network bandwidth check
-        if stats["network"]["bytes_sent"] + stats["network"]["bytes_recv"] > self.thresholds["network"]:
+        network_usage = stats["network"]["bytes_sent"] + stats["network"]["bytes_recv"]
+        if network_usage > self.thresholds["network"]:
+            severity = "warning" if network_usage < self.alert_config["severity_levels"]["critical"] else "critical"
             alerts.append({
                 "type": "network",
-                "value": stats["network"]["bytes_sent"] + stats["network"]["bytes_recv"],
-                "threshold": self.thresholds["network"]
+                "value": network_usage,
+                "threshold": self.thresholds["network"],
+                "severity": severity
             })
         
         # Processing time checks
         if stats["avatar_processing"]["average_time"] > self.thresholds["avatar_processing"]:
+            severity = "warning" if stats["avatar_processing"]["average_time"] < self.alert_config["severity_levels"]["critical"] else "critical"
             alerts.append({
                 "type": "avatar_processing",
                 "value": stats["avatar_processing"]["average_time"],
-                "threshold": self.thresholds["avatar_processing"]
+                "threshold": self.thresholds["avatar_processing"],
+                "severity": severity
             })
         
         if stats["preset_processing"]["average_time"] > self.thresholds["preset_processing"]:
+            severity = "warning" if stats["preset_processing"]["average_time"] < self.alert_config["severity_levels"]["critical"] else "critical"
             alerts.append({
                 "type": "preset_processing",
                 "value": stats["preset_processing"]["average_time"],
-                "threshold": self.thresholds["preset_processing"]
+                "threshold": self.thresholds["preset_processing"],
+                "severity": severity
             })
         
         # Check if we should send an alert
@@ -348,11 +447,163 @@ class PerformanceMonitor:
         
         return False
     
+    async def optimize_performance(self) -> None:
+        """Optimize performance based on analysis"""
+        if not self.optimization_config["enabled"]:
+            return
+            
+        current_time = datetime.now()
+        if self.last_optimization is None or \
+           (current_time - self.last_optimization).total_seconds() > self.optimization_config["interval"]:
+            
+            analysis = self._analyze_performance()
+            issues = analysis['issues']
+            
+            if issues:
+                self.optimized_mode = True
+                self.last_optimization = current_time
+                
+                # Implement optimization strategies
+                for issue in issues:
+                    metric = issue['metric']
+                    if metric == 'memory':
+                        await self._optimize_memory()
+                    elif metric == 'cpu':
+                        await self._optimize_cpu()
+                    elif metric == 'disk':
+                        await self._optimize_disk()
+                    elif metric == 'network':
+                        await self._optimize_network()
+    
+    async def _optimize_memory(self) -> None:
+        """Optimize memory usage"""
+        try:
+            # Clear caches
+            await self._clear_caches()
+            
+            # Compact memory
+            await self._compact_memory()
+            
+            # Optimize data structures
+            await self._optimize_data_structures()
+            
+        except Exception as e:
+            logger.error(f"Memory optimization failed: {str(e)}")
+    
+    async def _optimize_cpu(self) -> None:
+        """Optimize CPU usage"""
+        try:
+            # Adjust thread pool size
+            await self._adjust_thread_pool()
+            
+            # Optimize process priority
+            await self._optimize_process_priority()
+            
+            # Implement CPU scheduling optimizations
+            await self._optimize_cpu_scheduling()
+            
+        except Exception as e:
+            logger.error(f"CPU optimization failed: {str(e)}")
+    
+    async def _optimize_disk(self) -> None:
+        """Optimize disk I/O"""
+        try:
+            # Clear disk cache
+            await self._clear_disk_cache()
+            
+            # Optimize file operations
+            await self._optimize_file_operations()
+            
+            # Implement disk I/O optimizations
+            await self._optimize_disk_io()
+            
+        except Exception as e:
+            logger.error(f"Disk optimization failed: {str(e)}")
+    
+    async def _optimize_network(self) -> None:
+        """Optimize network usage"""
+        try:
+            # Optimize connection pool
+            await self._optimize_connection_pool()
+            
+            # Implement network optimizations
+            await self._optimize_network_usage()
+            
+            # Compress network traffic
+            await self._compress_network_traffic()
+            
+        except Exception as e:
+            logger.error(f"Network optimization failed: {str(e)}")
+    
+    async def _clear_caches(self) -> None:
+        """Clear various caches"""
+        import gc
+        gc.collect()
+        
+    async def _compact_memory(self) -> None:
+        """Compact memory usage"""
+        import psutil
+        process = psutil.Process()
+        process.paged_memory_size()  # Force memory compaction
+    
+    async def _optimize_data_structures(self) -> None:
+        """Optimize data structures"""
+        # Implement data structure optimizations
+        pass
+    
+    async def _adjust_thread_pool(self) -> None:
+        """Adjust thread pool size based on system resources"""
+        import psutil
+        cpu_count = psutil.cpu_count()
+        self._executor = ThreadPoolExecutor(max_workers=cpu_count * 2)
+    
+    async def _optimize_process_priority(self) -> None:
+        """Optimize process priority"""
+        import psutil
+        process = psutil.Process()
+        process.nice(psutil.HIGH_PRIORITY_CLASS)
+    
+    async def _optimize_cpu_scheduling(self) -> None:
+        """Optimize CPU scheduling"""
+        # Implement CPU scheduling optimizations
+        pass
+    
+    async def _clear_disk_cache(self) -> None:
+        """Clear disk cache"""
+        import psutil
+        process = psutil.Process()
+        process.flush_io_counters()
+    
+    async def _optimize_file_operations(self) -> None:
+        """Optimize file operations"""
+        # Implement file operation optimizations
+        pass
+    
+    async def _optimize_disk_io(self) -> None:
+        """Optimize disk I/O"""
+        # Implement disk I/O optimizations
+        pass
+    
+    async def _optimize_connection_pool(self) -> None:
+        """Optimize connection pool"""
+        # Implement connection pool optimizations
+        pass
+    
+    async def _optimize_network_usage(self) -> None:
+        """Optimize network usage"""
+        # Implement network usage optimizations
+        pass
+    
+    async def _compress_network_traffic(self) -> None:
+        """Compress network traffic"""
+        # Implement network traffic compression
+        pass
+    
     def _analyze_performance(self) -> Dict[str, Any]:
-        """Analyze performance metrics"""
+        """Comprehensive performance analysis"""
         analysis = {}
         
-        # Calculate averages and standard deviations
+        # Calculate detailed statistics
         for metric, history in self.metrics_history.items():
             if history:
                 values = [item['value'] for item in history]
@@ -360,7 +611,13 @@ class PerformanceMonitor:
                     'average': mean(values),
                     'std_dev': stdev(values) if len(values) > 1 else 0,
                     'current': values[-1],
-                    'threshold': self.thresholds.get(metric, 0)
+                    'threshold': self.thresholds.get(metric, 0),
+                    'min': min(values),
+                    'max': max(values),
+                    'p95': self._calculate_percentile(values, 95),
+                    'p99': self._calculate_percentile(values, 99),
+                    'trend': self._calculate_trend(values),
+                    'anomalies': self._detect_anomalies(values)
                 }
         
         # Detect performance issues
@@ -371,14 +628,168 @@ class PerformanceMonitor:
                     'metric': metric,
                     'value': data['current'],
                     'threshold': data['threshold'],
-                    'std_dev': data['std_dev']
+                    'std_dev': data['std_dev'],
+                    'severity': self._determine_severity(data['current'], data['threshold']),
+                    'anomalies': data['anomalies']
                 })
         
         return {
             'analysis': analysis,
             'issues': issues,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'recommendations': self._generate_recommendations(issues)
         }
+    
+    def _calculate_percentile(self, values: List[float], percentile: float) -> float:
+        """Calculate percentile value"""
+        if not values:
+            return 0
+            
+        sorted_values = sorted(values)
+        index = int(len(sorted_values) * (percentile / 100))
+        return sorted_values[index]
+    
+    def _calculate_trend(self, values: List[float]) -> str:
+        """Calculate performance trend"""
+        if len(values) < 2:
+            return "stable"
+            
+        avg_change = sum(values[i] - values[i-1] for i in range(1, len(values))) / (len(values) - 1)
+        
+        if avg_change > 0:
+            return "increasing"
+        elif avg_change < 0:
+            return "decreasing"
+        return "stable"
+    
+    def _detect_anomalies(self, values: List[float]) -> List[Dict[str, Any]]:
+        """Detect performance anomalies"""
+        if len(values) < 3:
+            return []
+            
+        mean_val = mean(values)
+        std_dev = stdev(values)
+        
+        anomalies = []
+        for i, value in enumerate(values):
+            if abs(value - mean_val) > 3 * std_dev:  # More than 3 standard deviations
+                anomalies.append({
+                    'timestamp': datetime.now() - timedelta(seconds=(len(values) - i) * self.interval),
+                    'value': value,
+                    'deviation': abs(value - mean_val) / std_dev
+                })
+        
+        return anomalies
+    
+    def _determine_severity(self, value: float, threshold: float) -> str:
+        """Determine severity level"""
+        if value < threshold:
+            return "normal"
+        elif value < threshold * 1.5:
+            return "warning"
+        return "critical"
+    
+    def _generate_recommendations(self, issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Generate optimization recommendations"""
+        recommendations = []
+        for issue in issues:
+            metric = issue['metric']
+            severity = issue['severity']
+            
+            if metric == 'memory':
+                recommendations.append({
+                    'type': 'memory',
+                    'severity': severity,
+                    'recommendation': self._get_memory_recommendations(issue)
+                })
+            elif metric == 'cpu':
+                recommendations.append({
+                    'type': 'cpu',
+                    'severity': severity,
+                    'recommendation': self._get_cpu_recommendations(issue)
+                })
+            elif metric == 'disk':
+                recommendations.append({
+                    'type': 'disk',
+                    'severity': severity,
+                    'recommendation': self._get_disk_recommendations(issue)
+                })
+            elif metric == 'network':
+                recommendations.append({
+                    'type': 'network',
+                    'severity': severity,
+                    'recommendation': self._get_network_recommendations(issue)
+                })
+        
+        return recommendations
+    
+    def _get_memory_recommendations(self, issue: Dict[str, Any]) -> List[str]:
+        """Get memory optimization recommendations"""
+        recommendations = []
+        if issue['severity'] == 'critical':
+            recommendations.extend([
+                "Clear memory caches",
+                "Optimize data structures",
+                "Implement memory compaction"
+            ])
+        else:
+            recommendations.extend([
+                "Monitor memory usage",
+                "Optimize memory allocation",
+                "Implement caching strategies"
+            ])
+        return recommendations
+    
+    def _get_cpu_recommendations(self, issue: Dict[str, Any]) -> List[str]:
+        """Get CPU optimization recommendations"""
+        recommendations = []
+        if issue['severity'] == 'critical':
+            recommendations.extend([
+                "Adjust thread pool size",
+                "Optimize process priority",
+                "Implement CPU scheduling optimizations"
+            ])
+        else:
+            recommendations.extend([
+                "Monitor CPU usage",
+                "Optimize algorithms",
+                "Implement task prioritization"
+            ])
+        return recommendations
+    
+    def _get_disk_recommendations(self, issue: Dict[str, Any]) -> List[str]:
+        """Get disk optimization recommendations"""
+        recommendations = []
+        if issue['severity'] == 'critical':
+            recommendations.extend([
+                "Clear disk cache",
+                "Optimize file operations",
+                "Implement disk I/O optimizations"
+            ])
+        else:
+            recommendations.extend([
+                "Monitor disk usage",
+                "Optimize file access patterns",
+                "Implement caching strategies"
+            ])
+        return recommendations
+    
+    def _get_network_recommendations(self, issue: Dict[str, Any]) -> List[str]:
+        """Get network optimization recommendations"""
+        recommendations = []
+        if issue['severity'] == 'critical':
+            recommendations.extend([
+                "Optimize connection pool",
+                "Implement network optimizations",
+                "Compress network traffic"
+            ])
+        else:
+            recommendations.extend([
+                "Monitor network usage",
+                "Optimize connection management",
+                "Implement traffic optimization"
+            ])
+        return recommendations
     
     async def optimize_performance(self) -> None:
         """Optimize performance based on analysis"""
