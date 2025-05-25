@@ -56,6 +56,10 @@ cocoa/
 │   └── mac/         # Mac launch scripts
 │       └── run_cocoa.sh
 ├── main/             # Main application code
+│   ├── win/         # Windows main files
+│   │   └── run_cocoa.bat
+│   ├── mac/         # Mac main files
+│   │   └── run_cocoa.sh
 │   ├── avatar/       # Avatar management
 │   ├── parameters/   # Parameter management
 │   ├── presets/      # Preset management
