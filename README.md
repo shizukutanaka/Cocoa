@@ -1,5 +1,33 @@
 # Cocoa
 
+Cocoa MVP Launcher
+
+## Usage / 使い方
+
+**English:**
+
+To launch the MVP Cocoa launcher, run:
+
+```bash
+python main/main.py
+```
+
+- [Launch Avatar Editor]: Opens the avatar editor GUI (avatar_preset_linker_gui.py)
+- [Edit Config File]: Opens config/config.json in your default editor
+
+**日本語:**
+
+MVP Cocoaランチャーを起動するには、以下を実行してください：
+
+```bash
+python main/main.py
+```
+
+- [アバター編集を起動]: avatar_preset_linker_gui.py（アバター編集GUI）を開きます
+- [設定ファイルを編集]: config/config.json を既定のエディタで開きます
+
+---
+
 Cocoa is a powerful configuration and plugin management system designed for managing complex applications and services.
 
 ## Features

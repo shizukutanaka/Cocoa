@@ -1,14 +1,7 @@
 {
-  "title": "Cocoa Web管理",
-  "hello": "こんにちは!",
-  "desc": "このUIは自動で言語・フォントが切り替わります。",
-  "user": "ユーザー",
-  "logout": "ログアウト",
-  "history": "プリセット履歴",
-  "userlog": "操作ログ",
-  "operation": "操作",
-  "time": "時刻",
-  "preset": "プリセット",
-  "type": "種別",
-  "note": "メモ"
+  "title": "Cocoa MVP ランチャー",
+  "desc": "Cocoa - アバター編集 (MVP)",
+  "avatar_edit": "アバター編集を起動",
+  "config_edit": "設定ファイルを編集",
+  "error": "エラー"
 }
