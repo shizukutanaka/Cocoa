@@ -1,0 +1,2 @@
+# Cocoa MVP requirements
+# tkinter is standard, so no need to list
