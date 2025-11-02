@@ -1,0 +1,11 @@
+{
+  "tests_dir": "tests",
+  "default_pattern": "test_*.py",
+  "default_verbosity": 2,
+  "extra_python_paths": [],
+  "show_traceback": false,
+  "enable_performance_metrics": false,
+  "performance_report_path": null,
+  "enable_parallel_execution": false,
+  "max_parallel_workers": 4
+}

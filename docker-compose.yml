@@ -1,0 +1,246 @@
+version: '3.8'
+
+services:
+  # API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: docker/api-gateway.Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - API_GATEWAY_PORT=8000
+      - API_GATEWAY_HOST=0.0.0.0
+      - COCOA_SECRET_KEY=${COCOA_SECRET_KEY}
+      - COCOA_ENCRYPTION_KEY=${COCOA_ENCRYPTION_KEY}
+      - DATABASE_URL=postgresql://cocoa:cocoa_password@db:5432/cocoa
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - db
+      - redis
+    networks:
+      - cocoa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Avatar Service
+  avatar-service:
+    build:
+      context: .
+      dockerfile: docker/avatar-service.Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - ENVIRONMENT=production
+      - AVATAR_SERVICE_PORT=8001
+      - AVATAR_SERVICE_HOST=0.0.0.0
+      - DATABASE_URL=postgresql://cocoa:cocoa_password@db:5432/cocoa
+      - COCOA_SECRET_KEY=${COCOA_SECRET_KEY}
+      - COCOA_ENCRYPTION_KEY=${COCOA_ENCRYPTION_KEY}
+    depends_on:
+      - db
+    networks:
+      - cocoa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Security Service
+  security-service:
+    build:
+      context: .
+      dockerfile: docker/security-service.Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      - ENVIRONMENT=production
+      - SECURITY_SERVICE_PORT=8002
+      - SECURITY_SERVICE_HOST=0.0.0.0
+      - DATABASE_URL=postgresql://cocoa:cocoa_password@db:5432/cocoa
+      - COCOA_SECRET_KEY=${COCOA_SECRET_KEY}
+      - COCOA_ENCRYPTION_KEY=${COCOA_ENCRYPTION_KEY}
+    depends_on:
+      - db
+    networks:
+      - cocoa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Collaboration Service
+  collaboration-service:
+    build:
+      context: .
+      dockerfile: docker/collaboration-service.Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      - ENVIRONMENT=production
+      - COLLABORATION_SERVICE_PORT=8003
+      - COLLABORATION_SERVICE_HOST=0.0.0.0
+      - REDIS_URL=redis://redis:6379
+      - COCOA_SECRET_KEY=${COCOA_SECRET_KEY}
+      - COCOA_ENCRYPTION_KEY=${COCOA_ENCRYPTION_KEY}
+    depends_on:
+      - redis
+    networks:
+      - cocoa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # AI Service
+  ai-service:
+    build:
+      context: .
+      dockerfile: docker/ai-service.Dockerfile
+    ports:
+      - "8004:8004"
+    environment:
+      - ENVIRONMENT=production
+      - AI_SERVICE_PORT=8004
+      - AI_SERVICE_HOST=0.0.0.0
+      - AI_MODEL_PATH=/app/models
+      - AI_ENABLE_GPU=false
+      - COCOA_SECRET_KEY=${COCOA_SECRET_KEY}
+      - COCOA_ENCRYPTION_KEY=${COCOA_ENCRYPTION_KEY}
+    volumes:
+      - ai_models:/app/models
+      - ai_data:/app/data
+    networks:
+      - cocoa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend.Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - api-gateway
+    networks:
+      - cocoa-network
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=cocoa
+      - POSTGRES_USER=cocoa
+      - POSTGRES_PASSWORD=cocoa_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - cocoa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cocoa -d cocoa"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - cocoa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - cocoa-network
+    restart: unless-stopped
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana-dashboards:/etc/grafana/provisioning/dashboards
+      - ./docker/grafana-datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - cocoa-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  ai_models:
+  ai_data:
+
+networks:
+  cocoa-network:
+    driver: bridge

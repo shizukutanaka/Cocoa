@@ -1,0 +1,464 @@
+{
+  "analysis_summary": {
+    "total_files": 110,
+    "entry_points": ["main.py", "avatar_preset_linker_gui.py"],
+    "actively_used_files": 3,
+    "unused_files": 107,
+    "safe_to_delete_immediately": 91,
+    "requires_review": 16,
+    "reduction_percentage": 82.7
+  },
+
+  "used_by_main": [
+    "main.py",
+    "avatar_preset_linker_gui.py",
+    "config_validator.py"
+  ],
+
+  "dependency_graph": {
+    "main.py": {
+      "imports": ["config_validator"],
+      "imported_by": [],
+      "status": "ENTRY_POINT"
+    },
+    "avatar_preset_linker_gui.py": {
+      "imports": [],
+      "imported_by": [],
+      "status": "ENTRY_POINT"
+    },
+    "config_validator.py": {
+      "imports": [],
+      "imported_by": ["main"],
+      "status": "ACTIVELY_USED"
+    },
+    "logging_manager.py": {
+      "imports": [],
+      "imported_by": ["notification_system", "performance_analyzer", "preset_manager"],
+      "status": "POTENTIALLY_USEFUL"
+    },
+    "avatar_parameters.py": {
+      "imports": [],
+      "imported_by": ["avatar_parameter_sets", "joint_range_report", "parameter_optimizer"],
+      "status": "POTENTIALLY_USEFUL"
+    },
+    "preset_diff_core.py": {
+      "imports": [],
+      "imported_by": ["preset_diff", "preset_diff_fixed"],
+      "status": "POTENTIALLY_USEFUL"
+    }
+  },
+
+  "duplicate_groups": {
+    "preset_diff": {
+      "description": "Multiple preset diff implementations",
+      "files": [
+        "preset_diff.py",
+        "preset_diff_fixed.py",
+        "avatar_preset_diff.py",
+        "preset_diff_reporter.py",
+        "preset_diff_core.py"
+      ],
+      "recommendation": "Keep preset_diff_core.py only, delete all others",
+      "files_to_delete": [
+        "preset_diff.py",
+        "preset_diff_fixed.py",
+        "avatar_preset_diff.py",
+        "preset_diff_reporter.py"
+      ],
+      "files_to_keep": ["preset_diff_core.py"]
+    },
+
+    "performance_monitor": {
+      "description": "Duplicate performance monitor implementations",
+      "files": [
+        "performance_monitor.py",
+        "performance_monitor_backup.py"
+      ],
+      "recommendation": "Keep performance_monitor.py, delete backup",
+      "files_to_delete": ["performance_monitor_backup.py"],
+      "files_to_keep": ["performance_monitor.py"]
+    },
+
+    "cocoa_systems": {
+      "description": "Multiple Cocoa system architectures - all unused",
+      "files": [
+        "cocoa_core.py",
+        "cocoa_fast_core.py",
+        "cocoa_application.py",
+        "clean_cocoa_architecture.py",
+        "simple_cocoa_system.py",
+        "master_cocoa_system.py",
+        "integrated_cocoa_core.py"
+      ],
+      "recommendation": "Delete all - none are used by main.py",
+      "files_to_delete": [
+        "cocoa_core.py",
+        "cocoa_fast_core.py",
+        "cocoa_application.py",
+        "clean_cocoa_architecture.py",
+        "simple_cocoa_system.py",
+        "master_cocoa_system.py",
+        "integrated_cocoa_core.py"
+      ],
+      "files_to_keep": []
+    },
+
+    "security_managers": {
+      "description": "Multiple security manager implementations - all unused",
+      "files": [
+        "security_manager.py",
+        "enhanced_security_manager.py",
+        "master_security_manager.py",
+        "unified_security_manager.py",
+        "advanced_data_security.py",
+        "data_security_infrastructure.py"
+      ],
+      "recommendation": "Delete all - none are used by main.py",
+      "files_to_delete": [
+        "security_manager.py",
+        "enhanced_security_manager.py",
+        "master_security_manager.py",
+        "unified_security_manager.py",
+        "advanced_data_security.py",
+        "data_security_infrastructure.py"
+      ],
+      "files_to_keep": []
+    },
+
+    "logging_managers": {
+      "description": "Multiple logging implementations",
+      "files": [
+        "logging_manager.py",
+        "integrated_logging_manager.py",
+        "efficient_log_manager.py",
+        "integrated_logging.py",
+        "advanced_logging.py"
+      ],
+      "recommendation": "Keep logging_manager.py (used by 3 files), delete others",
+      "files_to_delete": [
+        "integrated_logging_manager.py",
+        "efficient_log_manager.py",
+        "integrated_logging.py",
+        "advanced_logging.py"
+      ],
+      "files_to_keep": ["logging_manager.py"]
+    },
+
+    "backup_managers": {
+      "description": "Duplicate backup implementations - all unused",
+      "files": [
+        "backup_manager.py",
+        "efficient_backup_manager.py",
+        "backup_recovery_system.py",
+        "enhanced_backup_recovery.py",
+        "integrated_backup.py"
+      ],
+      "recommendation": "Delete all - none are used by main.py",
+      "files_to_delete": [
+        "backup_manager.py",
+        "efficient_backup_manager.py",
+        "backup_recovery_system.py",
+        "enhanced_backup_recovery.py",
+        "integrated_backup.py"
+      ],
+      "files_to_keep": []
+    },
+
+    "database_managers": {
+      "description": "Duplicate database implementations - all unused",
+      "files": [
+        "database_manager.py",
+        "efficient_database_manager.py",
+        "database_integration.py"
+      ],
+      "recommendation": "Delete all - none are used by main.py",
+      "files_to_delete": [
+        "database_manager.py",
+        "efficient_database_manager.py",
+        "database_integration.py"
+      ],
+      "files_to_keep": []
+    },
+
+    "error_handlers": {
+      "description": "Multiple error handling implementations - all unused",
+      "files": [
+        "error_handler.py",
+        "efficient_error_handler.py",
+        "error_recovery_system.py",
+        "enhanced_error_handling.py"
+      ],
+      "recommendation": "Delete all - none are used by main.py",
+      "files_to_delete": [
+        "error_handler.py",
+        "efficient_error_handler.py",
+        "error_recovery_system.py",
+        "enhanced_error_handling.py"
+      ],
+      "files_to_keep": []
+    }
+  },
+
+  "standalone_unused": [
+    "advanced_ai_manager.py",
+    "avatar_loader.py",
+    "avatar_metadata_extractor.py",
+    "avatar_mover.py",
+    "avatar_preset_linker.py",
+    "backup_cloud_sync.py",
+    "business_manager.py",
+    "cache_manager.py",
+    "custom_parameter_loader.py",
+    "enterprise_manager.py",
+    "export_manager.py",
+    "health_monitoring_dashboard.py",
+    "i18n_manager.py",
+    "input_validator.py",
+    "maintainability_manager.py",
+    "operational_manager.py",
+    "parameters_extension.py",
+    "performance_benchmarking.py",
+    "performance_manager.py",
+    "performance_optimizer.py",
+    "performance_profiler.py",
+    "performance_tester.py",
+    "plugins_loader.py",
+    "practical_ai_manager.py",
+    "practical_enterprise_manager.py",
+    "practical_system.py",
+    "preset_cache.py",
+    "preset_csv_export_import.py",
+    "preset_dependency_analyzer.py",
+    "preset_dependency_graph.py",
+    "preset_history_backup.py",
+    "preset_version_manager.py",
+    "rate_limiter.py",
+    "real_world_manager.py",
+    "sample_plugin.py",
+    "security_audit_automation.py",
+    "security_scanner.py",
+    "security_demo.py",
+    "testing_suite.py",
+    "undo_redo_manager.py",
+    "usability_testing_framework.py",
+    "utils_batch.py",
+    "utils_profile.py",
+    "ux_manager.py",
+    "watch_presets.py",
+    "web_admin.py",
+    "web_admin_improved.py",
+    "enhanced_ui_manager.py"
+  ],
+
+  "consolidation_strategy": {
+    "phase_1_immediate_deletion": {
+      "description": "91 files safe to delete immediately (82.7% of codebase)",
+      "categories": {
+        "standalone_unused": {
+          "count": 46,
+          "files": [
+            "advanced_ai_manager.py",
+            "avatar_loader.py",
+            "avatar_metadata_extractor.py",
+            "avatar_mover.py",
+            "avatar_preset_linker.py",
+            "backup_cloud_sync.py",
+            "business_manager.py",
+            "cache_manager.py",
+            "custom_parameter_loader.py",
+            "enterprise_manager.py",
+            "export_manager.py",
+            "health_monitoring_dashboard.py",
+            "i18n_manager.py",
+            "input_validator.py",
+            "maintainability_manager.py",
+            "operational_manager.py",
+            "parameters_extension.py",
+            "performance_benchmarking.py",
+            "performance_manager.py",
+            "performance_optimizer.py",
+            "performance_profiler.py",
+            "performance_tester.py",
+            "plugins_loader.py",
+            "practical_ai_manager.py",
+            "practical_enterprise_manager.py",
+            "practical_system.py",
+            "preset_cache.py",
+            "preset_csv_export_import.py",
+            "preset_dependency_analyzer.py",
+            "preset_dependency_graph.py",
+            "preset_history_backup.py",
+            "preset_version_manager.py",
+            "rate_limiter.py",
+            "real_world_manager.py",
+            "sample_plugin.py",
+            "security_audit_automation.py",
+            "security_scanner.py",
+            "security_demo.py",
+            "testing_suite.py",
+            "undo_redo_manager.py",
+            "usability_testing_framework.py",
+            "utils_batch.py",
+            "utils_profile.py",
+            "ux_manager.py",
+            "watch_presets.py",
+            "web_admin.py",
+            "web_admin_improved.py"
+          ]
+        },
+        "duplicate_cocoa_systems": {
+          "count": 7,
+          "files": [
+            "cocoa_core.py",
+            "cocoa_fast_core.py",
+            "cocoa_application.py",
+            "clean_cocoa_architecture.py",
+            "simple_cocoa_system.py",
+            "master_cocoa_system.py",
+            "integrated_cocoa_core.py"
+          ]
+        },
+        "duplicate_security": {
+          "count": 7,
+          "files": [
+            "security_manager.py",
+            "enhanced_security_manager.py",
+            "master_security_manager.py",
+            "unified_security_manager.py",
+            "advanced_data_security.py",
+            "data_security_infrastructure.py",
+            "enhanced_ui_manager.py"
+          ]
+        },
+        "duplicate_backup": {
+          "count": 5,
+          "files": [
+            "backup_manager.py",
+            "efficient_backup_manager.py",
+            "backup_recovery_system.py",
+            "enhanced_backup_recovery.py",
+            "integrated_backup.py"
+          ]
+        },
+        "duplicate_logging": {
+          "count": 4,
+          "files": [
+            "integrated_logging_manager.py",
+            "efficient_log_manager.py",
+            "integrated_logging.py",
+            "advanced_logging.py"
+          ]
+        },
+        "duplicate_database": {
+          "count": 3,
+          "files": [
+            "database_manager.py",
+            "efficient_database_manager.py",
+            "database_integration.py"
+          ]
+        },
+        "duplicate_error_handlers": {
+          "count": 4,
+          "files": [
+            "error_handler.py",
+            "efficient_error_handler.py",
+            "error_recovery_system.py",
+            "enhanced_error_handling.py"
+          ]
+        },
+        "duplicate_preset_diff": {
+          "count": 4,
+          "files": [
+            "preset_diff.py",
+            "preset_diff_fixed.py",
+            "avatar_preset_diff.py",
+            "preset_diff_reporter.py"
+          ]
+        },
+        "duplicate_performance": {
+          "count": 1,
+          "files": [
+            "performance_monitor_backup.py"
+          ]
+        },
+        "unused_efficient_managers": {
+          "count": 6,
+          "files": [
+            "efficient_plugin_manager.py",
+            "efficient_validation_manager.py",
+            "efficient_performance_manager.py",
+            "efficient_error_handler.py",
+            "efficient_database_manager.py",
+            "efficient_usability_manager.py"
+          ]
+        }
+      }
+    },
+
+    "phase_2_review_potentially_useful": {
+      "description": "16 files to review - may be useful for future features",
+      "files": {
+        "parameter_editing": [
+          "avatar_parameters.py",
+          "avatar_parameter_sets.py",
+          "avatar_parameter_editor.py",
+          "parameters.py",
+          "joint_range_report.py",
+          "parameter_optimizer.py"
+        ],
+        "preset_history": [
+          "preset_change_history.py",
+          "preset_history_alert.py",
+          "preset_history_dashboard.py",
+          "preset_history_diff_and_rollback.py"
+        ],
+        "validation_notification": [
+          "validate_and_repair_presets.py",
+          "parameters_batch_validator.py",
+          "notification_system.py",
+          "preset_manager.py",
+          "performance_analyzer.py"
+        ],
+        "internationalization": [
+          "i18n.py"
+        ],
+        "logging": [
+          "logging_manager.py"
+        ],
+        "preset_diff": [
+          "preset_diff_core.py"
+        ],
+        "performance": [
+          "performance_monitor.py"
+        ]
+      }
+    },
+
+    "phase_3_final_minimal_set": {
+      "description": "Final minimal set if deleting all unused files",
+      "files": [
+        "main.py",
+        "avatar_preset_linker_gui.py",
+        "config_validator.py"
+      ]
+    }
+  },
+
+  "recommendations": [
+    "IMMEDIATE ACTION: Delete 91 files (82.7% of codebase) that are completely unused",
+    "REVIEW: Evaluate 16 potentially useful files based on planned features",
+    "MINIMAL MVP: If shipping immediately, keep only 3 core files",
+    "EXTENDED MVP: If planning features, keep 19 files (core + potentially useful)",
+    "BACKUP: Commit current state before deletion for recovery if needed",
+    "TESTING: After deletion, verify main.py and avatar_preset_linker_gui.py still work"
+  ],
+
+  "file_counts": {
+    "total": 110,
+    "actively_used": 3,
+    "safe_to_delete": 91,
+    "potentially_useful": 16,
+    "reduction_if_minimal": "97.3%",
+    "reduction_if_extended": "82.7%"
+  }
+}

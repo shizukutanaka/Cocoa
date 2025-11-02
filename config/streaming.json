@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "target": "obs",
+  "connection": {
+    "host": "127.0.0.1",
+    "port": 4455,
+    "password": "",
+    "use_ssl": false,
+    "reconnect_attempts": 5,
+    "reconnect_interval": 3.0
+  },
+  "options": {
+    "auto_reconnect": true,
+    "heartbeat_interval": 5,
+    "request_timeout": 10.0
+  }
+}

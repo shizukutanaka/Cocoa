@@ -2,8 +2,7 @@ import psutil
 import time
 from typing import Dict, Any
 from datetime import datetime
-from .error_handling import PerformanceError
-from .logging_manager import Logger
+from logging_manager import Logger
 
 class PerformanceAnalyzer:
     """Analyze system and application performance"""

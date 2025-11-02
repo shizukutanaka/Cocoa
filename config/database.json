@@ -1,0 +1,70 @@
+{
+  "database": {
+    "default": {
+      "db_type": "sqlite",
+      "database": "data/cocoa.db",
+      "pool_size": 10,
+      "max_overflow": 20,
+      "pool_timeout": 30,
+      "retry_attempts": 3,
+      "retry_delay": 1.0,
+      "enable_encryption": true,
+      "enable_compression": true,
+      "backup_interval": 3600,
+      "audit_enabled": true
+    },
+    "postgresql": {
+      "db_type": "postgresql",
+      "host": "localhost",
+      "port": 5432,
+      "database": "cocoa",
+      "username": "",
+      "password": "",
+      "pool_size": 20,
+      "max_overflow": 30,
+      "pool_timeout": 30,
+      "retry_attempts": 3,
+      "retry_delay": 1.0,
+      "enable_encryption": true,
+      "enable_compression": true,
+      "backup_interval": 1800,
+      "audit_enabled": true
+    },
+    "mysql": {
+      "db_type": "mysql",
+      "host": "localhost",
+      "port": 3306,
+      "database": "cocoa",
+      "username": "",
+      "password": "",
+      "pool_size": 15,
+      "max_overflow": 25,
+      "pool_timeout": 30,
+      "retry_attempts": 3,
+      "retry_delay": 1.0,
+      "enable_encryption": true,
+      "enable_compression": true,
+      "backup_interval": 3600,
+      "audit_enabled": true
+    }
+  },
+  "migration": {
+    "auto_migrate": true,
+    "backup_before_migration": true,
+    "migration_timeout": 300
+  },
+  "performance": {
+    "query_timeout": 30,
+    "slow_query_threshold": 1.0,
+    "log_slow_queries": true,
+    "enable_query_cache": true,
+    "cache_size": 100
+  },
+  "security": {
+    "encrypt_sensitive_data": true,
+    "audit_all_operations": true,
+    "log_failed_connections": true,
+    "max_connection_attempts": 5,
+    "connection_timeout": 30
+  }
+}

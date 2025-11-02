@@ -1,209 +1,446 @@
 """
-キャッシュ管理システム
-バージョン: 1.0.0
-特徴:
-- アバターデータキャッシュ
-- プレセットキャッシュ
-- キャッシュの自動クリーンアップ
-- キャッシュヒット率の監視
-- キャッシュの永続化
+軽量キャッシュシステム
+パフォーマンス向上のための効率的なキャッシュ機能を提供
 """
-import os
-import json
-import logging
-import threading
+
+import asyncio
 import time
-from functools import lru_cache
+import json
+import hashlib
+from typing import Any, Dict, Optional, Callable, Awaitable
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
-from datetime import datetime, timedelta
-from config_manager import get_config_manager
+import threading
+import logging
 
 logger = logging.getLogger(__name__)
 
-class CacheManager:
-    """キャッシュ管理クラス"""
-    def __init__(self):
-        """初期化"""
-        self.config = get_config_manager()
-        self.settings = self.config.get_plugin_config("cache_manager")
-        
-        if self.settings:
-            self.memory_cache_size = self.settings.get("memory_cache_size", 1024)  # メモリキャッシュサイズ（MB）
-            self.disk_cache_size = self.settings.get("disk_cache_size", 1024)  # ディスクキャッシュサイズ（MB）
-            self.cache_ttl = self.settings.get("cache_ttl", 3600)  # キャッシュ有効時間（秒）
-            self.cleanup_interval = self.settings.get("cleanup_interval", 3600)  # クリーンアップ間隔（秒）
-            
-            # キャッシュディレクトリの初期化
-            self.cache_dir = Path(self.config.config_path).parent / "cache"
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-            
-            # アバターデータキャッシュの初期化
-            self.avatar_cache = {}
-            self.avatar_cache_size_bytes = self.memory_cache_size * 1024 * 1024
-            
-            # プレセットキャッシュの初期化
-            self.preset_cache = {}
-            self.preset_cache_size_bytes = self.memory_cache_size * 1024 * 1024
-            
-            # キャッシュクリーンアップスレッドの開始
-            self.cleanup_thread = threading.Thread(target=self._cleanup_cache)
-            self.cleanup_thread.daemon = True
-            self.cleanup_thread.start()
-            
-            # キャッシュ統計の初期化
-            self.cache_hits = 0
-            self.cache_misses = 0
-            self.last_stats_update = datetime.now()
-            
-    def cache_avatar(self, func: Callable) -> Callable:
-        """アバターデータキャッシュデコレータ"""
-        @lru_cache(maxsize=self.memory_cache_size)
-        def wrapper(*args, **kwargs):
-            # メモリキャッシュのチェック
-            key = self._generate_cache_key(func.__name__, args, kwargs)
-            if key in self.avatar_cache:
-                value, timestamp = self.avatar_cache[key]
-                if datetime.now() - timestamp < timedelta(seconds=self.cache_ttl):
-                    self.cache_hits += 1
-                    return value
-                
-            # 関数の実行
-            result = func(*args, **kwargs)
-            
-            # メモリキャッシュの更新
-            self.avatar_cache[key] = (result, datetime.now())
-            
-            # ディスクキャッシュの更新
-            self._update_disk_cache(key, result, "avatar")
-            
-            self.cache_misses += 1
-            return result
-        
-        return wrapper
-    
-    def cache_preset(self, func: Callable) -> Callable:
-        """プレセットキャッシュデコレータ"""
-        @lru_cache(maxsize=self.memory_cache_size)
-        def wrapper(*args, **kwargs):
-            # メモリキャッシュのチェック
-            key = self._generate_cache_key(func.__name__, args, kwargs)
-            if key in self.preset_cache:
-                value, timestamp = self.preset_cache[key]
-                if datetime.now() - timestamp < timedelta(seconds=self.cache_ttl):
-                    self.cache_hits += 1
-                    return value
-                
-            # 関数の実行
-            result = func(*args, **kwargs)
-            
-            # メモリキャッシュの更新
-            self.preset_cache[key] = (result, datetime.now())
-            
-            # ディスクキャッシュの更新
-            self._update_disk_cache(key, result, "preset")
-            
-            self.cache_misses += 1
-            return result
-        
-        return wrapper
-    
-    def _generate_cache_key(self, func_name: str, args: Tuple, kwargs: Dict) -> str:
-        """キャッシュキーの生成"""
-        return f"{func_name}_{hash(args)}_{hash(tuple(sorted(kwargs.items())))}"
-    
-    def _update_disk_cache(self, key: str, value: Any, cache_type: str) -> None:
-        """ディスクキャッシュの更新"""
+
+class MemoryCache:
+    """軽量なメモリキャッシュ"""
+
+    def __init__(self, max_size: int = 1000, ttl_seconds: int = 300):
+        """キャッシュを初期化"""
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+        self.cache: Dict[str, Dict[str, Any]] = {}
+        self.access_order = []  # LRU実装のためのアクセス順序
+        self.lock = threading.RLock()
+
+    def _get_cache_key(self, func: Callable, args: tuple, kwargs: dict) -> str:
+        """キャッシュキーを生成"""
+        # 関数名と引数を基にハッシュを生成
+        key_data = f"{func.__name__}:{args}:{frozenset(kwargs.items())}"
+        return hashlib.md5(key_data.encode()).hexdigest()
+
+    def get(self, key: str) -> Any:
+        """キャッシュから値を取得"""
+        with self.lock:
+            if key not in self.cache:
+                return None
+
+            entry = self.cache[key]
+
+            # TTLチェック
+            if time.time() - entry['timestamp'] > self.ttl_seconds:
+                del self.cache[key]
+                if key in self.access_order:
+                    self.access_order.remove(key)
+                return None
+
+            # アクセス順序を更新
+            if key in self.access_order:
+                self.access_order.remove(key)
+            self.access_order.append(key)
+
+            return entry['value']
+
+    def set(self, key: str, value: Any) -> None:
+        """キャッシュに値を設定"""
+        with self.lock:
+            now = time.time()
+
+            # 最大サイズを超える場合は古いエントリを削除
+            if len(self.cache) >= self.max_size and key not in self.cache:
+                oldest_key = self.access_order.pop(0)
+                del self.cache[oldest_key]
+
+            # キャッシュに保存
+            self.cache[key] = {
+                'value': value,
+                'timestamp': now
+            }
+
+            # アクセス順序を更新
+            if key in self.access_order:
+                self.access_order.remove(key)
+            self.access_order.append(key)
+
+    def clear(self) -> None:
+        """キャッシュをクリア"""
+        with self.lock:
+            self.cache.clear()
+            self.access_order.clear()
+
+    def stats(self) -> Dict[str, Any]:
+        """キャッシュ統計情報を取得"""
+        with self.lock:
+            return {
+                'size': len(self.cache),
+                'max_size': self.max_size,
+                'ttl_seconds': self.ttl_seconds,
+                'hit_ratio': self._calculate_hit_ratio()
+            }
+
+    def _calculate_hit_ratio(self) -> float:
+        """ヒット率を計算（簡易実装）"""
+        # 実際の実装ではアクセスカウンターが必要
+        return 0.0
+
+
+class FileCache:
+    """軽量なファイルベースキャッシュ"""
+
+    def __init__(self, cache_dir: str = "cache", ttl_seconds: int = 3600):
+        """ファイルキャッシュを初期化"""
+        self.cache_dir = Path(cache_dir)
+        self.ttl_seconds = ttl_seconds
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def _get_cache_path(self, key: str) -> Path:
+        """キャッシュファイルのパスを取得"""
+        # キーのハッシュをファイル名に使用
+        key_hash = hashlib.md5(key.encode()).hexdigest()
+        return self.cache_dir / f"{key_hash}.cache"
+
+    def get(self, key: str) -> Any:
+        """キャッシュから値を取得"""
+        cache_path = self._get_cache_path(key)
+
+        if not cache_path.exists():
+            return None
+
         try:
-            cache_file = self.cache_dir / f"{cache_type}_{key}.json"
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                json.dump({
-                    "value": value,
-                    "timestamp": datetime.now().isoformat()
-                }, f)
+            # TTLチェック
+            if time.time() - cache_path.stat().st_mtime > self.ttl_seconds:
+                cache_path.unlink()
+                return None
+
+            # キャッシュファイルの読み込み
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+
+            return cache_data['value']
+
         except Exception as e:
-            logger.error(f"ディスクキャッシュの更新に失敗しました: {e}")
-    
-    def _cleanup_cache(self) -> None:
-        """キャッシュのクリーンアップ"""
-        while True:
+            logger.warning(f"キャッシュ読み込みエラー ({key}): {e}")
+            # エラー時はファイルを削除
             try:
-                # アバターキャッシュのクリーンアップ
-                self._cleanup_memory_cache(self.avatar_cache, "avatar")
-                
-                # プレセットキャッシュのクリーンアップ
-                self._cleanup_memory_cache(self.preset_cache, "preset")
-                
-                # ディスクキャッシュのクリーンアップ
-                self._cleanup_disk_cache()
-                
-                # キャッシュ統計の更新
-                self._update_cache_stats()
-                
-                time.sleep(self.cleanup_interval)
-            except Exception as e:
-                logger.error(f"キャッシュクリーンアップ中にエラーが発生しました: {e}")
-                time.sleep(self.cleanup_interval)
-    
-    def _cleanup_memory_cache(self, cache: Dict, cache_type: str) -> None:
-        """メモリキャッシュのクリーンアップ"""
-        current_size = sum(len(str(v[0])) for v in cache.values())
-        if current_size > self.memory_cache_size_bytes:
-            # キャッシュサイズの制限を超えた場合、古いキャッシュを削除
-            sorted_cache = sorted(
-                cache.items(),
-                key=lambda x: x[1][1],  # タイムスタンプでソート
-                reverse=True
-            )
-            for key, (value, timestamp) in sorted_cache:
-                if current_size <= self.memory_cache_size_bytes:
-                    break
-                del cache[key]
-                current_size -= len(str(value))
-    
-    def _cleanup_disk_cache(self) -> None:
-        """ディスクキャッシュのクリーンアップ"""
-        current_size = 0
-        cache_files = []
-        
-        # キャッシュファイルのリストとサイズの取得
-        for cache_file in self.cache_dir.glob("*.json"):
-            try:
-                current_size += cache_file.stat().st_size
-                cache_files.append(cache_file)
-            except Exception:
-                continue
-        
-        # キャッシュサイズの制限を超えた場合、古いキャッシュを削除
-        if current_size > self.disk_cache_size * 1024 * 1024:
-            cache_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-            for cache_file in cache_files:
-                if current_size <= self.disk_cache_size * 1024 * 1024:
-                    break
-                try:
+                cache_path.unlink()
+            except:
+                pass
+            return None
+
+    def set(self, key: str, value: Any) -> None:
+        """キャッシュに値を設定"""
+        cache_path = self._get_cache_path(key)
+
+        try:
+            # キャッシュデータを保存
+            cache_data = {
+                'key': key,
+                'value': value,
+                'timestamp': time.time()
+            }
+
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+
+        except Exception as e:
+            logger.error(f"キャッシュ書き込みエラー ({key}): {e}")
+
+    def clear(self) -> None:
+        """キャッシュをクリア"""
+        try:
+            for cache_file in self.cache_dir.glob("*.cache"):
+                cache_file.unlink()
+        except Exception as e:
+            logger.error(f"キャッシュクリアエラー: {e}")
+
+    def cleanup_expired(self) -> int:
+        """期限切れキャッシュを削除"""
+        cleaned_count = 0
+        try:
+            current_time = time.time()
+
+            for cache_file in self.cache_dir.glob("*.cache"):
+                if current_time - cache_file.stat().st_mtime > self.ttl_seconds:
                     cache_file.unlink()
-                    current_size -= cache_file.stat().st_size
-                except Exception:
-                    continue
-    
-    def _update_cache_stats(self) -> None:
-        """キャッシュ統計の更新"""
-        if datetime.now() - self.last_stats_update >= timedelta(seconds=300):
-            total = self.cache_hits + self.cache_misses
-            hit_rate = (self.cache_hits / total * 100) if total > 0 else 0
-            logger.info(f"キャッシュ統計: ヒット率 {hit_rate:.1f}%, ヒット {self.cache_hits}, ミス {self.cache_misses}")
-            self.last_stats_update = datetime.now()
-    
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """キャッシュ統計を取得"""
-        total = self.cache_hits + self.cache_misses
-        hit_rate = (self.cache_hits / total * 100) if total > 0 else 0
+                    cleaned_count += 1
+
+        except Exception as e:
+            logger.error(f"期限切れキャッシュ削除エラー: {e}")
+
+        return cleaned_count
+
+
+class CacheManager:
+    """統合キャッシュマネージャー"""
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """キャッシュマネージャーを初期化"""
+        config = config or {}
+
+        self.memory_cache = MemoryCache(
+            max_size=config.get('memory_cache_size', 1000),
+            ttl_seconds=config.get('memory_cache_ttl', 300)
+        )
+
+        self.file_cache = FileCache(
+            cache_dir=config.get('file_cache_dir', 'cache'),
+            ttl_seconds=config.get('file_cache_ttl', 3600)
+        )
+
+        # キャッシュ戦略設定
+        self.cache_strategy = config.get('cache_strategy', 'memory_first')  # memory_first, file_only, hybrid
+
+    def get(self, key: str) -> Any:
+        """キャッシュから値を取得"""
+        # メモリキャッシュから優先的に取得
+        value = self.memory_cache.get(key)
+        if value is not None:
+            return value
+
+        # ファイルキャッシュから取得
+        if self.cache_strategy in ['file_only', 'hybrid']:
+            value = self.file_cache.get(key)
+            if value is not None:
+                # メモリキャッシュにも保存（次回アクセス高速化）
+                self.memory_cache.set(key, value)
+                return value
+
+        return None
+
+    def set(self, key: str, value: Any, use_file_cache: bool = False) -> None:
+        """キャッシュに値を設定"""
+        # 常にメモリキャッシュに保存
+        self.memory_cache.set(key, value)
+
+        # ファイルキャッシュにも保存する場合
+        if use_file_cache or self.cache_strategy == 'file_only':
+            self.file_cache.set(key, value)
+
+    def invalidate(self, key: str) -> None:
+        """キャッシュからキーを削除"""
+        self.memory_cache.cache.pop(key, None)
+        if key in self.memory_cache.access_order:
+            self.memory_cache.access_order.remove(key)
+
+        cache_path = self.file_cache._get_cache_path(key)
+        if cache_path.exists():
+            try:
+                cache_path.unlink()
+            except:
+                pass
+
+    def clear_all(self) -> None:
+        """全てのキャッシュをクリア"""
+        self.memory_cache.clear()
+        self.file_cache.clear()
+
+    def get_stats(self) -> Dict[str, Any]:
+        """キャッシュ統計情報を取得"""
         return {
-            "hit_rate": hit_rate,
-            "hits": self.cache_hits,
-            "misses": self.cache_misses,
-            "total": total,
-            "memory_size": self.memory_cache_size,
-            "disk_size": self.disk_cache_size,
-            "cache_ttl": self.cache_ttl
+            'memory_cache': self.memory_cache.stats(),
+            'file_cache': {
+                'cache_dir': str(self.file_cache.cache_dir),
+                'ttl_seconds': self.file_cache.ttl_seconds,
+                'file_count': len(list(self.file_cache.cache_dir.glob("*.cache")))
+            },
+            'strategy': self.cache_strategy
         }
+
+
+# グローバルキャッシュインスタンス
+_cache_manager: Optional[CacheManager] = None
+
+def get_cache_manager() -> CacheManager:
+    """キャッシュマネージャーを取得"""
+    global _cache_manager
+    if _cache_manager is None:
+        _cache_manager = CacheManager()
+    return _cache_manager
+
+
+def cached(ttl_seconds: int = 300, use_file_cache: bool = False):
+    """キャッシュデコレーター"""
+    def decorator(func: Callable) -> Callable:
+        def wrapper(*args, **kwargs):
+            cache_manager = get_cache_manager()
+            cache_key = cache_manager.memory_cache._get_cache_key(func, args, kwargs)
+
+            # キャッシュから取得を試みる
+            cached_result = cache_manager.get(cache_key)
+            if cached_result is not None:
+                return cached_result
+
+            # 関数を実行して結果をキャッシュに保存
+            result = func(*args, **kwargs)
+            cache_manager.set(cache_key, result, use_file_cache)
+            return result
+
+        return wrapper
+    return decorator
+
+
+def clear_cache():
+    """キャッシュをクリア"""
+    cache_manager = get_cache_manager()
+    cache_manager.clear_all()
+
+
+def cache_stats() -> Dict[str, Any]:
+    """キャッシュ統計情報を取得"""
+    cache_manager = get_cache_manager()
+    return cache_manager.get_stats()
+
+
+# 非同期キャッシュ機能の追加
+class AsyncMemoryCache:
+    """非同期対応のメモリキャッシュ"""
+
+    def __init__(self, max_size: int = 1000, ttl_seconds: int = 300):
+        """キャッシュを初期化"""
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+        self.cache: Dict[str, Dict[str, Any]] = {}
+        self.access_order = []  # LRU実装のためのアクセス順序
+        self.lock = asyncio.Lock()
+
+    async def _get_cache_key(self, func: Callable, args: tuple, kwargs: dict) -> str:
+        """キャッシュキーを生成"""
+        # 関数名と引数を基にハッシュを生成
+        key_data = f"{func.__name__}:{args}:{frozenset(kwargs.items())}"
+        return hashlib.md5(key_data.encode()).hexdigest()
+
+    async def get(self, key: str) -> Any:
+        """キャッシュから値を取得"""
+        async with self.lock:
+            if key not in self.cache:
+                return None
+
+            entry = self.cache[key]
+
+            # TTLチェック
+            if time.time() - entry['timestamp'] > self.ttl_seconds:
+                del self.cache[key]
+                if key in self.access_order:
+                    self.access_order.remove(key)
+                return None
+
+            # アクセス順序を更新
+            if key in self.access_order:
+                self.access_order.remove(key)
+            self.access_order.append(key)
+
+            return entry['value']
+
+    async def set(self, key: str, value: Any) -> None:
+        """キャッシュに値を設定"""
+        async with self.lock:
+            now = time.time()
+
+            # 最大サイズを超える場合は古いエントリを削除
+            if len(self.cache) >= self.max_size and key not in self.cache:
+                oldest_key = self.access_order.pop(0)
+                del self.cache[oldest_key]
+
+            # キャッシュに保存
+            self.cache[key] = {
+                'value': value,
+                'timestamp': now
+            }
+
+            # アクセス順序を更新
+            if key in self.access_order:
+                self.access_order.remove(key)
+            self.access_order.append(key)
+
+    async def clear(self) -> None:
+        """キャッシュをクリア"""
+        async with self.lock:
+            self.cache.clear()
+            self.access_order.clear()
+
+
+class AsyncCacheManager:
+    """非同期対応のキャッシュマネージャー"""
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """キャッシュマネージャーを初期化"""
+        config = config or {}
+
+        self.memory_cache = AsyncMemoryCache(
+            max_size=config.get('memory_cache_size', 1000),
+            ttl_seconds=config.get('memory_cache_ttl', 300)
+        )
+
+        self.file_cache = FileCache(
+            cache_dir=config.get('file_cache_dir', 'cache'),
+            ttl_seconds=config.get('file_cache_ttl', 3600)
+        )
+
+        # キャッシュ戦略設定
+        self.cache_strategy = config.get('cache_strategy', 'memory_first')
+
+    async def get(self, key: str) -> Any:
+        """キャッシュから値を取得"""
+        # メモリキャッシュから優先的に取得
+        value = await self.memory_cache.get(key)
+        if value is not None:
+            return value
+
+        # ファイルキャッシュから取得
+        if self.cache_strategy in ['file_only', 'hybrid']:
+            value = self.file_cache.get(key)
+            if value is not None:
+                # メモリキャッシュにも保存（次回アクセス高速化）
+                await self.memory_cache.set(key, value)
+                return value
+
+        return None
+
+    async def set(self, key: str, value: Any, use_file_cache: bool = False) -> None:
+        """キャッシュに値を設定"""
+        # 常にメモリキャッシュに保存
+        await self.memory_cache.set(key, value)
+
+        # ファイルキャッシュにも保存する場合
+        if use_file_cache or self.cache_strategy == 'file_only':
+            self.file_cache.set(key, value)
+
+
+async def async_cached(ttl_seconds: int = 300, use_file_cache: bool = False):
+    """非同期キャッシュデコレーター"""
+    def decorator(func: Callable) -> Callable:
+        async def wrapper(*args, **kwargs):
+            # 同期関数を非同期関数として扱うための処理
+            if asyncio.iscoroutinefunction(func):
+                # 非同期関数の場合
+                cache_manager = get_cache_manager()
+                cache_key = await cache_manager.memory_cache._get_cache_key(func, args, kwargs)
+
+                # キャッシュから取得を試みる
+                cached_result = await cache_manager.get(cache_key)
+                if cached_result is not None:
+                    return cached_result
+
+                # 関数を実行して結果をキャッシュに保存
+                result = await func(*args, **kwargs)
+                await cache_manager.set(cache_key, result, use_file_cache)
+                return result
+            else:
+                # 同期関数の場合、通常のキャッシュ機能を使用
+                return cached(ttl_seconds, use_file_cache)(func)(*args, **kwargs)
+
+        return wrapper
+    return decorator

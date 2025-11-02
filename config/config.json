@@ -1,3 +1,170 @@
 {
-  "example_setting": "value"
+  "app_name": "Otedama Launcher",
+  "version": "1.0.0",
+  "language": "ja",
+  "debug": false,
+  "log_level": "INFO",
+  "backup": {
+    "enabled": true,
+    "interval_minutes": 60,
+    "max_backups": 10,
+    "backup_path": "backups/"
+  },
+  "performance_monitoring": {
+    "enabled": true,
+    "interval_seconds": 5,
+    "alert_thresholds": {
+      "cpu_percent": 80,
+      "memory_percent": 85,
+      "disk_usage_percent": 90,
+      "response_time_ms": 750
+    }
+  },
+  "plugins": {
+    "enabled": [],
+    "config_path": "config/plugins/"
+  },
+  "avatar": {
+    "default_path": "avatars/",
+    "max_parameters": 100000,
+    "auto_save": true
+  },
+  "web_admin": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8080,
+    "debug": false,
+    "ssl": {
+      "enabled": false,
+      "cert_path": null,
+      "key_path": null
+    },
+    "session": {
+      "timeout_minutes": 30,
+      "max_sessions": 100
+    }
+  },
+  "security": {
+    "password_min_length": 12,
+    "password_require_special": true,
+    "password_require_numbers": true,
+    "password_require_lowercase": true,
+    "password_require_uppercase": true,
+    "max_login_attempts": 5,
+    "lockout_duration_minutes": 15,
+    "enable_2fa": true,
+    "enable_audit_log": true,
+    "allowed_ips": [
+      "192.168.0.0/24"
+    ],
+    "blocked_ips": []
+  },
+  "database": {
+    "enabled": true,
+    "type": "sqlite",
+    "connection_string": "data/cocoa.db",
+    "pool_size": 10,
+    "max_overflow": 20,
+    "pool_timeout": 30,
+    "retry_attempts": 3,
+    "retry_delay": 1.0,
+    "enable_encryption": true,
+    "enable_compression": true,
+    "backup_enabled": true,
+    "backup_interval": 3600,
+    "audit_enabled": true,
+    "query_timeout": 30,
+    "slow_query_threshold": 1.0,
+    "log_slow_queries": true,
+    "enable_query_cache": true,
+    "cache_size": 100,
+    "encrypt_sensitive_data": true,
+    "audit_all_operations": true,
+    "log_failed_connections": true,
+    "max_connection_attempts": 5,
+    "connection_timeout": 30,
+    "migration": {
+      "auto_migrate": true,
+      "backup_before_migration": true,
+      "migration_timeout": 300
+    }
+  },
+  "notification": {
+    "enabled": false,
+    "email": {
+      "smtp_server": null,
+      "smtp_port": null,
+      "from_address": null,
+      "to_addresses": []
+    },
+    "webhook": {
+      "url": null,
+      "method": null
+    }
+  },
+  "rate_limiting": {
+    "enabled": true,
+    "requests_per_minute": 60,
+    "requests_per_hour": 3600,
+    "requests_per_day": 86400,
+    "burst_limit": 10,
+    "window_size": 60,
+    "strategy": "fixed_window",
+    "exempt_ips": [
+      "127.0.0.1",
+      "192.168.0.0/24"
+    ],
+    "exempt_user_agents": [
+      "health-check",
+      "monitoring-bot"
+    ],
+    "endpoints": {
+      "/api/login": {
+        "requests_per_minute": 5,
+        "requests_per_hour": 20,
+        "burst_limit": 2
+      },
+      "/api/avatar/upload": {
+        "requests_per_minute": 10,
+        "requests_per_hour": 100,
+        "burst_limit": 5
+      },
+      "/api/admin": {
+        "requests_per_minute": 30,
+        "requests_per_hour": 200,
+        "burst_limit": 10,
+        "require_authentication": true
+      }
+    },
+    "headers": {
+      "retry_after": true,
+      "rate_limit_remaining": true,
+      "rate_limit_reset": true
+    }
+  },
+  "billing": {
+    "enabled": true,
+    "mode": "subscription",
+    "currency": "jpy",
+    "default_price_tier": "enterprise",
+    "trial_period_days": 14,
+    "tiers": {
+      "professional": {
+        "price_id": "price_PROFESSIONAL_TIER",
+        "description": "Professional governance tier"
+      },
+      "enterprise": {
+        "price_id": "price_ENTERPRISE_TIER",
+        "description": "Enterprise governance tier"
+      }
+    },
+    "webhook": {
+      "enabled": true,
+      "endpoint_secret_env": "STRIPE_WEBHOOK_SECRET"
+    },
+    "checkout": {
+      "success_url": "https://localhost/billing/success",
+      "cancel_url": "https://localhost/billing/cancel"
+    }
+  }
 }

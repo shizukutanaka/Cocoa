@@ -1,270 +1,352 @@
 """
 ログ管理システム
-バージョン: 1.0.0
-特徴:
-- アバター処理ログ
-- プレセット処理ログ
-- パフォーマンスログ
-- ログレベル管理
-- ログファイル圧縮
-- ログ検索機能
+軽量で実用的なログ管理機能を提供
 """
-import os
 import logging
 import logging.handlers
-import gzip
-import shutil
 import json
+import os
 from datetime import datetime
-from typing import List, Dict, Optional
 from pathlib import Path
-from config_manager import get_config_manager
+from typing import Any, Dict, List, Optional
+
+# 暗号化機能の追加
+try:
+    from cryptography.fernet import Fernet
+    CRYPTOGRAPHY_AVAILABLE = True
+except ImportError:
+    CRYPTOGRAPHY_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
+
+class EncryptedFileHandler(logging.handlers.RotatingFileHandler):
+    """暗号化されたログファイルハンドラー"""
+
+    def __init__(self, filename, encryption_key=None, maxBytes=0, backupCount=0, encoding=None, delay=False):
+        self.encryption_key = encryption_key or os.environ.get('COCOA_LOG_ENCRYPTION_KEY')
+        if not self.encryption_key and CRYPTOGRAPHY_AVAILABLE:
+            logger.warning("ログ暗号化キーが設定されていません")
+            self.fernet = None
+        elif CRYPTOGRAPHY_AVAILABLE:
+            self.fernet = Fernet(encryption_key.encode() if isinstance(encryption_key, str) else encryption_key)
+        else:
+            logger.warning("cryptographyライブラリが利用できないため、暗号化を無効化します")
+            self.fernet = None
+
+        super().__init__(filename, maxBytes, backupCount, encoding, delay)
+
+    def emit(self, record):
+        if self.fernet:
+            try:
+                # ログメッセージを暗号化
+                message = self.format(record)
+                encrypted_message = self.fernet.encrypt(message.encode('utf-8'))
+                # 暗号化されたメッセージをファイルに書き込み
+                self.stream.write(encrypted_message.decode('latin1') + '\n')
+                self.stream.write('---ENCRYPTED---\n')  # マーカー
+            except Exception:
+                # 暗号化失敗時は通常のログを記録
+                super().emit(record)
+        else:
+            super().emit(record)
+
+    def read_encrypted_logs(self, limit=100):
+        """暗号化されたログを復号して読み込み"""
+        if not self.fernet:
+            return []
+
+        logs = []
+        try:
+            with open(self.baseFilename, 'r', encoding='latin1') as f:
+                encrypted_lines = []
+                for line in f:
+                    if line.strip() == '---ENCRYPTED---':
+                        if encrypted_lines:
+                            try:
+                                encrypted_data = ''.join(encrypted_lines)
+                                decrypted_data = self.fernet.decrypt(encrypted_data.encode('latin1'))
+                                logs.append(json.loads(decrypted_data.decode('utf-8')))
+                            except Exception as e:
+                                logger.error(f"ログ復号エラー: {e}")
+                            encrypted_lines = []
+                    else:
+                        encrypted_lines.append(line)
+
+                    if len(logs) >= limit:
+                        break
+
+            return logs
+        except Exception as e:
+            logger.error(f"暗号化ログ読み込みエラー: {e}")
+            return []
+
+
+class JsonLogFormatter(logging.Formatter):
+    """1行1JSON形式でログを出力するフォーマッター。"""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: Dict[str, Any] = {
+            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+            "logger": record.name,
+            "level": record.levelname,
+            "message": record.getMessage(),
+        }
+
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+
+        if record.stack_info:
+            payload["stack_info"] = record.stack_info
+
+        extra = getattr(record, "extra_data", None)
+        if extra:
+            payload["extra"] = extra
+
+        return json.dumps(payload, ensure_ascii=False)
+
 class LoggingManager:
-    """ログ管理クラス"""
-    def __init__(self):
-        """初期化"""
-        self.config = get_config_manager()
-        self.settings = self.config.get_plugin_config("logging_manager")
-        
-        if self.settings:
-            self.log_dir = Path(self.config.config_path).parent / "logs"
+    """軽量で実用的なログ管理システム"""
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """ログ管理システムを初期化"""
+        self.config = config or {}
+        self.log_dir = Path(self.config.get("log_dir", "logs"))
+        self.log_level = self.config.get("log_level", "INFO")
+        self.max_bytes = self.config.get("max_bytes", 10 * 1024 * 1024)  # 10MB
+        self.backup_count = self.config.get("backup_count", 5)
+        self.enable_console = self.config.get("enable_console", True)
+        self.enable_encryption = self.config.get("enable_encryption", False)
+        self.encryption_key = self.config.get("encryption_key") or os.environ.get('COCOA_LOG_ENCRYPTION_KEY')
+
+        # ログディレクトリの作成
+        try:
             self.log_dir.mkdir(parents=True, exist_ok=True)
-            
-            self.log_levels = {
-                "debug": logging.DEBUG,
-                "info": logging.INFO,
-                "warning": logging.WARNING,
-                "error": logging.ERROR,
-                "critical": logging.CRITICAL
-            }
-            
-            self.current_level = self.settings.get("log_level", "info")
-            self.max_bytes = self.settings.get("max_bytes", 10485760)  # 10MB
-            self.backup_count = self.settings.get("backup_count", 10)
-            
-            # ログフォーマッターの設定
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            
-            # ローテーティングファイルハンドラーの設定
-            file_handler = logging.handlers.RotatingFileHandler(
-                self.log_dir / "cocoa.log",
-                maxBytes=self.max_bytes,
-                backupCount=self.backup_count,
-                encoding='utf-8'
-            )
-            file_handler.setFormatter(formatter)
-            
-            # コンソールハンドラーの設定
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(formatter)
-            
-            # ルートロガーの設定
+        except Exception as e:
+            logger.error(f"ログディレクトリの作成に失敗しました: {e}")
+
+        # ログレベルの設定
+        self.log_levels = {
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARNING": logging.WARNING,
+            "ERROR": logging.ERROR,
+            "CRITICAL": logging.CRITICAL
+        }
+
+        # ログ設定の初期化
+        self._setup_logging()
+
+    def _setup_logging(self) -> None:
+        """ログ設定を初期化"""
+        try:
+            # フォーマッターの設定 (JSON形式)
+            formatter = JsonLogFormatter()
+
+            # 既存ハンドラーを除去し、重複設定を防止
             root_logger = logging.getLogger()
-            root_logger.setLevel(self.log_levels[self.current_level])
+            for handler in list(root_logger.handlers):
+                root_logger.removeHandler(handler)
+                handler.close()
+
+            # ローテーティングファイルハンドラーの設定
+            log_file = self.log_dir / "otedama.log"
+            if self.enable_encryption and self.encryption_key:
+                file_handler = EncryptedFileHandler(
+                    str(log_file),
+                    encryption_key=self.encryption_key,
+                    maxBytes=self.max_bytes,
+                    backupCount=self.backup_count,
+                    encoding='utf-8'
+                )
+            else:
+                file_handler = logging.handlers.RotatingFileHandler(
+                    str(log_file),
+                    maxBytes=self.max_bytes,
+                    backupCount=self.backup_count,
+                    encoding='utf-8'
+                )
+            file_handler.setFormatter(formatter)
+
+            # ルートロガーの設定
+            root_logger.setLevel(self.log_levels.get(self.log_level, logging.INFO))
             root_logger.addHandler(file_handler)
-            root_logger.addHandler(console_handler)
-            
-            # ログファイル圧縮スレッドの開始
-            self.compression_thread = threading.Thread(target=self._compress_old_logs)
-            self.compression_thread.daemon = True
-            self.compression_thread.start()
-            
-            # アバター処理ログの設定
-            self.avatar_logger = logging.getLogger("avatar")
-            self.avatar_logger.setLevel(logging.INFO)
-            
-            # プレセット処理ログの設定
-            self.preset_logger = logging.getLogger("preset")
-            self.preset_logger.setLevel(logging.INFO)
-    
-    def set_log_level(self, level: str) -> None:
-        """ログレベルの設定"""
-        if level in self.log_levels:
-            self.current_level = level
+
+            if self.enable_console:
+                console_handler = logging.StreamHandler()
+                console_handler.setFormatter(formatter)
+                root_logger.addHandler(console_handler)
+
+            logger.info("ログシステムを初期化しました")
+        except Exception as e:
+            logger.error(f"ログシステムの初期化に失敗しました: {e}")
+
+    def set_log_level(self, level: str) -> bool:
+        """ログレベルを設定"""
+        try:
+            if level not in self.log_levels:
+                logger.warning(f"無効なログレベル: {level}")
+                return False
+
+            self.log_level = level
             root_logger = logging.getLogger()
             root_logger.setLevel(self.log_levels[level])
             logger.info(f"ログレベルを {level} に変更しました")
-    
-    def _compress_old_logs(self) -> None:
-        """古いログファイルの圧縮"""
-        while True:
-            try:
-                # .log.1 以降のファイルを検索
-                for file in sorted(self.log_dir.glob("*.log.*")):
-                    if not file.suffix.endswith(".gz"):
-                        # ファイルを圧縮
-                        with open(file, 'rb') as f_in:
-                            with gzip.open(f'{file}.gz', 'wb') as f_out:
-                                shutil.copyfileobj(f_in, f_out)
-                        # 元のファイルを削除
-                        file.unlink()
-                        logger.info(f"ログファイルを圧縮しました: {file}")
-                
-                # 30分間隔で実行
-                time.sleep(1800)
-            except Exception as e:
-                logger.error(f"ログファイルの圧縮中にエラーが発生しました: {e}")
-                time.sleep(1800)
-    
-    def log_avatar_processing(self, avatar_id: str, action: str, duration: float) -> None:
-        """
-        アバター処理のログ記録
-        
-        Args:
-            avatar_id: アバターID
-            action: 実行されたアクション
-            duration: 処理時間（秒）
-        """
-        self.avatar_logger.info(
-            f"Avatar {avatar_id} - {action} completed in {duration:.3f}s"
-        )
-    
-    def log_preset_processing(self, preset_id: str, action: str, duration: float) -> None:
-        """
-        プレセット処理のログ記録
-        
-        Args:
-            preset_id: プレセットID
-            action: 実行されたアクション
-            duration: 処理時間（秒）
-        """
-        self.preset_logger.info(
-            f"Preset {preset_id} - {action} completed in {duration:.3f}s"
-        )
-    
-    def search_logs(self, keyword: str, start_date: str = None, end_date: str = None) -> List[Dict]:
-        """
-        ログの検索
-        
-        Args:
-            keyword: 検索キーワード
-            start_date: 検索開始日時（YYYY-MM-DD HH:MM:SS）
-            end_date: 検索終了日時（YYYY-MM-DD HH:MM:SS）
-            
-        Returns:
-            List[Dict]: 検索結果のリスト
-        """
+            return True
+        except Exception as e:
+            logger.error(f"ログレベルの変更に失敗しました: {e}")
+            return False
+
+    def log_message(self, level: str, message: str, extra_data: Optional[Dict[str, Any]] = None) -> None:
+        """ログメッセージを記録"""
+        try:
+            level_name = level.upper()
+            if level_name not in self.log_levels:
+                logger.warning(f"無効なログレベル: {level}")
+                level_name = "INFO"
+
+            log_level = self.log_levels[level_name]
+            extra = {"extra_data": extra_data} if extra_data else None
+            logger.log(log_level, message, extra=extra)
+        except Exception as e:
+            logger.error(f"ログメッセージの記録に失敗しました: {e}")
+
+    def log_avatar_action(self, avatar_id: str, action: str, duration: float, success: bool = True) -> None:
+        """アバター処理のログを記録"""
+        try:
+            status = "成功" if success else "失敗"
+            message = f"アバター {avatar_id} - {action} ({status}) - 処理時間: {duration:.3f}秒"
+            extra_data = {
+                "avatar_id": avatar_id,
+                "action": action,
+                "duration": duration,
+                "success": success
+            }
+            self.log_message("INFO", message, extra_data)
+        except Exception as e:
+            logger.error(f"アバターログの記録に失敗しました: {e}")
+
+    def log_preset_action(self, preset_id: str, action: str, duration: float, success: bool = True) -> None:
+        """プリセット処理のログを記録"""
+        try:
+            status = "成功" if success else "失敗"
+            message = f"プリセット {preset_id} - {action} ({status}) - 処理時間: {duration:.3f}秒"
+            extra_data = {
+                "preset_id": preset_id,
+                "action": action,
+                "duration": duration,
+                "success": success
+            }
+            self.log_message("INFO", message, extra_data)
+        except Exception as e:
+            logger.error(f"プリセットログの記録に失敗しました: {e}")
+
+    def log_error(self, error: Exception, context: str = "") -> None:
+        """エラーログを記録"""
+        try:
+            error_message = f"{context}: {str(error)}" if context else str(error)
+            extra_data = {
+                "error_type": type(error).__name__,
+                "error_message": str(error),
+                "context": context
+            }
+            self.log_message("ERROR", error_message, extra_data)
+        except Exception as e:
+            logger.error(f"エラーログの記録に失敗しました: {e}")
+
+    def search_logs(self, keyword: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """ログを検索"""
         results = []
         try:
-            # 日付範囲の設定
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d %H:%M:%S") if start_date else None
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d %H:%M:%S") if end_date else None
-            
-            # ログファイルの検索
-            for file in sorted(self.log_dir.glob("*.log*")):
-                try:
-                    # 圧縮ファイルの場合は解凍して検索
-                    if file.suffix.endswith(".gz"):
-                        with gzip.open(file, 'rt', encoding='utf-8') as f:
-                            self._search_file(f, keyword, start_dt, end_dt, results)
-                    else:
-                        with open(file, 'rt', encoding='utf-8') as f:
-                            self._search_file(f, keyword, start_dt, end_dt, results)
-                except Exception as e:
-                    logger.error(f"ログファイルの検索中にエラーが発生しました: {e}")
-            
+            log_file = self.log_dir / "otedama.log"
+            if not log_file.exists():
+                logger.warning(f"ログファイルが存在しません: {log_file}")
+                return results
+
+            keyword_lower = keyword.lower()
+            with open(log_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    parsed = self._parse_log_line(line)
+                    haystack = json.dumps(parsed, ensure_ascii=False).lower()
+                    if keyword_lower in haystack:
+                        results.append(parsed)
+                        if len(results) >= limit:
+                            break
+
             return results
         except Exception as e:
             logger.error(f"ログ検索中にエラーが発生しました: {e}")
-            return []
-    
-    def _search_file(self, file_obj, keyword: str, start_dt: datetime, end_dt: datetime, results: List):
-        """ファイル内の検索実行"""
-        for line in file_obj:
-            try:
-                # 日時を抽出
-                timestamp = line.split(' - ')[0]
-                log_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-                
-                # 日付範囲のチェック
-                if (start_dt and log_dt < start_dt) or (end_dt and log_dt > end_dt):
-                    continue
-                
-                # キーワード検索
-                if keyword.lower() in line.lower():
-                    results.append({
-                        "timestamp": timestamp,
-                        "level": line.split(' - ')[2],
-                        "message": line.split(' - ')[3].strip()
-                    })
-            except Exception:
-                continue
-    
-    def analyze_avatar_performance(self, start_date: str = None, end_date: str = None) -> Dict:
-        """
-        アバター処理のパフォーマンス分析
-        
-        Args:
-            start_date: 分析開始日時（YYYY-MM-DD HH:MM:SS）
-            end_date: 分析終了日時（YYYY-MM-DD HH:MM:SS）
-            
-        Returns:
-            Dict: 分析結果
-        """
-        analysis = {
-            "total_processing": 0,
-            "average_duration": 0.0,
-            "slowest_processing": None,
-            "fastest_processing": None,
-            "processing_times": []
-        }
-        
+            return results
+
+    def _parse_log_line(self, line: str) -> Dict[str, Any]:
+        """ログ行を解析"""
         try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d %H:%M:%S") if start_date else None
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d %H:%M:%S") if end_date else None
-            
-            # ログファイルの分析
-            for file in sorted(self.log_dir.glob("*.log*")):
-                try:
-                    # 圧縮ファイルの場合は解凍して分析
-                    if file.suffix.endswith(".gz"):
-                        with gzip.open(file, 'rt', encoding='utf-8') as f:
-                            self._analyze_avatar_file(f, start_dt, end_dt, analysis)
-                    else:
-                        with open(file, 'rt', encoding='utf-8') as f:
-                            self._analyze_avatar_file(f, start_dt, end_dt, analysis)
-                except Exception as e:
-                    logger.error(f"ログファイルの分析中にエラーが発生しました: {e}")
-            
-            # 平均処理時間の計算
-            if analysis["total_processing"] > 0:
-                analysis["average_duration"] = sum(analysis["processing_times"]) / len(analysis["processing_times"])
-            
-            return analysis
+            return json.loads(line)
+        except json.JSONDecodeError:
+            return {"raw": line.strip()}
         except Exception as e:
-            logger.error(f"パフォーマンス分析中にエラーが発生しました: {e}")
-            return analysis
-    
-    def _analyze_avatar_file(self, file_obj, start_dt: datetime, end_dt: datetime, analysis: Dict):
-        """ファイル内のアバター処理分析実行"""
-        for line in file_obj:
-            try:
-                # 日時を抽出
-                timestamp = line.split(' - ')[0]
-                log_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-                
-                # 日付範囲のチェック
-                if (start_dt and log_dt < start_dt) or (end_dt and log_dt > end_dt):
-                    continue
-                
-                # アバター処理ログの解析
-                if "Avatar" in line:
-                    parts = line.split(' - ')
-                    duration = float(parts[3].split(' ')[-1].strip('s'))
-                    analysis["processing_times"].append(duration)
-                    analysis["total_processing"] += 1
-                    
-                    # 最も遅い処理の更新
-                    if analysis["slowest_processing"] is None or duration > analysis["slowest_processing"]:
-                        analysis["slowest_processing"] = duration
-                    
-                    # 最も早い処理の更新
-                    if analysis["fastest_processing"] is None or duration < analysis["fastest_processing"]:
-                        analysis["fastest_processing"] = duration
-            except Exception:
-                continue
+            return {"error": str(e), "raw": line.strip()}
+
+    def get_log_stats(self) -> Dict[str, any]:
+        """ログ統計を取得"""
+        try:
+            log_file = self.log_dir / "otedama.log"
+            if not log_file.exists():
+                return {"error": "ログファイルが存在しません"}
+
+            file_size = log_file.stat().st_size
+            line_count = sum(1 for _ in open(log_file, 'r', encoding='utf-8'))
+
+            return {
+                "file_size": file_size,
+                "line_count": line_count,
+                "log_level": self.log_level,
+                "max_bytes": self.max_bytes,
+                "backup_count": self.backup_count
+            }
+        except Exception as e:
+            logger.error(f"ログ統計の取得に失敗しました: {e}")
+            return {"error": str(e)}
+
+    def clear_old_logs(self, days: int = 30) -> bool:
+        """古いログファイルを削除"""
+        try:
+            cutoff_date = datetime.now().timestamp() - (days * 24 * 60 * 60)
+
+            for log_file in self.log_dir.glob("*.log.*"):
+                if log_file.stat().st_mtime < cutoff_date:
+                    log_file.unlink()
+                    logger.info(f"古いログファイルを削除しました: {log_file}")
+
+            return True
+        except Exception as e:
+            logger.error(f"古いログファイルの削除に失敗しました: {e}")
+            return False
+
+    def export_logs(self, filename: str, format: str = "json") -> bool:
+        """ログをエクスポート"""
+        try:
+            log_file = self.log_dir / "otedama.log"
+            if not log_file.exists():
+                logger.warning(f"ログファイルが存在しません: {log_file}")
+                return False
+
+            if format.lower() == "json":
+                logs = [
+                    self._parse_log_line(line)
+                    for line in open(log_file, 'r', encoding='utf-8')
+                    if line.strip()
+                ]
+
+                with open(filename, 'w', encoding='utf-8') as f:
+                    json.dump(logs, f, indent=2, ensure_ascii=False)
+            else:
+                # テキスト形式でエクスポート
+                import shutil
+                shutil.copy2(str(log_file), filename)
+
+            logger.info(f"ログをエクスポートしました: {filename}")
+            return True
+        except Exception as e:
+            logger.error(f"ログエクスポートに失敗しました: {e}")
+            return False

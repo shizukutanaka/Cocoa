@@ -2,8 +2,6 @@ import json
 import platform
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
-from .error_handling import NotificationError
-from .logging_manager import Logger
 
 class NotificationSystem:
     """Manage and send notifications"""

@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(while read f)",
+      "Bash(do echo -n \"$f: \")",
+      "Bash(done)",
+      "Bash(awk:*)",
+      "Bash(do echo \"$f\")",
+      "Bash(paste:*)",
+      "Bash(for f in avatar_preset_linker_gui.py web_admin.py)",
+      "Bash(do [ -f \"$f\" ])",
+      "Bash(echo:*)",
+      "Bash(head:*)",
+      "Bash(python3:*)",
+      "Bash(cat:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git reset:*)",
+      "Bash(rm:*)",
+      "Bash(claude doctor)",
+      "Bash(claude --version)",
+      "Bash(node:*)",
+      "Bash(npm --version)",
+      "Bash(pip3:*)",
+      "Bash(git --version)",
+      "WebFetch(domain:atlassian.design)",
+      "Bash(python -m pylint:*)",
+      "Bash(python -m pytest tests/ --tb=short -q)",
+      "Bash(python:*)",
+      "WebSearch"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

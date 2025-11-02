@@ -1,9 +1,9 @@
 import json
 import os
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
-from .error_handling import PresetError
-from .logging_manager import Logger
+from logging_manager import Logger
+from collections import defaultdict
 
 class PresetManager:
     """Manage and manipulate presets"""
@@ -13,6 +13,8 @@ class PresetManager:
         self.logger = logger
         self.preset_dir = Path(preset_dir)
         self.presets: Dict[str, Dict[str, Any]] = {}
+        self._index: Dict[str, Set[str]] = defaultdict(set)  # 検索インデックス
+        self._tags_index: Dict[str, List[str]] = defaultdict(list)  # タグベースのインデックス
         
     def load_presets(self) -> None:
         """Load all available presets"""
@@ -22,10 +24,14 @@ class PresetManager:
                 return
                 
             self.presets.clear()
+            self._index.clear()
+            self._tags_index.clear()
             
             for preset_file in self.preset_dir.glob("*.json"):
                 preset_name = preset_file.stem
-                self.presets[preset_name] = self._load_preset(preset_file)
+                preset_data = self._load_preset(preset_file)
+                self.presets[preset_name] = preset_data
+                self._update_index(preset_name, preset_data)
                 
             self.logger.info(f"Loaded {len(self.presets)} presets")
             
@@ -47,16 +53,59 @@ class PresetManager:
             self.logger.error(f"Error loading preset {preset_file}: {str(e)}")
             raise PresetError(f"Failed to load preset {preset_file}: {str(e)}")
     
-    def _validate_preset(self, preset_data: Dict[str, Any]) -> None:
-        """Validate preset data"""
-        required_keys = ['name', 'version', 'parameters']
+    def _update_index(self, preset_name: str, preset_data: Dict[str, Any]) -> None:
+        """プリセットのインデックスを更新"""
+        # パラメータ名によるインデックス
+        for param_name in preset_data.get('parameters', {}).keys():
+            self._index[param_name].add(preset_name)
         
-        for key in required_keys:
-            if key not in preset_data:
-                raise PresetError(f"Missing required key in preset: {key}")
-                
-        if not isinstance(preset_data['parameters'], dict):
-            raise PresetError("Parameters must be a dictionary")
+        # タグによるインデックス
+        tags = preset_data.get('tags', [])
+        for tag in tags:
+            if preset_name not in self._tags_index[tag]:
+                self._tags_index[tag].append(preset_name)
+
+    def search_presets(self, query: str) -> List[str]:
+        """プリセットを検索"""
+        if not query:
+            return list(self.presets.keys())
+        
+        # パラメータ名による検索
+        matching_presets = set()
+        for param_name in self._index:
+            if query.lower() in param_name.lower():
+                matching_presets.update(self._index[param_name])
+        
+        # プリセット名による検索
+        for preset_name in self.presets:
+            if query.lower() in preset_name.lower():
+                matching_presets.add(preset_name)
+        
+        return list(matching_presets)
+
+    def batch_update_presets(self, updates: Dict[str, Dict[str, Any]]) -> Dict[str, bool]:
+        """複数のプリセットをバッチ更新"""
+        results = {}
+        for preset_name, new_data in updates.items():
+            try:
+                self.save_preset(preset_name, new_data)
+                results[preset_name] = True
+            except Exception as e:
+                self.logger.error(f"Failed to update preset {preset_name}: {e}")
+                results[preset_name] = False
+        return results
+
+    def batch_delete_presets(self, preset_names: List[str]) -> Dict[str, bool]:
+        """複数のプリセットをバッチ削除"""
+        results = {}
+        for preset_name in preset_names:
+            try:
+                self.delete_preset(preset_name)
+                results[preset_name] = True
+            except Exception as e:
+                self.logger.error(f"Failed to delete preset {preset_name}: {e}")
+                results[preset_name] = False
+        return results
     
     def save_preset(self, preset_name: str, preset_data: Dict[str, Any]) -> None:
         """Save a new or updated preset"""
@@ -72,6 +121,10 @@ class PresetManager:
             with open(preset_file, 'w', encoding='utf-8') as f:
                 json.dump(preset_data, f, ensure_ascii=False, indent=2)
                 
+            # Update cache and index
+            self.presets[preset_name] = preset_data
+            self._update_index(preset_name, preset_data)
+                
             self.logger.info(f"Saved preset: {preset_name}")
             
         except Exception as e:
@@ -86,9 +139,13 @@ class PresetManager:
                 preset_file.unlink()
                 self.logger.info(f"Deleted preset: {preset_name}")
                 
-                # Remove from cache
+                # Remove from cache and index
                 if preset_name in self.presets:
+                    preset_data = self.presets[preset_name]
                     del self.presets[preset_name]
+                    
+                    # インデックスから削除
+                    self._remove_from_index(preset_name, preset_data)
                     
             else:
                 raise PresetError(f"Preset not found: {preset_name}")
@@ -96,6 +153,23 @@ class PresetManager:
         except Exception as e:
             self.logger.error(f"Error deleting preset {preset_name}: {str(e)}")
             raise PresetError(f"Failed to delete preset {preset_name}: {str(e)}")
+
+    def _remove_from_index(self, preset_name: str, preset_data: Dict[str, Any]) -> None:
+        """プリセットをインデックスから削除"""
+        # パラメータ名によるインデックスから削除
+        for param_name in preset_data.get('parameters', {}).keys():
+            if preset_name in self._index[param_name]:
+                self._index[param_name].remove(preset_name)
+                if not self._index[param_name]:
+                    del self._index[param_name]
+        
+        # タグによるインデックスから削除
+        tags = preset_data.get('tags', [])
+        for tag in tags:
+            if preset_name in self._tags_index[tag]:
+                self._tags_index[tag].remove(preset_name)
+                if not self._tags_index[tag]:
+                    del self._tags_index[tag]
     
     def get_preset(self, preset_name: str) -> Optional[Dict[str, Any]]:
         """Get a specific preset"""

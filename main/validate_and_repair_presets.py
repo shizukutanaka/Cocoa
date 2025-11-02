@@ -1,9 +1,72 @@
-import os
-import json
-import shutil
-import glob
-from datetime import datetime
-from parameters_batch_validator import validate_parameters
+import time
+import logging
+from typing import Dict, Any, Optional
+from performance_monitor import PerformanceMonitor
+
+class PresetPerformanceMonitor:
+    """プリセット操作のパフォーマンス監視"""
+
+    def __init__(self):
+        self.performance_monitor = PerformanceMonitor({
+            "interval": 1.0,
+            "history_size": 100,
+            "preset_operation_threshold": 1000,  # ms
+        })
+        self.operation_stats = {}
+        self.logger = logging.getLogger(__name__)
+
+    def start_operation(self, operation_name: str) -> str:
+        """操作の開始を記録"""
+        operation_id = f"{operation_name}_{time.time()}"
+        self.operation_stats[operation_id] = {
+            "operation": operation_name,
+            "start_time": time.time(),
+            "status": "running"
+        }
+        return operation_id
+
+    def end_operation(self, operation_id: str, success: bool = True, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """操作の終了を記録"""
+        if operation_id not in self.operation_stats:
+            return
+
+        stats = self.operation_stats[operation_id]
+        end_time = time.time()
+        duration = (end_time - stats["start_time"]) * 1000  # ms
+
+        stats.update({
+            "end_time": end_time,
+            "duration_ms": duration,
+            "status": "success" if success else "failed",
+            "metadata": metadata or {}
+        })
+
+        # パフォーマンス閾値チェック
+        threshold = self.performance_monitor.config.get("preset_operation_threshold", 1000)
+        if duration > threshold:
+            self.logger.warning(
+                f"プリセット操作が遅いです: {stats['operation']} ({duration:.2f}ms > {threshold}ms)"
+            )
+
+        # 統計収集
+        if stats["operation"] not in self.performance_monitor.metrics_history:
+            self.performance_monitor.metrics_history[stats["operation"]] = []
+
+        self.performance_monitor.metrics_history[stats["operation"]].append({
+            "timestamp": stats["start_time"],
+            "value": duration
+        })
+
+    def get_performance_report(self) -> Dict[str, Any]:
+        """パフォーマンスレポートを取得"""
+        return {
+            "preset_operations": dict(self.performance_monitor._build_history_summary_locked()),
+            "recent_operations": list(self.operation_stats.values())[-10:],  # 最新10件
+            "slow_operations": [
+                op for op in self.operation_stats.values()
+                if op["status"] == "success" and op["duration_ms"] > 500
+            ]
+        }
 
 def backup_file(filepath, backup_dir):
     os.makedirs(backup_dir, exist_ok=True)
@@ -21,39 +84,18 @@ def repair_preset(data):
             data[k] = v
     if not isinstance(data.get("parameters", []), list):
         data["parameters"] = []
-    return data
 
-def validate_and_repair_dir(target_dir, backup_dir="preset_backups", report_path=None):
+        # パフォーマンス監視開始
+        self.preset_monitor = PresetPerformanceMonitor()
+        self.preset_monitor.performance_monitor.start_monitoring()
     preset_files = glob.glob(os.path.join(target_dir, "*.json"))
-    report = []
-    for pf in preset_files:
-        with open(pf, encoding="utf-8") as f:
-            try:
-                data = json.load(f)
-            except Exception as e:
-                report.append({"file": pf, "error": f"JSON decode error: {e}"})
-                continue
-        errors = validate_parameters(data)
-        if errors:
-            backup_file(pf, backup_dir)
-            fixed = repair_preset(data)
-            with open(pf, "w", encoding="utf-8") as f:
-                json.dump(fixed, f, ensure_ascii=False, indent=2)
-            report.append({"file": pf, "status": "repaired", "errors": errors})
-        else:
-            report.append({"file": pf, "status": "ok"})
-    if report_path:
-        with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(report, f, ensure_ascii=False, indent=2)
-    return report
 
-def main():
     import argparse
     parser = argparse.ArgumentParser(description="プリセット一括バリデーション＆自動修復ツール")
     parser.add_argument("dir", help="プリセットjson格納ディレクトリ")
     parser.add_argument("--backup", default="preset_backups", help="バックアップ保存先")
     parser.add_argument("--report", default=None, help="レポートjson出力パス")
-    args = parser.parse_args()
+{{ ... }}
     rep = validate_and_repair_dir(args.dir, args.backup, args.report)
     print(f"{len(rep)}件を検査・修復しました。詳細はレポートまたは標準出力を参照")
     for r in rep:
