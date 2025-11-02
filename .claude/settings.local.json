@@ -30,7 +30,8 @@
       "Bash(python -m pylint:*)",
       "Bash(python -m pytest tests/ --tb=short -q)",
       "Bash(python:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(gh pr create:*)"
     ],
     "deny": [],
     "ask": []
