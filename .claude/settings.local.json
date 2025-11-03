@@ -31,7 +31,9 @@
       "Bash(python -m pytest tests/ --tb=short -q)",
       "Bash(python:*)",
       "WebSearch",
-      "Bash(gh pr create:*)"
+      "Bash(gh pr create:*)",
+      "Bash(for file in main/*.py)",
+      "Bash(for f in main/*.py)"
     ],
     "deny": [],
     "ask": []

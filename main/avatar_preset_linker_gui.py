@@ -431,8 +431,8 @@ class AvatarPresetLinkerGUI:
             if temp_file.exists():
                 try:
                     temp_file.unlink()
-                except:
-                    pass
+                except (OSError, PermissionError) as cleanup_err:
+                    logger.warning(f"Failed to clean up temp file: {cleanup_err}")
             raise
         except OSError as e:
             messagebox.showerror("保存エラー", f"ファイル保存エラー:\n{str(e)}")
@@ -440,8 +440,8 @@ class AvatarPresetLinkerGUI:
             if temp_file.exists():
                 try:
                     temp_file.unlink()
-                except:
-                    pass
+                except (OSError, PermissionError) as cleanup_err:
+                    logger.warning(f"Failed to clean up temp file: {cleanup_err}")
             raise
         except Exception as e:
             messagebox.showerror("保存エラー", f"予期しないエラー:\n{str(e)}")
@@ -449,8 +449,8 @@ class AvatarPresetLinkerGUI:
             if temp_file.exists():
                 try:
                     temp_file.unlink()
-                except:
-                    pass
+                except (OSError, PermissionError) as cleanup_err:
+                    logger.warning(f"Failed to clean up temp file: {cleanup_err}")
             raise
 
 if __name__ == "__main__":

@@ -227,7 +227,8 @@ class PersonalityAnalyzer:
                 try:
                     emotion_std = statistics.stdev(emotions) if len(emotions) > 1 else 0
                     analysis['consistency_score'] = max(0, 1.0 - emotion_std)
-                except:
+                except (ValueError, ZeroDivisionError) as e:
+                    logger.warning(f"Failed to calculate emotion consistency: {e}")
                     analysis['consistency_score'] = 0.5
 
         # 適応性スコア（多様な感情表現）

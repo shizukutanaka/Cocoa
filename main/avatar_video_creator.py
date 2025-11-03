@@ -99,8 +99,9 @@ class AvatarVideoCreator:
             else:
                 fonts["ja"] = "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf"
                 fonts["en"] = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        except:
+        except (OSError, FileNotFoundError) as e:
             # デフォルトフォントとしてNoneを設定
+            logger.info(f"Font paths not found, using defaults: {e}")
             fonts = {"ja": None, "en": None}
 
         return fonts
@@ -353,7 +354,8 @@ class AvatarVideoCreator:
             # フォントの取得（フォールバック対応）
             try:
                 font = ImageFont.truetype(self.fonts.get("ja", None) or "", font_size)
-            except:
+            except (OSError, IOError) as e:
+                logger.debug(f"Failed to load TrueType font, using default: {e}")
                 font = ImageFont.load_default()
 
             # テキストの位置を計算
@@ -502,8 +504,8 @@ class AvatarVideoCreator:
                     try:
                         with open(metadata_file, 'r', encoding='utf-8') as f:
                             metadata = json.load(f)
-                    except:
-                        pass
+                    except (IOError, json.JSONDecodeError) as e:
+                        logger.warning(f"Failed to load video metadata from {metadata_file}: {e}")
 
                 videos.append({
                     "id": video_file.stem,

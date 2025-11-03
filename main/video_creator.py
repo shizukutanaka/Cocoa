@@ -120,8 +120,9 @@ class VoiceGenerator:
                 rate = wav_file.getframerate()
                 duration = frames / float(rate)
                 return duration
-        except:
+        except (OSError, IOError, wave.Error) as e:
             # フォールバック: 文字数ベースの推定
+            logger.warning(f"Failed to read audio duration from {audio_path}: {e}")
             return len(audio_path) * 0.1  # 簡易的な推定
 
 class VideoCreator:
@@ -554,16 +555,16 @@ class VideoCreator:
                     if str(file_path) not in keep_set:
                         try:
                             file_path.unlink()
-                        except:
-                            pass
+                        except (OSError, PermissionError) as e:
+                            logger.debug(f"Failed to remove temp audio file {file_path}: {e}")
 
             # temp_video内の古いファイルを削除
             for file_path in self.temp_dir.glob("*"):
                 if str(file_path) not in keep_set:
                     try:
                         file_path.unlink()
-                    except:
-                        pass
+                    except (OSError, PermissionError) as e:
+                        logger.debug(f"Failed to remove temp video file {file_path}: {e}")
 
         except Exception as e:
             logger.warning(f"Temp file cleanup failed: {e}")

@@ -551,8 +551,8 @@ class VoiceCloningEngine:
                     try:
                         with open(metadata_file, 'r', encoding='utf-8') as f:
                             metadata = json.load(f)
-                    except:
-                        pass
+                    except (IOError, json.JSONDecodeError) as e:
+                        logger.warning(f"Failed to load voice metadata from {metadata_file}: {e}")
 
                 voices.append({
                     "voice_id": voice_id,

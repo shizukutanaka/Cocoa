@@ -136,8 +136,8 @@ class FileCache:
             # エラー時はファイルを削除
             try:
                 cache_path.unlink()
-            except:
-                pass
+            except (OSError, PermissionError) as cleanup_err:
+                logger.warning(f"Failed to remove corrupted cache file: {cleanup_err}")
             return None
 
     def set(self, key: str, value: Any) -> None:
@@ -239,8 +239,8 @@ class CacheManager:
         if cache_path.exists():
             try:
                 cache_path.unlink()
-            except:
-                pass
+            except (OSError, PermissionError) as e:
+                logger.warning(f"Failed to remove cache key {key}: {e}")
 
     def clear_all(self) -> None:
         """全てのキャッシュをクリア"""

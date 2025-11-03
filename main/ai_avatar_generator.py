@@ -386,8 +386,8 @@ class AIAvatarGenerator:
                     import json
                     with open(metadata_file, 'r', encoding='utf-8') as f:
                         metadata = json.load(f)
-                except:
-                    pass
+                except (IOError, json.JSONDecodeError) as e:
+                    logger.warning(f"Failed to load metadata from {metadata_file}: {e}")
 
             avatars.append({
                 "path": str(avatar_file),

@@ -888,7 +888,8 @@ class PerformanceMonitor:
             try:
                 avg = mean(values)
                 deviation = stdev(values)
-            except:
+            except (ValueError, ZeroDivisionError, StatisticsError) as e:
+                logger.debug(f"Failed to calculate statistics for {metric}: {e}")
                 continue
 
             if deviation == 0:

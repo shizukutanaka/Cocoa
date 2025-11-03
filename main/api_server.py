@@ -147,7 +147,8 @@ class ConnectionManager:
         for connection in self.active_connections:
             try:
                 await connection.send_text(message)
-            except:
+            except Exception as e:
+                logger.debug(f"Failed to send message to connection: {e}")
                 disconnected.append(connection)
 
         # 切断された接続をクリーンアップ

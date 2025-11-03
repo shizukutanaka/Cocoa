@@ -282,7 +282,8 @@ class BackgroundProcessor:
                 font_path = branding.get('font_path', "arial.ttf")
                 font_size = branding.get('font_size', 48)
                 font = ImageFont.truetype(font_path, font_size)
-            except:
+            except (OSError, IOError) as e:
+                logger.debug(f"Failed to load font {branding.get('font_path')}: {e}")
                 font = ImageFont.load_default()
 
             # テキスト設定
