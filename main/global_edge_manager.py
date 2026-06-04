@@ -17,6 +17,13 @@ import threading
 import socket
 import time
 
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    np = None
+    NUMPY_AVAILABLE = False
+
 import aiohttp
 import asyncio
 from urllib.parse import urlparse

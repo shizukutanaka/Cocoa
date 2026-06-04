@@ -8,6 +8,7 @@ Performance monitoring subsystem for Cocoa.
 from __future__ import annotations
 
 import json
+import random
 import logging
 import os
 import platform
@@ -15,7 +16,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime
-from statistics import mean, stdev
+from statistics import mean, stdev, StatisticsError
 from typing import Any, Callable, Deque, Dict, List, Optional
 
 import asyncio
@@ -24,6 +25,13 @@ from dataclasses import dataclass, field
 from enum import Enum
 import subprocess
 import socket
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    psutil = None
+    PSUTIL_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 

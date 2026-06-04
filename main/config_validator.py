@@ -731,8 +731,17 @@ class ConfigValidator:
                     )
             if security_config.get("max_login_attempts", 5) > 10:
                 warnings.append("security.max_login_attempts が高すぎます。10以下に調整してください。")
-    def _validate_password_policy(self, security_config: Dict[str, Any], errors: List[str], warnings: List[str]) -> None:
-        """パスワードポリシーの詳細な検証"""
+    def _validate_password_policy(
+        self,
+        security_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+        original_config: Optional[Dict[str, Any]] = None,
+        validated_config: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """パスワードポリシーおよび billing/notification/rate_limiting セクションの詳細な検証"""
+        original_config = original_config or {}
+        validated_config = validated_config or {}
         password_config = security_config.get("password_policy", {})
         if not isinstance(password_config, dict):
             return

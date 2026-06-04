@@ -10,6 +10,13 @@ import logging
 import json
 import shutil
 from pathlib import Path
+
+try:
+    import aiofiles
+    AIOFILES_AVAILABLE = True
+except ImportError:
+    aiofiles = None
+    AIOFILES_AVAILABLE = False
 from typing import Dict, List, Optional, Tuple, Union, Any
 from dataclasses import dataclass
 from datetime import datetime

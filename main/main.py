@@ -7,6 +7,11 @@ import sys
 import os
 from pathlib import Path
 
+try:
+    from tkinter import messagebox
+except ImportError:  # tkinter が無いヘッドレス環境向けフォールバック
+    messagebox = None
+
 # プロジェクトルートをPythonパスに追加
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:

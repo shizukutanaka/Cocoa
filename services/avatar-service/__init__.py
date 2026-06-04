@@ -5,6 +5,7 @@ Avatar Service
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
 from fastapi.responses import JSONResponse

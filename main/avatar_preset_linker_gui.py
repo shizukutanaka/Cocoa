@@ -1,10 +1,13 @@
 import os
+import logging
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import json
 from pathlib import Path
 import asyncio
 from .ai_avatar_gui import AIAvatarGeneratorGUI
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 LINKS_FILE = BASE_DIR / "avatar_preset_links.json"

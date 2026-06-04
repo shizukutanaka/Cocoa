@@ -15,6 +15,8 @@ import hashlib
 import secrets
 import hmac
 
+logger = logging.getLogger(__name__)
+
 # セキュリティ関連の追加インポート（2025年トレンド対応）
 try:
     from cryptography.hazmat.primitives.asymmetric import dilithium, falcon
@@ -26,8 +28,6 @@ except ImportError:
     logger.warning("Post-quantum cryptography libraries not available")
 
 from .integrated_security import get_security_manager
-
-logger = logging.getLogger(__name__)
 
 @dataclass
 class ZeroTrustContext:

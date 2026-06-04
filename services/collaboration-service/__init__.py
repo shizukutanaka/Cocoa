@@ -23,6 +23,8 @@ except ImportError:
 from services.shared.config import get_config, ConfigManager
 from services.shared.models import CollaborationSession, CollaborationParticipant, CollaborationMessage, User
 from services.shared.database import DatabaseManager, get_db
+
+logger = logging.getLogger(__name__)
 from services.shared.logger import setup_logging
 
 

@@ -29,7 +29,7 @@ try:
     from .health_monitor import get_health_monitor
     from .integrated_security import get_security_manager
     from .disaster_recovery import get_recovery_manager
-    from .database_manager import get_database_service, get_user_avatars, create_avatar_preset, log_audit_event
+    from .database_manager import get_database_service, get_database_manager, get_user_avatars, create_avatar_preset, log_audit_event
     from .redis_cache_manager import get_cache_manager, cache_async
     from .two_factor_auth import get_two_factor_service, setup_2fa, verify_2fa_token, verify_backup_code, disable_2fa, get_2fa_status
 except ImportError:
