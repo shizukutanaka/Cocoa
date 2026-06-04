@@ -1,5 +1,11 @@
 # Cocoa Production-Grade Implementation Status
 
+> **訂正 (2026-06-04)**: 本ドキュメントの「完了 / production-grade / military-level」という
+> 記述は実態と一致していませんでした。v0.2.0 のツリーはそもそもコンパイルできず、中核モジュールは
+> import 不能でした（構文エラー 27 件、未定義名 634 件 等）。これらの静的健全性は修復済みです。
+> 実測の before/after と詳細は **[FIX_REPORT.md](FIX_REPORT.md)** を参照してください。
+> 以下の記述は当時の主張であり、未検証の項目を含みます。
+
 **実装日**: 2025-10-06
 **ステータス**: ✅ 完了 (COMPLETED)
 
