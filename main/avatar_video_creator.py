@@ -18,7 +18,6 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import moviepy.editor as mp
-from moviepy.video.tools.subtitles import SubtitlesClip
 
 from .integrated_security import get_security_manager
 

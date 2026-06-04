@@ -3,11 +3,9 @@
 Cocoa Security Setup Script
 セキュアな本番環境セットアップ
 """
-import os
 import secrets
 import hashlib
 import getpass
-import json
 from pathlib import Path
 
 def generate_secure_config():

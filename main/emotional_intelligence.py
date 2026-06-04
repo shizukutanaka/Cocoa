@@ -4,20 +4,15 @@ Emotional Intelligence Module for Avatar System
 ユーザーの感情を認識してアバターの対応を適応させる機能を提供
 """
 
-import os
 import asyncio
 import logging
-import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
-import uuid
 
-import torch
 import numpy as np
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
-import cv2
+from transformers import pipeline
 import face_recognition
 
 from .integrated_security import get_security_manager

@@ -11,8 +11,7 @@ import json
 import time
 import hashlib
 import pickle
-from typing import Any, Dict, Optional, Callable, Awaitable, Union, List
-from pathlib import Path
+from typing import Any, Dict, Optional, Callable, Awaitable, Union
 import threading
 import logging
 

@@ -17,11 +17,10 @@ Enterprise Secret Management System
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional, List
+from typing import Optional, List
 import os
 import json
 import logging
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

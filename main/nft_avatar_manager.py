@@ -5,14 +5,12 @@ NFT-Enhanced Avatar Management System for Cocoa
 
 import os
 import json
-import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 from dataclasses import dataclass, asdict
 import hashlib
-import base64
 
 from web3 import Web3
 from eth_account import Account
@@ -370,7 +368,7 @@ class NFTAvatarManager:
 
         try:
             # NFT記録ディレクトリからユーザーのNFTを検索
-            for nft_file in self.nft_data_dir.glob(f"nft_*.json"):
+            for nft_file in self.nft_data_dir.glob("nft_*.json"):
                 try:
                     with open(nft_file, 'r', encoding='utf-8') as f:
                         nft_record = json.load(f)

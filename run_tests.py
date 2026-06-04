@@ -5,24 +5,19 @@ Cocoaテストランナー
 """
 from __future__ import annotations
 
-import os
 import sys
 import time
 import json
-import shutil
 import inspect
-import logging
 import argparse
 import unittest
 import importlib
 import threading
 import traceback
-import subprocess
 import concurrent.futures
 from pathlib import Path
-from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional, Iterable, Callable
+from typing import Any, Optional, Iterable, Callable
 
 try:
     import psutil
@@ -290,7 +285,7 @@ def run_tests_in_parallel(suite: unittest.TestSuite, max_workers: int = 4) -> un
         try:
             test_case(result)
             return result
-        except Exception as e:
+        except Exception:
             result.addError(test_case, sys.exc_info())
             return result
 
@@ -309,7 +304,7 @@ def run_tests_in_parallel(suite: unittest.TestSuite, max_workers: int = 4) -> un
             try:
                 result = future.result()
                 results.append((test_case, result))
-            except Exception as e:
+            except Exception:
                 # エラーハンドリング
                 error_result = unittest.TestResult()
                 error_result.addError(test_case, sys.exc_info())

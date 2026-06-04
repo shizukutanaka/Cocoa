@@ -4,7 +4,6 @@ Avatar Performance Monitor Module for Cocoa
 アバター生成・動画作成パフォーマンスのリアルタイム監視
 """
 
-import os
 import asyncio
 import logging
 import json
@@ -12,7 +11,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Dict, List, Optional, Union, Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from collections import deque

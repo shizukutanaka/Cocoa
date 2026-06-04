@@ -7,10 +7,7 @@ import hashlib
 import os
 import tempfile
 import json
-import time
-import secrets
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 # テスト用環境変数設定
 os.environ['COCOA_DEVELOPMENT_MODE'] = 'true'

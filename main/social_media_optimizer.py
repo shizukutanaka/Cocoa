@@ -7,14 +7,12 @@ Social Media Optimizer Module for Cocoa
 import os
 import asyncio
 import logging
-import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
-import re
 
-from .video_encoding import get_video_encoder, EncodingPreset, EncodingResult
+from .video_encoding import get_video_encoder, EncodingPreset
 from .integrated_security import get_security_manager
 
 # Configure logging

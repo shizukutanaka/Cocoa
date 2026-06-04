@@ -10,9 +10,8 @@ Production-Grade Health Monitoring System
 import logging
 import time
 import os
-import sys
-from typing import Dict, Any, List, Optional, Callable
-from datetime import datetime, timedelta
+from typing import Dict, Any, Optional, Callable
+from datetime import datetime
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path

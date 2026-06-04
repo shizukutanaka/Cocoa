@@ -4,23 +4,18 @@ Video Creator Module for Cocoa
 AIアバターを使用した動画自動生成システム
 """
 
-import os
 import asyncio
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 from datetime import datetime
-import json
-import subprocess
 
-import torch
 from PIL import Image
 import numpy as np
-from moviepy.editor import VideoFileClip, AudioFileClip, CompositeVideoClip, TextClip
-import cv2
+from moviepy.editor import AudioFileClip, CompositeVideoClip, TextClip
 
-from .ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest, AvatarStyle
+from .ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
 from .integrated_security import get_security_manager
 
 # Configure logging

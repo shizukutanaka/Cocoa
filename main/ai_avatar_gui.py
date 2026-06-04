@@ -10,7 +10,6 @@ from tkinter import ttk, filedialog, messagebox
 import asyncio
 import threading
 from pathlib import Path
-from typing import Optional
 import json
 
 from .ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest, AvatarStyle

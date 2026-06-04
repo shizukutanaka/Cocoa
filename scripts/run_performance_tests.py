@@ -15,13 +15,11 @@ Cocoaパフォーマンステスト統合実行スクリプト
 """
 
 import sys
-import os
 import argparse
 import logging
 import json
 from pathlib import Path
 from datetime import datetime
-import subprocess
 
 # Cocoaモジュールのパスを追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "main"))
@@ -59,7 +57,7 @@ class PerformanceTestRunner:
         self.test_results = None
         self.optimization_results = None
 
-        logger.info(f"パフォーマンステスト統合実行を初期化しました")
+        logger.info("パフォーマンステスト統合実行を初期化しました")
         logger.info(f"出力ディレクトリ: {self.output_dir}")
 
     def run_performance_tests(self, quick_mode: bool = False) -> bool:
@@ -473,7 +471,7 @@ def main():
                 print(f"\n📊 統合レポート生成完了: {comprehensive_report}")
 
         # 結果サマリー表示
-        print(f"\n✅ パフォーマンス処理完了!")
+        print("\n✅ パフォーマンス処理完了!")
         print(f"成功: {success_count}/{total_operations}")
         print(f"レポート出力先: {runner.output_dir}")
 

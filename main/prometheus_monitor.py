@@ -14,13 +14,12 @@ from prometheus_client import (
     CollectorRegistry, push_to_gateway, generate_latest,
     CONTENT_TYPE_LATEST
 )
-from typing import Dict, List, Optional, Callable
+from typing import Optional
 from dataclasses import dataclass
 from enum import Enum
 import time
 import psutil
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 

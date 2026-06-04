@@ -63,7 +63,7 @@ def consolidate_language_files():
             print(f"- {lang}.json not found in main/")
             skipped += 1
 
-    print(f"\n統合完了 / Consolidation complete:")
+    print("\n統合完了 / Consolidation complete:")
     print(f"  統合ファイル数: {consolidated}")
     print(f"  スキップファイル数: {skipped}")
 

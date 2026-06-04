@@ -20,11 +20,9 @@ from statistics import mean, stdev, StatisticsError
 from typing import Any, Callable, Deque, Dict, List, Optional
 
 import asyncio
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 import subprocess
-import socket
 
 try:
     import psutil
@@ -403,21 +401,6 @@ class PerformanceMonitor:
 
         # デフォルトのコンソール出力（後方互換性のため）
         print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] パフォーマンスアラート: {message}")
-
-    def start_monitoring(self) -> None:
-        """バックグラウンド監視を開始します."""
-        if self.running:
-            return
-
-        self._stop_event.clear()
-        self.monitor_thread = threading.Thread(
-            target=self._monitor_loop,
-            name="CocoaPerformanceMonitor",
-            daemon=True,
-        )
-        self.running = True
-        self.monitor_thread.start()
-        logger.info("パフォーマンス監視を開始しました")
 
     def add_stream_callback(self, callback: callable) -> bool:
         """リアルタイムストリーミング用のコールバックを追加します。"""

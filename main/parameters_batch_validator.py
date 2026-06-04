@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Dict
+from typing import Dict
 
 def validate_parameter_types(preset: dict, param_types: Dict[str, type]) -> Dict[str, str]:
     errors = {}

@@ -6,16 +6,14 @@ VRChat Avatars 3.0システムとの連携機能を提供
 
 import os
 import json
-import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List
 from dataclasses import dataclass
 from datetime import datetime
 
 import requests
 from PIL import Image
-import numpy as np
 
 from .integrated_security import get_security_manager
 

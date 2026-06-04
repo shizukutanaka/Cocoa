@@ -3,13 +3,10 @@
 全サービスで共有されるデータベース接続を管理
 """
 
-import asyncio
 import logging
 from typing import AsyncGenerator, Optional
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase
-import os
 
 from .models import Base
 from .config import get_config

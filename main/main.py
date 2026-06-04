@@ -226,7 +226,6 @@ class CocoaLauncher:
         """ヘルスチェック実行ハンドラ"""
         try:
             from .health_monitor import get_health_monitor
-            import json
             from tkinter import messagebox
 
             # ヘルスチェック実行
@@ -320,7 +319,6 @@ class CocoaLauncher:
     def _start_grafana_monitoring_handler(self):
         """Grafana監視起動ハンドラ"""
         try:
-            import threading
             from .grafana_integration import setup_grafana_integration
 
             # Grafana統合をセットアップ

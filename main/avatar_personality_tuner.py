@@ -5,12 +5,11 @@ Avatar Personality Tuner Module for Cocoa
 """
 
 import os
-import asyncio
 import logging
 import json
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 import statistics

@@ -3,7 +3,6 @@
 残りの言語ファイルをlocales/へ移動
 Move remaining language files to locales/
 """
-import json
 import os
 from pathlib import Path
 

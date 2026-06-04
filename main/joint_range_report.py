@@ -1,4 +1,4 @@
-from avatar_parameters import AvatarParameters, estimate_joint_range
+from avatar_parameters import estimate_joint_range
 from avatar_parameter_sets import list_presets, get_preset
 
 # 複数体型の各関節可動域をレポートとしてテーブル表示する

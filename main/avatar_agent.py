@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass
 from collections import defaultdict, deque
-from typing import Dict, List, Optional, Callable, Any, Tuple
+from typing import Dict, List, Optional, Any
 import asyncio
 import logging
 
@@ -38,7 +38,6 @@ except ImportError:
     AIOFILES_AVAILABLE = False
 
 from .interactive_avatar import InteractiveAvatar, create_interactive_avatar
-from .ai_avatar_generator import get_ai_avatar_generator
 from .integrated_security import get_security_manager
 
 @dataclass

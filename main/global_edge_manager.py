@@ -4,17 +4,14 @@ Global Edge Network Manager for Cocoa
 低遅延の国際展開を実現するグローバルエッジネットワークシステム
 """
 
-import os
 import asyncio
 import logging
 import json
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-import threading
-import socket
 import time
 
 try:
@@ -24,9 +21,6 @@ except ImportError:
     np = None
     NUMPY_AVAILABLE = False
 
-import aiohttp
-import asyncio
-from urllib.parse import urlparse
 
 # Configure logging
 logger = logging.getLogger(__name__)

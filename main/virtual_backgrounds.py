@@ -4,8 +4,6 @@ Virtual Backgrounds Module for Cocoa
 仮想背景統合システム
 """
 
-import os
-import asyncio
 import logging
 import json
 import shutil
@@ -17,12 +15,10 @@ try:
 except ImportError:
     aiofiles = None
     AIOFILES_AVAILABLE = False
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
 from PIL import Image, ImageEnhance, ImageFilter
-import cv2
-import numpy as np
 
 from .integrated_security import get_security_manager
 
