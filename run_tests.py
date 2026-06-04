@@ -3,21 +3,98 @@
 Cocoaテストランナー
 包括的テストスイートの実行とレポート生成
 """
+from __future__ import annotations
+
 import os
 import sys
 import time
 import json
-import subprocess
+import shutil
+import inspect
 import logging
+import argparse
+import unittest
+import importlib
+import threading
+import traceback
+import subprocess
+import concurrent.futures
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, List
+from dataclasses import dataclass, field
+from typing import Dict, Any, List, Optional, Iterable, Callable
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    psutil = None
+    PSUTIL_AVAILABLE = False
 
 
 # プロジェクトルートをPythonパスに追加
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "main"))
+
+# 既定値
+DEFAULT_TESTS_DIR = PROJECT_ROOT / "tests"
+DEFAULT_PATTERN = "test_*.py"
+DEFAULT_VERBOSITY = 2
+
+
+class TestRunnerError(Exception):
+    """テストランナーの実行時エラー。"""
+
+
+@dataclass
+class RunnerConfig:
+    """テストランナーの設定。"""
+    tests_dir: Path = field(default_factory=lambda: DEFAULT_TESTS_DIR)
+    default_pattern: str = DEFAULT_PATTERN
+    default_verbosity: int = DEFAULT_VERBOSITY
+    extra_python_paths: tuple = ()
+    show_traceback: bool = False
+    enable_performance_metrics: bool = False
+    performance_report_path: Optional[Path] = None
+    enable_parallel_execution: bool = False
+    max_parallel_workers: int = 4
+    enable_self_adapting_thresholds: bool = False
+    monitoring_thresholds: dict = field(default_factory=lambda: {
+        "cpu_percent": 80.0,
+        "memory_percent": 85.0,
+        "execution_time_per_test": 30.0,
+        "error_rate": 10.0,
+    })
+    enable_json_logging: bool = False
+    json_log_path: Optional[Path] = None
+    enable_rollback_automation: bool = False
+    auto_test_config: dict = field(default_factory=lambda: {
+        "max_tests_per_module": 50,
+        "test_types": ["unit", "integration"],
+    })
+    rollback_config: dict = field(default_factory=lambda: {
+        "backup_dir": "test_backups",
+        "max_backups": 10,
+    })
+    dependency_checks: dict = field(default_factory=lambda: {
+        "min_python_version": "3.8.0",
+        "required_modules": [],
+        "optional_modules": [],
+        "min_memory_mb": 512,
+        "min_disk_space_mb": 1024,
+    })
+    metrics_config: dict = field(default_factory=lambda: {
+        "history_dir": "test_metrics",
+        "max_history_days": 30,
+    })
+
+
+def resolve_config_path(value: Optional[str]) -> Path:
+    """設定ファイルのパスを解決する（未指定時は config/test_runner.json）。"""
+    if value:
+        return resolve_project_path(value)
+    return PROJECT_ROOT / "config" / "test_runner.json"
 
 def setup_test_environment():
     """テスト環境をセットアップ"""
@@ -1046,6 +1123,18 @@ class MetricsTrendAnalyzer:
         except OSError as e:
             if self.json_logger:
                 self.json_logger.error("メトリクスファイルのクリーンアップに失敗しました", error=str(e))
+
+
+def run_suite(
+    suite: unittest.TestSuite,
+    verbosity: int = 1,
+    monitor=None,
+    use_parallel: bool = False,
+    max_workers: int = 4,
+    json_logger=None,
+    self_adapting_monitor=None,
+    rollback_manager=None,
+):
     """テストスイートを実行して終了コードと結果を返す。"""
     if json_logger:
         json_logger.info("テスト実行を開始します", tests_count=suite.countTestCases())
@@ -1100,6 +1189,16 @@ class MetricsTrendAnalyzer:
     )
     return 1, result
 
+
+def run_all_tests(args: argparse.Namespace, context: CommandContext) -> int:
+    """すべてのテストを検出して実行する（パフォーマンス監視・並列実行に対応）。"""
+    pattern = args.pattern if getattr(args, "pattern", None) else context.config.default_pattern
+    suite = discover_tests(context.config, pattern)
+    if suite.countTestCases() == 0:
+        raise TestRunnerError(
+            "有効なテストケースが検出されませんでした / "
+            "No test cases were discovered"
+        )
 
     # JSONログを有効にする
     json_logger = None
@@ -1482,7 +1581,9 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     ensure_pythonpath(config.extra_python_paths)
-    context = CommandContext(parser=parser, config=config, args=args)
+    # CLI で上書きした設定を ConfigManager のキャッシュに反映してから渡す
+    config_manager._config = config
+    context = CommandContext(parser=parser, config_manager=config_manager, args=args)
     return run_with_exception_handling(args.handler, args, context)
 
 
@@ -1669,18 +1770,6 @@ def build_runner_config(data: dict[str, Any]) -> RunnerConfig:
     )
 
 
-def resolve_project_path(value: Any) -> Path:
-    if isinstance(value, Path):
-        path = value
-    elif isinstance(value, str):
-        path = Path(value).expanduser()
-    else:
-        raise TestRunnerError(
-            "パス設定には文字列を使用してください / "
-            "Path configuration values must be strings"
-        )
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
 @dataclass
 class PerformanceMetrics:
     """テスト実行のパフォーマンス指標を記録する。"""

@@ -50,7 +50,7 @@ class Cocoa2025IntegrationTester:
             if self.test_results["total_tests"] > 0 else 0
         )
 
-        logger.info(f"Test completed. Success rate: {self.test_results['success_rate']".1f"}%")
+        logger.info(f"Test completed. Success rate: {self.test_results['success_rate']:.1f}%")
         return self.test_results
 
     async def test_rag_system(self):
@@ -283,7 +283,7 @@ async def main():
     print(f"Total Tests: {results['total_tests']}")
     print(f"Passed: {results['passed_tests']}")
     print(f"Failed: {results['failed_tests']}")
-    print(f"Success Rate: {results['success_rate']".1f"}%")
+    print(f"Success Rate: {results['success_rate']:.1f}%")
     print("\nTest Details:")
     print("-" * 40)
 

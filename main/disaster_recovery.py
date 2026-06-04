@@ -350,9 +350,6 @@ class DisasterRecoveryManager:
         now = datetime.utcnow()
         # 年次バックアップの保持期間を基準に
         return now - timedelta(days=self.retention_policy['yearly'] * 365) + timedelta(days=1)
-        except Exception as e:
-            logger.error(f"クリーンアップエラー: {e}", exc_info=True)
-            return 0, 0
 
     def get_recovery_status(self) -> Dict[str, Any]:
         """復旧ステータスの取得"""

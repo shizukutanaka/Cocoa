@@ -4,6 +4,7 @@ AI Avatar Generator GUI Module for Cocoa
 AIアバター生成GUIコンポーネント
 """
 
+import os
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import asyncio
@@ -407,7 +408,8 @@ class AIAvatarGeneratorGUI:
                 self.root.after(0, lambda: self._handle_video_creation_result(result))
 
             except Exception as e:
-                self.root.after(0, lambda: self._handle_video_creation_error(str(e)))
+                err = str(e)
+                self.root.after(0, lambda: self._handle_video_creation_error(err))
 
         # イベントループ実行
         asyncio.run(create())
@@ -532,6 +534,8 @@ class AIAvatarGeneratorGUI:
 
         except Exception as e:
             messagebox.showerror("保存エラー", f"保存に失敗しました:\n{str(e)}")
+
+    async def initialize_generator(self):
         """AI生成器を初期化"""
         try:
             self.status_label.config(text="AIモデルを初期化中...", foreground="orange")
@@ -608,7 +612,8 @@ class AIAvatarGeneratorGUI:
                 self.root.after(0, lambda: self._handle_generation_result(result))
 
             except Exception as e:
-                self.root.after(0, lambda: self._handle_generation_error(str(e)))
+                err = str(e)
+                self.root.after(0, lambda: self._handle_generation_error(err))
 
         # イベントループ実行
         asyncio.run(generate())

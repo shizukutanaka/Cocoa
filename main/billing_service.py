@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import threading
+import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -262,7 +263,6 @@ class BillingEventLog:
 class StripeBillingService:
     """Stripe API を用いた課金処理ラッパー."""
 
-{{ ... }}
     def __init__(self, config: Optional[BillingConfig] = None, storage: Optional[BillingStorage] = None, event_log: Optional[BillingEventLog] = None, *, config_path: Path = CONFIG_PATH) -> None:
         self._config = config or BillingConfig.load(config_path)
         if not self._config.enabled:
@@ -284,8 +284,6 @@ class StripeBillingService:
 
     def list_price_tiers(self) -> Dict[str, PriceTier]:
         """利用可能な課金ティアを返却します."""
-{{ ... }}
-
         return dict(self._config.tiers)
 
     @property
