@@ -3,19 +3,13 @@ RAG-Enhanced Avatar Generator for Cocoa
 Retrieval-Augmented Generationを活用した高度なアバター生成システム
 """
 
-import os
-import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional
 from datetime import datetime
 import json
 
-import torch
-import numpy as np
-from PIL import Image
 from sentence_transformers import SentenceTransformer
-import faiss
 import chromadb
 
 from .integrated_security import get_security_manager

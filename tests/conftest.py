@@ -10,8 +10,7 @@ import os
 import sys
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, MagicMock
-from typing import Generator
+from unittest.mock import MagicMock
 
 # プロジェクトルートを sys.path に追加
 project_root = Path(__file__).parent.parent

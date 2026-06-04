@@ -1,9 +1,13 @@
 import json
-import os
 from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
 from logging_manager import Logger
 from collections import defaultdict
+
+
+class PresetError(Exception):
+    """プリセット操作に関するエラー。"""
+
 
 class PresetManager:
     """Manage and manipulate presets"""

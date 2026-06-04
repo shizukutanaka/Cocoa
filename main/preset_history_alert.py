@@ -1,5 +1,4 @@
 import time
-import json
 import requests
 import argparse
 from datetime import datetime

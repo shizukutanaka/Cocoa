@@ -11,16 +11,12 @@ import json
 import hashlib
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-import threading
 import queue
 
 from web3 import Web3
-from web3.eth import Eth
 from web3.contract import Contract
-import eth_account
-from eth_account import Account
 
 # Configure logging
 logger = logging.getLogger(__name__)

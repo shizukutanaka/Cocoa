@@ -4,15 +4,12 @@ Template Library Module for Cocoa
 多様なアバター・動画テンプレートライブラリ
 """
 
-import os
 import json
-import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union
 from dataclasses import dataclass
 from datetime import datetime
-import shutil
 
 from .integrated_security import get_security_manager
 

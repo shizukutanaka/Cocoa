@@ -23,6 +23,8 @@ except ImportError:
 from services.shared.config import get_config, ConfigManager
 from services.shared.models import CollaborationSession, CollaborationParticipant, CollaborationMessage, User
 from services.shared.database import DatabaseManager, get_db
+
+logger = logging.getLogger(__name__)
 from services.shared.logger import setup_logging
 
 
@@ -586,9 +588,8 @@ async def handle_webrtc_offer(session_id: str, user_id: str, offer: Dict[str, An
         await pc.setLocalDescription(answer)
 
         return {
-            "type": "answer",
-            "sdp": pc.localDescription.sdp,
-            "type": pc.localDescription.type
+            "type": pc.localDescription.type,
+            "sdp": pc.localDescription.sdp
         }
 
     except Exception as e:

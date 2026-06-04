@@ -4,7 +4,6 @@ Metaverse Integration Module for Avatar System
 VR/AR環境でのシームレスなアバター統合機能を提供
 """
 
-import os
 import asyncio
 import logging
 import json
@@ -12,19 +11,21 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
-import uuid
 
-import torch
-import numpy as np
-from PIL import Image, ImageDraw
-import cv2
 
 from .quantum_safe_manager import get_quantum_safe_manager
-from .edge_ai_manager import get_edge_ai_manager
-from .blockchain_audit import get_blockchain_audit_manager
+from .edge_ai_manager import get_edge_ai_manager, ModelCompressionConfig
+from .blockchain_audit import get_blockchain_audit_manager, BlockchainAuditEvent
 from .ar_cloud_manager import get_ar_cloud_manager
 from .bci_manager import get_bci_manager
 from .global_edge_manager import get_global_edge_manager
+from .integrated_security import get_security_manager, get_ai_security_manager
+from .i18n_manager import get_i18n_manager
+from .performance_monitor import get_hybrid_system_manager
+from .avatar_agent import get_agentic_ai_manager
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class MetaverseAvatarRequest:
@@ -1004,19 +1005,6 @@ class ARCloudAvatar {
         })
 
         return features
-
-# グローバルインスタンス管理
-_metaverse_integration_instance = None
-
-async def get_metaverse_integration() -> MetaverseIntegration:
-    """メタバース統合システムのインスタンスを取得"""
-    global _metaverse_integration_instance
-
-    if _metaverse_integration_instance is None:
-        _metaverse_integration_instance = MetaverseIntegration()
-        await _metaverse_integration_instance.initialize()
-
-    return _metaverse_integration_instance
 
     async def _prepare_avatar_for_platform(self, request: MetaverseAvatarRequest) -> Dict[str, Any]:
         """プラットフォーム固有のアバター準備"""

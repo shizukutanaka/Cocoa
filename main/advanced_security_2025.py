@@ -5,15 +5,15 @@ Advanced Security System for Cocoa 2025
 
 import os
 import json
-import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Set
-from datetime import datetime, timedelta
-from dataclasses import dataclass, asdict
+from typing import Dict, List, Any
+from datetime import datetime
+from dataclasses import dataclass
 import hashlib
 import secrets
-import hmac
+
+logger = logging.getLogger(__name__)
 
 # セキュリティ関連の追加インポート（2025年トレンド対応）
 try:
@@ -26,8 +26,6 @@ except ImportError:
     logger.warning("Post-quantum cryptography libraries not available")
 
 from .integrated_security import get_security_manager
-
-logger = logging.getLogger(__name__)
 
 @dataclass
 class ZeroTrustContext:

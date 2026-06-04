@@ -7,7 +7,7 @@ import asyncio
 import time
 import json
 import hashlib
-from typing import Any, Dict, Optional, Callable, Awaitable
+from typing import Any, Dict, Optional, Callable
 from pathlib import Path
 import threading
 import logging

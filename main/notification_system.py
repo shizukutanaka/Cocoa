@@ -1,7 +1,15 @@
 import json
 import platform
+from datetime import datetime
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
+
+from logging_manager import Logger
+
+
+class NotificationError(Exception):
+    """通知の送信に関するエラー。"""
+
 
 class NotificationSystem:
     """Manage and send notifications"""

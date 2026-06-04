@@ -15,7 +15,7 @@ import logging.config
 import json
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 from datetime import datetime
 import os
 

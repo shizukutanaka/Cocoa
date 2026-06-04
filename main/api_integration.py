@@ -5,19 +5,16 @@ API Integration Module for Cocoa
 """
 
 import os
-import asyncio
 import logging
 import json
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional, Callable, Any, Union
+from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import hmac
-import base64
 
-import aiohttp
 from aiohttp import web
 import aiofiles
 

@@ -12,10 +12,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.backends import default_backend
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 import secrets
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -383,7 +381,7 @@ def main():
         print(f"{level.value.upper()}:")
         print(f"  Iterations: {params.n:,}")
         print(f"  Memory: ~{params.memory_cost_kb:,} KB")
-        print(f"  Recommended for: ", end="")
+        print("  Recommended for: ", end="")
 
         if level == SecurityLevel.BALANCED:
             print("General use, good balance of security and performance")

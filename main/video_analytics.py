@@ -4,13 +4,12 @@ Video Analytics Module for Cocoa
 アバター動画のエンゲージメント・パフォーマンス計測
 """
 
-import os
 import asyncio
 import logging
 import json
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import statistics
@@ -542,9 +541,17 @@ class VideoAnalyticsService:
         recommendations = []
         for position, count in critical_points:
             if position < 10:
-                recommendations.append(".1f"            elif position > 50:
-                recommendations.append(".1f"            else:
-                recommendations.append(".1f"
+                recommendations.append(
+                    f"開始直後（{position:.1f}秒地点）で離脱が集中しています（{count}件）。冒頭の導入を見直してください。"
+                )
+            elif position > 50:
+                recommendations.append(
+                    f"後半（{position:.1f}秒地点）で離脱が見られます（{count}件）。終盤の構成やテンポを見直してください。"
+                )
+            else:
+                recommendations.append(
+                    f"中盤（{position:.1f}秒地点）で離脱が見られます（{count}件）。展開のテンポを見直してください。"
+                )
         return {
             "critical_points": [{"position": pos, "drop_offs": count} for pos, count in critical_points],
             "recommendations": recommendations[:3]  # 上位3件

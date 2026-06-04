@@ -16,14 +16,12 @@ import os
 import secrets
 import struct
 import time
-import uuid
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any
+from datetime import datetime
+from typing import Dict, List, Optional, Any
 import logging
 import json
 import qrcode
 import io
-from pathlib import Path
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes

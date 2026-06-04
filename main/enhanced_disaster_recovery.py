@@ -21,7 +21,6 @@ from typing import Dict, List, Optional, Tuple
 import hashlib
 import json
 import logging
-import shutil
 import tarfile
 import tempfile
 

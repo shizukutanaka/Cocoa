@@ -4,18 +4,16 @@ Interactive Avatar Module for Cocoa
 リアルタイムアバター交信システム
 """
 
-import os
 import asyncio
 import logging
 import json
 import websockets
-from typing import Dict, List, Optional, Callable, Any
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
-import threading
 import queue
 
-from .ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest, AvatarStyle
+from .ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
 from .integrated_security import get_security_manager
 
 # Configure logging

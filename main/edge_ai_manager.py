@@ -4,25 +4,17 @@ Edge AI Manager for Cocoa
 デバイスレベルでのAI処理と分散学習システム
 """
 
-import os
-import asyncio
+import time
 import logging
 import json
-import pickle
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-import threading
-import queue
-import tempfile
-import shutil
+from dataclasses import dataclass
+from datetime import datetime
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
-import numpy as np
+from torch.utils.data import Dataset
 
 try:
     import onnx

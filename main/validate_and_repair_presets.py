@@ -1,5 +1,10 @@
+import os
+import glob
+import json
 import time
+import shutil
 import logging
+from datetime import datetime
 from typing import Dict, Any, Optional
 from performance_monitor import PerformanceMonitor
 
@@ -84,18 +89,47 @@ def repair_preset(data):
             data[k] = v
     if not isinstance(data.get("parameters", []), list):
         data["parameters"] = []
+    return data
 
-        # パフォーマンス監視開始
-        self.preset_monitor = PresetPerformanceMonitor()
-        self.preset_monitor.performance_monitor.start_monitoring()
+def validate_and_repair_dir(target_dir, backup_dir="preset_backups", report_path=None):
+    """ディレクトリ内の全プリセットJSONを検証し、必要に応じて自動修復する。"""
+    monitor = PresetPerformanceMonitor()
     preset_files = glob.glob(os.path.join(target_dir, "*.json"))
+    reports = []
 
+    for filepath in preset_files:
+        op_id = monitor.start_operation("validate_and_repair")
+        entry = {"file": filepath, "repaired": False, "error": None}
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            original = json.dumps(data, ensure_ascii=False, sort_keys=True)
+            repaired = repair_preset(data)
+            if json.dumps(repaired, ensure_ascii=False, sort_keys=True) != original:
+                entry["backup"] = backup_file(filepath, backup_dir)
+                with open(filepath, "w", encoding="utf-8") as f:
+                    json.dump(repaired, f, ensure_ascii=False, indent=2)
+                entry["repaired"] = True
+            monitor.end_operation(op_id, success=True)
+        except (IOError, OSError, json.JSONDecodeError) as e:
+            entry["error"] = str(e)
+            monitor.end_operation(op_id, success=False)
+        reports.append(entry)
+
+    if report_path:
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(reports, f, ensure_ascii=False, indent=2)
+
+    return reports
+
+def main():
     import argparse
     parser = argparse.ArgumentParser(description="プリセット一括バリデーション＆自動修復ツール")
     parser.add_argument("dir", help="プリセットjson格納ディレクトリ")
     parser.add_argument("--backup", default="preset_backups", help="バックアップ保存先")
     parser.add_argument("--report", default=None, help="レポートjson出力パス")
-{{ ... }}
+    args = parser.parse_args()
     rep = validate_and_repair_dir(args.dir, args.backup, args.report)
     print(f"{len(rep)}件を検査・修復しました。詳細はレポートまたは標準出力を参照")
     for r in rep:

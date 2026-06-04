@@ -16,7 +16,7 @@ import json
 import secrets
 import hashlib
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict
 
 try:
     import bcrypt
@@ -159,11 +159,11 @@ class PersonalSecuritySetup:
             if BCRYPT_AVAILABLE:
                 hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
                 password_hash = hashed.decode()
-                print(f"  ✓ bcryptハッシュ生成完了")
+                print("  ✓ bcryptハッシュ生成完了")
             else:
                 # フォールバック: SHA-256 (本番では非推奨)
                 password_hash = hashlib.sha256(password.encode()).hexdigest()
-                print(f"  ⚠️  SHA-256ハッシュ使用 (bcrypt推奨)")
+                print("  ⚠️  SHA-256ハッシュ使用 (bcrypt推奨)")
 
             return password_hash
 
@@ -278,7 +278,7 @@ TZ=Asia/Tokyo
         with open(self.env_file, 'w', encoding='utf-8') as f:
             f.write(env_content)
 
-        print(f"  ✓ .env ファイル作成完了")
+        print("  ✓ .env ファイル作成完了")
 
     def create_personal_config(self):
         """個人用最適化設定の作成"""
@@ -398,7 +398,7 @@ TZ=Asia/Tokyo
         with open(self.personal_config, 'w', encoding='utf-8') as f:
             json.dump(personal_config, f, ensure_ascii=False, indent=2)
 
-        print(f"  ✓ config/config_personal.json 作成完了")
+        print("  ✓ config/config_personal.json 作成完了")
 
     def set_permissions(self):
         """セキュリティパーミッションの設定"""
@@ -446,17 +446,17 @@ TZ=Asia/Tokyo
         print("   http://localhost:8080")
         print()
         print("4. ログイン情報:")
-        print(f"   ユーザー名: admin")
-        print(f"   パスワード: (設定したパスワード)")
+        print("   ユーザー名: admin")
+        print("   パスワード: (設定したパスワード)")
         print()
         print("=" * 60)
         print()
         print("🔒 セキュリティ情報:")
-        print(f"  • 環境変数ファイル: .env")
-        print(f"  • 設定ファイル: config/config_personal.json")
-        print(f"  • セキュリティレベル: MAXIMUM (個人使用最適化)")
-        print(f"  • 暗号化: AES-256-GCM")
-        print(f"  • バックアップ: 毎日自動実行、90日保持")
+        print("  • 環境変数ファイル: .env")
+        print("  • 設定ファイル: config/config_personal.json")
+        print("  • セキュリティレベル: MAXIMUM (個人使用最適化)")
+        print("  • 暗号化: AES-256-GCM")
+        print("  • バックアップ: 毎日自動実行、90日保持")
         print()
         print("⚠️  重要:")
         print("  • .env ファイルは絶対に公開しないでください")

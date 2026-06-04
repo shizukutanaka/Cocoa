@@ -11,7 +11,7 @@ import os
 import json
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any
 import hashlib
 import time
 
@@ -51,8 +51,8 @@ class CocoaHealthChecker:
             "warnings": len(self.warnings),
             "issues": len(self.issues),
             "passed_checks": self.passed_checks,
-            "warnings": self.warnings,
-            "issues": self.issues
+            "warning_details": self.warnings,
+            "issue_details": self.issues
         }
 
         self._print_report(result)
@@ -298,15 +298,15 @@ class CocoaHealthChecker:
         print(f"❌ 問題 / Issues: {result['issues']}")
         print()
 
-        if result['issues']:
+        if result['issue_details']:
             print("🔴 修正が必要な問題 / Issues requiring fixes:")
-            for issue in result['issues']:
+            for issue in result['issue_details']:
                 severity_icon = "🔴" if issue['severity'] == 'high' else "🟡" if issue['severity'] == 'medium' else "🟢"
                 print(f"  {severity_icon} {issue['message']}")
 
-        if result['warnings']:
+        if result['warning_details']:
             print("\n🟡 改善推奨事項 / Recommended improvements:")
-            for warning in result['warnings']:
+            for warning in result['warning_details']:
                 print(f"  🟡 {warning['message']}")
 
         print("\n✅ 正常に確認された項目 / Successfully verified:")

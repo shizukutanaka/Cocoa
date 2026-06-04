@@ -4,21 +4,16 @@ Photo-to-Avatar AI Generator Module for Cocoa
 写真から高品質なAIアバターを生成する機能を提供
 """
 
-import os
 import asyncio
 import logging
-import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
-import uuid
 
-import torch
 import numpy as np
 from PIL import Image, ImageDraw
 import cv2
-from transformers import pipeline, AutoImageProcessor, AutoModelForImageToImage
 import face_recognition
 
 from .integrated_security import get_security_manager

@@ -4,6 +4,11 @@ from typing import Dict, Any
 from datetime import datetime
 from logging_manager import Logger
 
+
+class PerformanceError(Exception):
+    """パフォーマンス監視・計測に関するエラー。"""
+
+
 class PerformanceAnalyzer:
     """Analyze system and application performance"""
     

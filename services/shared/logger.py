@@ -3,6 +3,7 @@
 全サービスで共有されるログ設定
 """
 
+import os
 import logging
 import logging.handlers
 import sys

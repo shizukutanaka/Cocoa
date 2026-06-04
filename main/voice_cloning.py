@@ -7,10 +7,9 @@ Voice Cloning Module for Cocoa
 import os
 import asyncio
 import logging
-import tempfile
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 import json

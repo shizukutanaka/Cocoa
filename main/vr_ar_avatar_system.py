@@ -3,12 +3,10 @@ VR/AR Enhanced Avatar System for Cocoa
 WebXRとハプティック技術を活用した没入型アバター体験システム
 """
 
-import os
 import json
-import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 from dataclasses import dataclass, asdict
 

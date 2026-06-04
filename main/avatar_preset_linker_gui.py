@@ -1,10 +1,12 @@
 import os
+import logging
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import json
 from pathlib import Path
-import asyncio
 from .ai_avatar_gui import AIAvatarGeneratorGUI
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 LINKS_FILE = BASE_DIR / "avatar_preset_links.json"
@@ -267,10 +269,10 @@ class AvatarPresetLinkerGUI:
 
         # ファイル存在確認
         if not os.path.isfile(avatar):
-            self.show_status(f"アバターファイルが見つかりません", 'error')
+            self.show_status("アバターファイルが見つかりません", 'error')
             return
         if not os.path.isfile(preset):
-            self.show_status(f"プリセットファイルが見つかりません", 'error')
+            self.show_status("プリセットファイルが見つかりません", 'error')
             return
 
         # ファイルアクセス権限確認
@@ -320,7 +322,7 @@ class AvatarPresetLinkerGUI:
                 if avatar_path in self.links:
                     del self.links[avatar_path]
                     self.save_links()
-                    self.show_status(f"✓ リンクを削除しました", 'success')
+                    self.show_status("✓ リンクを削除しました", 'success')
                     self.load_links()
             except Exception as e:
                 self.show_status(f"削除に失敗しました: {str(e)}", 'error')

@@ -6,7 +6,6 @@ Production-gradeのデータベース統合機能を提供し、
 """
 
 import os
-import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Type, TypeVar, Generic
@@ -16,8 +15,6 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, B
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
 from sqlalchemy.pool import QueuePool
-from sqlalchemy.exc import SQLAlchemyError
-import alembic
 from alembic.config import Config
 from alembic import command
 

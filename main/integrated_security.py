@@ -1,3 +1,41 @@
+"""
+Integrated Security module for Cocoa.
+
+Provides encryption (AES-256-GCM), security auditing, input validation,
+behavioral anomaly detection and zero-trust session management.
+"""
+
+import os
+import re
+import json
+import time
+import hashlib
+import secrets
+import logging
+from stat import S_IMODE
+from pathlib import Path
+from enum import Enum
+from datetime import datetime
+from dataclasses import dataclass, field
+from collections import defaultdict, deque
+from typing import Dict, List, Optional, Tuple, Any
+
+logger = logging.getLogger(__name__)
+
+# Optional scientific stack (used by the behavioural anomaly detector).
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+
+try:
+    from sklearn.ensemble import IsolationForest
+    from sklearn.preprocessing import StandardScaler
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+
 try:
     import oqs
     OQS_AVAILABLE = True
@@ -165,6 +203,27 @@ class PrivacyProtector:
 
         policy = self.privacy_policies[user_id]
         allowed_targets = policy.get('allowed_sharing', [])
+        return target in allowed_targets
+
+
+class AdvancedBehaviorAnalyzer:
+    """機械学習と統計手法を併用した行動異常検知システム。"""
+
+    def __init__(self):
+        # behavior_key("{behavior_type}_{user_id}") -> 行動データの履歴
+        self.user_behaviors: Dict[str, deque] = defaultdict(lambda: deque(maxlen=1000))
+        # user_id -> behavior_type -> 統計ベースライン
+        self.baselines: Dict[str, Dict[str, Any]] = {}
+        # user_id -> 学習済み IsolationForest モデル
+        self.ml_models: Dict[str, Any] = {}
+        # user_id -> 特徴量スケーラー
+        self.scalers: Dict[str, Any] = {}
+        # 異常判定のしきい値（0.0-1.0）
+        self.anomaly_threshold = 0.7
+
+    def _save_models(self) -> None:
+        """学習済みモデルの永続化フック（環境依存のため既定では何もしない）。"""
+        return None
 
     def record_behavior(self, user_id: str, behavior_type: str, value: float, timestamp: Optional[float] = None, context: Dict[str, Any] = None):
         """行動データを記録し、機械学習モデルを更新"""
@@ -738,7 +797,8 @@ class IntegratedSecurityManager:
         # ゼロトラストセッションの登録（初回アクセス時）
         session_id = f"{user_id}_{int(current_time)}"  # 簡易的なセッションID
         if session_id not in self.zero_trust.trusted_sessions:
-            self.zero_trust.register_session(session_id, user_id, anomaly_score if anomaly_detected else 0.0)
+            # 登録時点ではまだ異常検知を実行していないため初期リスクは 0.0
+            self.zero_trust.register_session(session_id, user_id, 0.0)
 
         # 1. 入力検証
         valid, msg = self.validator.validate_input_data(data)
@@ -1125,6 +1185,15 @@ class QuantumThreatAssessment:
     affected_algorithms: List[str]
     recommended_actions: List[str]
     assessment_date: datetime
+
+@dataclass
+class PromptInjectionPattern:
+    """プロンプトインジェクション検知パターン"""
+    pattern_id: str
+    pattern: str
+    severity: str  # "low", "medium", "high", "critical"
+    description: str
+    regex: Any = None  # コンパイル済み正規表現 (re.Pattern)
 
 @dataclass
 class AIModelMetadata:

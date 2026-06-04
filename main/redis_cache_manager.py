@@ -5,15 +5,17 @@ Production-gradeのRedisキャッシュ機能を提供し、
 分散環境でのスケーラブルなキャッシュ機能を実現します。
 """
 
+import os
 import asyncio
 import json
 import time
 import hashlib
 import pickle
-from typing import Any, Dict, Optional, Callable, Awaitable, Union, List
-from pathlib import Path
+from typing import Any, Dict, Optional, Callable, Awaitable, Union
 import threading
 import logging
+
+from cache_manager import MemoryCache
 
 try:
     import redis

@@ -7,20 +7,17 @@ Production-grade APIサーバー実装
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import uuid
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 import uvicorn
 
 # カスタムモジュールインポート
@@ -29,7 +26,7 @@ try:
     from .health_monitor import get_health_monitor
     from .integrated_security import get_security_manager
     from .disaster_recovery import get_recovery_manager
-    from .database_manager import get_database_service, get_user_avatars, create_avatar_preset, log_audit_event
+    from .database_manager import get_database_service, get_database_manager, get_user_avatars, create_avatar_preset, log_audit_event
     from .redis_cache_manager import get_cache_manager, cache_async
     from .two_factor_auth import get_two_factor_service, setup_2fa, verify_2fa_token, verify_backup_code, disable_2fa, get_2fa_status
 except ImportError:

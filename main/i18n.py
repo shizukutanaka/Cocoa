@@ -1,7 +1,6 @@
 import os
 import json
 import locale
-import tkinter as tk
 
 # 100+言語対応のフォントマップ例（必要に応じて拡張）
 FONT_MAP = {

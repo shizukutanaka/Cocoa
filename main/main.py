@@ -7,6 +7,11 @@ import sys
 import os
 from pathlib import Path
 
+try:
+    from tkinter import messagebox
+except ImportError:  # tkinter が無いヘッドレス環境向けフォールバック
+    messagebox = None
+
 # プロジェクトルートをPythonパスに追加
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
@@ -221,7 +226,6 @@ class CocoaLauncher:
         """ヘルスチェック実行ハンドラ"""
         try:
             from .health_monitor import get_health_monitor
-            import json
             from tkinter import messagebox
 
             # ヘルスチェック実行
@@ -315,7 +319,6 @@ class CocoaLauncher:
     def _start_grafana_monitoring_handler(self):
         """Grafana監視起動ハンドラ"""
         try:
-            import threading
             from .grafana_integration import setup_grafana_integration
 
             # Grafana統合をセットアップ

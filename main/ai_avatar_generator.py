@@ -8,16 +8,14 @@ import os
 import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 from dataclasses import dataclass
 from datetime import datetime
 
 import torch
 from PIL import Image
-import numpy as np
 from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
 from transformers import CLIPProcessor, CLIPModel
-import cv2
 
 from .integrated_security import get_security_manager
 

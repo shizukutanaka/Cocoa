@@ -3,15 +3,13 @@
 Cocoaテストランナー
 包括的テストスイートの実行とレポート生成
 """
-import os
 import sys
 import time
 import json
 import subprocess
-import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 # プロジェクトルートをPythonパスに追加
 PROJECT_ROOT = Path(__file__).parent
@@ -217,7 +215,7 @@ def generate_test_report(results: Dict[str, Any]):
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(html_report)
 
-    print(f"✅ テストレポートを生成しました:")
+    print("✅ テストレポートを生成しました:")
     print(f"   - JSON: {report_path}")
     print(f"   - HTML: {html_path}")
 
