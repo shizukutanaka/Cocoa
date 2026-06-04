@@ -588,9 +588,8 @@ async def handle_webrtc_offer(session_id: str, user_id: str, offer: Dict[str, An
         await pc.setLocalDescription(answer)
 
         return {
-            "type": "answer",
-            "sdp": pc.localDescription.sdp,
-            "type": pc.localDescription.type
+            "type": pc.localDescription.type,
+            "sdp": pc.localDescription.sdp
         }
 
     except Exception as e:
