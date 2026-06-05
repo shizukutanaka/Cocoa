@@ -10,10 +10,10 @@
 - [x] 4. プリセット/パラメータ管理（差分・履歴・ロールバック）
 - [x] 5. 音声: クローン/TTS/リップシンク(viseme)
 - [x] 6. 会話AI・人格・自律エージェント
-- [ ] 7. メタバース/XR・相互運用（VRM/glTF/AR/edge）
-- [ ] 8. セキュリティ・暗号・耐量子・監査
-- [ ] 9. 監視・可観測性・信頼性（health/perf/DR/cache）
-- [ ] 10. 基盤・運用（API/DB/課金/i18n/フロント/配信）
+- [x] 7. メタバース/XR・相互運用（VRM/glTF/AR/edge）
+- [x] 8. セキュリティ・暗号・耐量子・監査
+- [x] 9. 監視・可観測性・信頼性（health/perf/DR/cache）
+- [x] 10. 基盤・運用（API/DB/課金/i18n/フロント/配信）　← 全カテゴリ完了
 
 ---
 
@@ -149,13 +149,102 @@
 
 ---
 
-## カテゴリ 7–10（次イテレーションで収集）
-| # | カテゴリ | 対象モジュール |
-|---|---|---|
-| 7 | メタバース/XR・相互運用 | `metaverse_integration`, `ar_cloud_manager`, `edge_ai_manager`, `global_edge_manager`, `bci_manager` |
-| 8 | セキュリティ・暗号・耐量子・監査 | `integrated_security`, `advanced_security_2025`, `config_encryptor`, `secret_manager`, `blockchain_audit` |
-| 9 | 監視・可観測性・信頼性 | `health_monitor`, `performance_monitor`, `prometheus_monitor`, `grafana_integration`, `disaster_recovery`, `redis_cache_manager` |
-| 10 | 基盤・運用 | `api_server`, `database_manager`, `billing_service`, `i18n_manager`, `frontend/`, `services/` |
+## カテゴリ 7: メタバース/XR・相互運用（VRM/glTF/AR/edge）
+**Cocoa 現状**: `metaverse_integration`（VRM/glTF は名称のみ・実体なし）, `ar_cloud_manager`, `edge_ai_manager`, `global_edge_manager`, `bci_manager`（投機的）。
+
+**収集（GitHub/標準）**
+1. vrm-c/UniVRM — glTF ベース VRM の Unity 標準実装（import/export）。
+2. Khronos × VRM Consortium（2024-10）— VRM を**glTF 公式拡張**として国際標準化。
+3. glTF 2.0（Khronos）— 3D 交換の基盤フォーマット。
+4. OpenXR（Khronos）— XR ランタイム標準。
+5. OpenUSD × glTF interop（AOUSD × Khronos）— シーン交換の橋渡し。
+6. Metaverse Standards Forum — 標準整合の枠組み。
+7. three.js / WebXR — Web 配信・実行。
+8. Ready Player Me / Avaturn — 相互運用アバターの実例。
+9. VRM 1.0 仕様（VRM Consortium）。
+10. Khronos glTF 拡張（VRM 機能の拡張提案, 2025）。
+
+**改善点**
+- VRM/glTF を**実エクスポート**化（UniVRM 互換構造、VRM 1.0 / glTF 2.0 準拠）。
+- **OpenXR/WebXR/three.js** への配信経路、Khronos の **glTF VRM 拡張**動向に追従。
+- DCC 連携に **OpenUSD** interop を検討。
+- `bci_manager` 等の投機的機能は **experimental 明示 or 範囲縮小**（誇大表記の是正）。
+
+## カテゴリ 8: セキュリティ・暗号・耐量子・監査
+**Cocoa 現状**: `integrated_security`（AES-GCM, SQLite 監査）, `advanced_security_2025`（**PQC 非機能**）, `config_encryptor`, `secret_manager`, `blockchain_audit`（web3 依存）。
+
+**収集（GitHub/標準）**
+1. open-quantum-safe/liboqs — 耐量子 KEM/署名の C ライブラリ。
+2. open-quantum-safe/liboqs-python — Python バインディング。
+3. open-quantum-safe/oqs-provider — OpenSSL3 provider、ハイブリッド、ML-KEM/ML-DSA 各種。
+4. NIST FIPS 203/204/205（ML-KEM/ML-DSA/SLH-DSA）。
+5. CNSA 2.0（ML-KEM-1024 / ML-DSA-87）。
+6. C2PA — 生成物の来歴(provenance)・真正性。
+7. pyca/cryptography — 実在ライブラリ（dilithium/falcon は**無い**）。
+8. PyCryptodome — 一部 PQC 追加。
+9. OWASP ASVS — アプリ検証標準。
+10. Sigstore / SLSA — リリースのサプライチェーン保護。
+
+**改善点**
+- 非機能の `dilithium/falcon` import を **liboqs-python / oqs-provider** に置換（ML-KEM/ML-DSA, **hybrid**, CNSA 2.0）。誇大表記を撤回（[`../FIX_REPORT.md`], [`IMPROVEMENT_BACKLOG.md`] 7.1）。
+- 生成メディアに **C2PA 来歴**付与（カテゴリ1/2/5 と連動）。
+- 監査は既定 **ローカル改竄検知ハッシュチェーン**、web3 は opt-in。
+- **OWASP ASVS** 準拠チェック、**Sigstore/SLSA** で配布物の完全性。
+
+## カテゴリ 9: 監視・可観測性・信頼性
+**Cocoa 現状**: `health_monitor`, `performance_monitor`, `prometheus_monitor`, `grafana_integration`, `disaster_recovery`, `redis_cache_manager`。**独自実装で OTel 非準拠**。
+
+**収集（GitHub/標準）**
+1. OpenTelemetry — トレース/メトリクス/ログの業界標準。
+2. blueswen/fastapi-observability — OTel + Tempo + Prometheus + Loki + Grafana。
+3. webscit/opentelemetry-demo-python — manual/auto 計装。
+4. prometheus-client（Python）。
+5. Grafana ダッシュボード（FastAPI Observability #16110）。
+6. Loki（ログ）/ Tempo（トレース）。
+7. Sentry — エラートラッキング。
+8. OpenMetrics + exemplars — トレース↔メトリクス相関。
+9. SLO/アラート規範（一貫ラベル・低カーディナリティ・/metrics）。
+10. OTel GenAI semantic conventions — LLM 可観測性（カテゴリ6 用）。
+
+**改善点**
+- 独自モニタを **OpenTelemetry** に移行（ベンダ非依存）→ Prometheus/Tempo/Loki/Grafana。
+- **exemplar によるトレース↔メトリクス相関**、**SLO/アラート**、**Sentry** 導入。
+- 会話機能向けに **LLM 可観測性**（OTel GenAI 規約）。
+- health を実 K8s probe 化、DR ランブックを実テスト。
+
+## カテゴリ 10: 基盤・運用（API/DB/課金/i18n/フロント/配信）
+**Cocoa 現状**: `api_server`（Flask/FastAPI 混在）, `database_manager`, `billing_service`（Stripe）, `i18n_manager`（140+言語）, `frontend/`（React/TS）, `services/`（マイクロサービス）。
+
+**収集（GitHub/標準）**
+1. zhanymkanov/fastapi-best-practices — 実運用規約。
+2. benavlabs/FastAPI-boilerplate — async, Pydantic v2, SQLAlchemy 2.0, PG, Redis（Stripe 同梱版）。
+3. SQLAlchemy 2.0 async + Alembic — セッション/移行。
+4. Stripe（webhook/サブスク）ベストプラクティス。
+5. Celery + Redis — バックグラウンドジョブ。
+6. Next.js 15 / React — フロント。
+7. TanStack Query（サーバ状態）/ Zustand（クライアント状態）。
+8. i18next / FormatJS — フロント i18n。
+9. Pydantic v2 — 検証。
+10. Docker Compose / Kubernetes — デプロイ（既存 `docker-compose.yml` あり）。
+
+**改善点**
+- **Flask/FastAPI 混在を解消**し async FastAPI + Pydantic v2 + SQLAlchemy 2.0 async + Alembic に統一。
+- **フィーチャモジュール構成**（router/schemas/services を機能単位に）。
+- billing の **Stripe webhook 強化**（署名検証・冪等性）。
+- フロントは **TanStack Query + Zustand**、**i18next** をバックエンド i18n（140+言語）と同期。
+- 重い生成処理は **Celery+Redis** でリクエスト経路から分離（カテゴリ1/2/5 と連動）。
+
+---
+
+## まとめ（横断テーマ Top 5）
+全10カテゴリ × 各10件の収集から浮かぶ、Cocoa が取るべき横断的改善:
+1. **2D→3D への転換**（カテゴリ2,7）: 写真→FLAME+3DGS の駆動可能3D + 実 VRM/glTF 出力が最大の価値。
+2. **"動いて話す" 統合**（カテゴリ2,5,6）: 顔(FLAME)＋声(クローン)＋口パク(viseme)＋LLM人格/記憶 を一気通貫に。
+3. **解析→自動最適化**（カテゴリ3,4）: VRChat の非破壊ワンクリック最適化と 256bit 予算/ビットパッキング。
+4. **主張と実装の整合**（カテゴリ8,7）: 非機能な PQC・名称のみの VRM・投機的 BCI を是正/明示（[`../FIX_REPORT.md`] と一貫）。
+5. **品質と運用の標準化**（カテゴリ9,10,+評価）: OpenTelemetry・FastAPI/SQLAlchemy 統一・FID/CLIP/CSIM 評価 + CI ゲート。
+
+> 実施順の推奨: まず [`../FIX_REPORT.md`] のアーキ健全化 → カテゴリ8(PQC是正,小)・10(基盤統一) → カテゴリ2/7(3D+VRM) → 5/6(声/会話) → 3/4(最適化)。
 
 ---
 
@@ -172,3 +261,9 @@
 - uLipSync — https://github.com/hecomi/uLipSync ・ Wav2Lip — https://github.com/Rudrabha/Wav2Lip ・ NVIDIA Audio2Face（Omniverse）
 - SillyTavern（character cards/lorebook）・ Letta/MemGPT — https://github.com/jocelinho/MemGPT ・ Agent_Memory_Techniques — https://github.com/NirDiamant/Agent_Memory_Techniques
 - trainable-agents (Character-LLM) — https://github.com/choosewhatulike/trainable-agents ・ Awesome-Role-Play-Papers — https://github.com/nuochenpku/Awesome-Role-Play-Papers
+
+## 主要ソース（カテゴリ7–10）
+- UniVRM — https://github.com/vrm-c/UniVRM ・ Khronos×VRM 標準化 — https://www.khronos.org/news/press/the-khronos-group-and-vrm-consortium-collaborate-to-advance-international-standardization-of-the-vrm-3d-avatar-file-format ・ glTF Now and Next — https://www.khronos.org/blog/gltf-now-and-next
+- liboqs — https://github.com/open-quantum-safe/liboqs ・ liboqs-python — https://github.com/open-quantum-safe/liboqs-python ・ oqs-provider — https://github.com/open-quantum-safe/oqs-provider
+- fastapi-observability — https://github.com/blueswen/fastapi-observability ・ opentelemetry-demo-python — https://github.com/webscit/opentelemetry-demo-python ・ Grafana FastAPI dashboard — https://grafana.com/grafana/dashboards/16110-fastapi-observability/
+- fastapi-best-practices — https://github.com/zhanymkanov/fastapi-best-practices ・ FastAPI-boilerplate — https://github.com/benavlabs/FastAPI-boilerplate
