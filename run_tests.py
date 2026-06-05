@@ -1248,7 +1248,7 @@ def run_all_tests(args: argparse.Namespace, context: CommandContext) -> int:
         if json_logger:
             json_logger.close()
 
-        return result_code
+
 def normalize_module_name(name: str) -> str:
     candidate = name.strip()
     if not candidate:
@@ -1357,7 +1357,8 @@ def run_selected_tests(args: argparse.Namespace, context: CommandContext) -> int
             "有効なテストケースが検出されませんでした / "
             "No test cases were discovered"
         )
-    return run_suite(suite, verbosity=context.effective_verbosity, use_parallel=context.config.enable_parallel_execution, max_workers=context.config.max_parallel_workers)
+    result_code, _ = run_suite(suite, verbosity=context.effective_verbosity, use_parallel=context.config.enable_parallel_execution, max_workers=context.config.max_parallel_workers)
+    return result_code
 
 
 def show_available_tests(_: argparse.Namespace, context: CommandContext) -> int:
