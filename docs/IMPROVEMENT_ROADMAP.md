@@ -16,7 +16,7 @@
 | 順 | 項目 | Impact | Effort | Conf | Dep | 主拠り所 |
 |---|---|---|---|---|---|---|
 | 1 | **アーキ健全化の完了**（hub依存分割・テスト整備） | H | M | H | — | FIX_REPORT |
-| 2 | **PQC 是正**（dilithium/falcon は非実在→liboqs/oqs-provider, ML-KEM/ML-DSA, hybrid, CNSA2.0）＋誇大表記撤回 | H | M | H | — | liboqs, NIST FIPS 203/204/205 |
+| 2 ✅着手 | **PQC 是正**（dilithium/falcon は非実在→liboqs/oqs, ML-KEM/ML-DSA hybrid）＋誇大表記撤回。`advanced_security_2025.py` 実装済（非実在import除去・無害化された平文返却バグ修正・ML-DSA署名/ML-KEM+AES-GCMハイブリッド） | H | M | H | — | liboqs, NIST FIPS 203/204/205 |
 | 3 | **基盤統一**（Flask/FastAPI混在→async FastAPI+Pydantic v2+SQLAlchemy2.0+Alembic、feature構成） | H | M | H | — | fastapi-best-practices |
 | 4 | **実 VRM 1.0 / glTF 2.0 エクスポート**（名称のみ→UniVRM互換実体） | H | M | H | — | UniVRM, Khronos×VRM |
 | 5 | **単一画像→駆動可能3Dヘッド**（FLAME+3DGS フィードフォワード） | H | L | M | 4 | GAGAvatar, FastAvatar, GaussianAvatars, AniGS |
