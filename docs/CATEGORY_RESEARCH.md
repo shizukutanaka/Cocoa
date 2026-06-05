@@ -7,9 +7,9 @@
 - [x] 1. AIアバター生成（2D/画像）
 - [x] 2. 単一画像/テキスト→3D再構築・自動リグ
 - [x] 3. VRChat最適化・パフォーマンス
-- [ ] 4. プリセット/パラメータ管理（差分・履歴・ロールバック）
-- [ ] 5. 音声: クローン/TTS/リップシンク(viseme)
-- [ ] 6. 会話AI・人格・自律エージェント
+- [x] 4. プリセット/パラメータ管理（差分・履歴・ロールバック）
+- [x] 5. 音声: クローン/TTS/リップシンク(viseme)
+- [x] 6. 会話AI・人格・自律エージェント
 - [ ] 7. メタバース/XR・相互運用（VRM/glTF/AR/edge）
 - [ ] 8. セキュリティ・暗号・耐量子・監査
 - [ ] 9. 監視・可観測性・信頼性（health/perf/DR/cache）
@@ -81,12 +81,77 @@
 
 ---
 
-## カテゴリ 4–10（次イテレーション以降で収集）
+## カテゴリ 4: プリセット/パラメータ管理（差分・履歴・ロールバック）
+**Cocoa 現状**: `preset_manager`, `preset_diff_core`, `preset_history_*`, `template_library`, `parameter_optimizer`。ローカル JSON のプリセットを差分/履歴/ロールバック。**VRChat の 256bit 同期予算やビットパッキングは未対応**。
+
+**収集（GitHub/公式）**
+1. VRLabs/Avatars-3.0-Manager — Playable Layer / Expression Parameters の統合管理。
+2. OSC Parameter Sync (fuuujin) — 2int+2float で 255 float を同期（**ビットパッキング**で予算拡張）。
+3. regzo2/OSCmooth — OSC パラメータの**ネットワーク平滑化/補間**。
+4. I5UCC/VRCThumbParamsOSC — コントローラ/トラッカー入力→アバターパラメータ。
+5. vrchat-community/osc #163 — **256bit 同期上限**の制約議論。
+6. VRChat OSC Avatar Parameters（公式）— OSC パラメータ I/F。
+7. Animator Parameters（公式）— Av3 パラメータモデル。
+8. d4rkAvatarOptimizer — アニメータ/パラメータの統合・最適化も担う。
+9. JSON Schema（一般）— プリセット構造の検証（`validate_and_repair_presets` と連携）。
+10. CRDT / SemVer（一般）— 協調編集と履歴のマージ/競合解決。
+
+**改善点**
+- `parameter_optimizer` に **256bit 同期予算モデル + 自動ビットパッキング**を実装し、予算超過を警告。
+- **OSC I/F**（live 制御 + OSCmooth 風平滑化）を追加し外部入力/トラッカー連携。
+- `preset_manager` に **JSON Schema 検証**を導入（既存の修復ツールと統合）。
+- 履歴に **CRDT/SemVer ベースのマージ**を加え、チーム協調編集と競合解決に対応。
+- VRLabs Av3 Manager 互換の import/export でエコシステム接続。
+
+## カテゴリ 5: 音声 クローン/TTS/リップシンク(viseme)
+**Cocoa 現状**: `voice_cloning`（torch/torchaudio）, `video_creator`。**アバターのビセーム/ブレンドシェイプ駆動（口パク）は未実装**。
+
+**収集（GitHub/arXiv）**
+1. RVC-Boss/GPT-SoVITS — 1分音声で few-shot クローン TTS。
+2. myshell-ai/OpenVoice — 即時クローン・多言語・トーン制御。
+3. Coqui XTTS / IndexTTS(Bilibili) — zero-shot TTS。
+4. F5-TTS / StyleTTS2 — 高品質・自然韻律 TTS。
+5. Orpheus (Canopy AI) — Llama-3B、感情・0-shot クローン。
+6. Qwen3-TTS (Alibaba, Apache-2.0) — 多言語 TTS（i18n と整合）。
+7. hecomi/uLipSync — Unity の MFCC 音素→ブレンドシェイプ(A/I/U/E/O)。
+8. NVIDIA Audio2Face — 実時間 音声→3D 表情（viseme/ARKit）。
+9. Rudrabha/Wav2Lip — 音声→口元(2D, ACM MM'20)。
+10. Rhubarb Lip Sync — 音声→2D viseme（ゲーム向け）。
+11. wildminder/awesome-ai-voice — TTS/クローン横断リスト。
+
+**改善点**
+- **実時間 viseme/ARKit-blendshape リップシンク**（uLipSync/Audio2Face 系）を追加し、VRChat ビセーム・FLAME（カテゴリ2）と直結。
+- クローンを **SOTA zero/few-shot**（GPT-SoVITS/OpenVoice/XTTS）へ更新、**感情**(Orpheus)・**多言語**(Qwen3-TTS) 対応。
+- 会話用途のため**ストリーミング低遅延**化（カテゴリ6 と統合）。
+- **同意確認・音声DF検出**（[`IMPROVEMENT_BACKLOG.md`] 7.4）を必須化。
+
+## カテゴリ 6: 会話AI・人格・自律エージェント
+**Cocoa 現状**: `avatar_agent`, `avatar_personality_tuner`（ヒューリスティック）, `emotional_intelligence`, `interactive_avatar`, `rag_avatar_generator`。**LLM・長期記憶・反省/計画が無い**。
+
+**収集（GitHub/競合）**
+1. Inworld / Convai — 人格・感情・記憶・低遅延音声の "character brain"。
+2. SillyTavern — character cards / lorebook / group chat / メモリ。
+3. Letta(ex-MemGPT) — ステートフル・階層型長期記憶エージェント。
+4. MemGPT — LLM-as-OS のメモリ管理パラダイム。
+5. Mem0 / Zep / Graphiti — エージェント記憶バックエンド。
+6. choosewhatulike/trainable-agents (Character-LLM) — 役割演技の学習型エージェント。
+7. NirDiamant/Agent_Memory_Techniques — 記憶30手法 + LoCoMo ベンチ。
+8. Stanford Generative Agents (joonspk-research) — 記憶/反省/計画で信憑性ある行動。
+9. nuochenpku/Awesome-Role-Play-Papers — ロールプレイ LLM 論文集。
+10. LangChain / LlamaIndex — RAG フレームワーク（`rag_avatar_generator` 用）。
+
+**改善点**
+- ヒューリスティックを **LLM ペルソナ**へ：**character card + lorebook**（SillyTavern 形式）で人格定義。
+- **長期記憶**(Letta/MemGPT/Mem0) を導入しユーザを跨セッションで記憶。
+- `rag_avatar_generator` を **本物の RAG**（LlamaIndex + ベクタDB）に。
+- `avatar_agent` に **反省/計画**(Generative Agents) を入れ自律行動。
+- カテゴリ5(声)・2(顔) と統合し全身トーキングアバター化、**LoCoMo** で記憶評価。
+
+---
+
+## カテゴリ 7–10（次イテレーションで収集）
 | # | カテゴリ | 対象モジュール |
 |---|---|---|
-| 4 | プリセット/パラメータ管理 | `preset_manager`, `preset_diff_core`, `preset_history_*`, `template_library`, `parameter_optimizer` |
-| 5 | 音声 クローン/TTS/リップシンク | `voice_cloning`, `video_creator`, `avatar_video_creator` |
-| 6 | 会話AI・人格・自律エージェント | `avatar_agent`, `avatar_personality_tuner`, `emotional_intelligence`, `interactive_avatar`, `rag_avatar_generator` |
 | 7 | メタバース/XR・相互運用 | `metaverse_integration`, `ar_cloud_manager`, `edge_ai_manager`, `global_edge_manager`, `bci_manager` |
 | 8 | セキュリティ・暗号・耐量子・監査 | `integrated_security`, `advanced_security_2025`, `config_encryptor`, `secret_manager`, `blockchain_audit` |
 | 9 | 監視・可観測性・信頼性 | `health_monitor`, `performance_monitor`, `prometheus_monitor`, `grafana_integration`, `disaster_recovery`, `redis_cache_manager` |
@@ -100,3 +165,10 @@
 - GaussianAvatars — https://github.com/ShenhanQian/GaussianAvatars ・ FastAvatar — https://arxiv.org/pdf/2508.18389 ・ SEGA — https://arxiv.org/pdf/2504.14373
 - Generalizable Full-Head Gaussian Avatar — https://arxiv.org/pdf/2601.12770 ・ FLAME-Universe — https://github.com/TimoBolkart/FLAME-Universe
 - d4rkAvatarOptimizer — https://github.com/d4rkc0d3r/d4rkAvatarOptimizer ・ VRCFury — https://vrcfury.com/ ・ Thry Performance Tools — https://github.com/Thryrallo/VRC-Avatar-Performance-Tools
+
+## 主要ソース（カテゴリ4–6）
+- VRLabs/Avatars-3.0-Manager — https://github.com/VRLabs/Avatars-3.0-Manager ・ OSCmooth — https://github.com/regzo2/OSCmooth ・ VRChat OSC #163 — https://github.com/vrchat-community/osc/issues/163
+- GPT-SoVITS — https://github.com/RVC-Boss/GPT-SoVITS ・ OpenVoice — https://github.com/myshell-ai/OpenVoice ・ awesome-ai-voice — https://github.com/wildminder/awesome-ai-voice
+- uLipSync — https://github.com/hecomi/uLipSync ・ Wav2Lip — https://github.com/Rudrabha/Wav2Lip ・ NVIDIA Audio2Face（Omniverse）
+- SillyTavern（character cards/lorebook）・ Letta/MemGPT — https://github.com/jocelinho/MemGPT ・ Agent_Memory_Techniques — https://github.com/NirDiamant/Agent_Memory_Techniques
+- trainable-agents (Character-LLM) — https://github.com/choosewhatulike/trainable-agents ・ Awesome-Role-Play-Papers — https://github.com/nuochenpku/Awesome-Role-Play-Papers
