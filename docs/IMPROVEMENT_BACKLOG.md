@@ -145,3 +145,101 @@ Ready Player Me, VRoid) と arXiv SOTA は「**写真/テキスト 1 枚 → ア
 - Inworld AI — https://inworld.ai/
 - Convai — https://convai.com/
 - Ready Player Me / VRoid 比較 — https://www.vr-wave.store/no/blogs/best-game-on-oculus-quest/ready-player-me-vs-vroid-studio-a-step-by-step-avatar-creation-tutorial
+
+---
+
+## 7. 追加調査 Part 2（基盤・品質・コンプライアンス）
+
+Part 1 が「アバター生成の中身」中心だったのに対し、Part 2 は基盤・品質保証・法令の軸で
+洗い出す。いずれもコード実査で現状を確認済み。
+
+### 7.1 耐量子暗号(PQC)の実装是正（P0・整合性）
+- **現状(コード実査)**: `advanced_security_2025.py` は
+  `from cryptography.hazmat.primitives.asymmetric import dilithium, falcon` を import するが、
+  **`cryptography` ライブラリにこれらは存在しない**。よって `try/except` で常に
+  `POST_QUANTUM_AVAILABLE = False` となり、`DilithiumPrivateKey.generate()` は実行され得ない。
+  すなわち「post-quantum / military-level」表記は**非機能**。
+- **改善**: NIST 標準（2024-08 確定）に整合。**FIPS 203 = ML-KEM**（鍵共有）、
+  **FIPS 204 = ML-DSA(Dilithium)**（署名）、**FIPS 205 = SLH-DSA**（ハッシュ署名）。
+  実装は **liboqs / oqs-python**（`integrated_security.py` が既に optional import している `oqs`）か
+  PyCryptodome を使用。国家レベルを謳うなら **CNSA 2.0**（ML-KEM-1024 / ML-DSA-87）に合わせる。
+  少なくとも、提供できない機能の表記は撤回し、ハイブリッド(classic+PQC)既定を検討。
+- **参考**: NIST FIPS 203/204/205、CNSA 2.0、liboqs(Open Quantum Safe)、
+  "quantum-safe: Hybrid-by-Default Python Cryptography Library" — arXiv:2605.17061、
+  "Quantum-Safe Code Auditing (LLM-assisted)" — arXiv:2604.00560。
+
+### 7.2 生成品質の評価ハーネス（P1）
+- **現状**: FID / CLIP / 同一性(CSIM) / LPIPS 等の**定量評価が一切ない**（コード上に存在せず）。
+  競合・論文は必ず報告するため、品質回帰を検知できないのは大きな穴。
+- **改善**: 生成パイプラインに評価モジュールを追加。画像=FID/CLIP-Score、
+  同一性保存=CSIM(ArcFace 埋め込み cos 類似)/FaceSim、動画/トーキングヘッド=FVD・VBench
+  (Aesthetic/Imaging/Motion Smoothness)。CI で基準値を下回ったら fail させる回帰ゲート化。
+- **参考**: WB-DH Whole-Body Digital Human Bench — arXiv:2508.08891、
+  Large Face Angles benchmark — arXiv:2508.09476、
+  Awesome-Evaluation-of-Visual-Generation（メトリクス集）。
+
+### 7.3 モバイル/Quest 向け 3DGS の圧縮・配信（P1, P0(3D)依存）
+- **背景**: VRChat/Quest は厳しい性能制約。3DGS を採用するなら**圧縮と高速描画**が必須。
+- **改善**: Part 1 の 3D パイプライン(項目1)に、量子化・蒸留・剪定による圧縮と
+  モバイル GPU 実時間描画を組み込む（数 MB 級・実時間 FPS）。`global_edge_manager`/
+  `redis_cache_manager` の CDN/キャッシュ層と組み合わせて配信最適化。
+- **参考**: Mobile-GS（Snapdragon 8 Gen 3 で実時間, 約4.8MB）— arXiv:2603.11531、
+  Perceive-Sample-Compress — arXiv:2508.04965、HAC++（~100x 圧縮）、
+  CompMarkGS（圧縮3DGSの電子透かし）— arXiv:2503.12836。
+
+### 7.4 プライバシー・同意・ディープフェイク対策（P1・法令）
+- **現状**: `PrivacyProtector`(匿名化の枠) と `voice_cloning` はあるが、
+  顔/声という**生体情報の取得同意・来歴(provenance)・濫用検知**の体系が無い。
+- **改善**:
+  1. 写真/音声アップロード時の**明示的同意フロー**と用途限定（GDPR/CCPA/APPI 準拠）。
+  2. 生成物への**来歴透かし**（C2PA / CompMarkGS 等）で「AI 生成」を可視化。
+  3. 任意の**顔匿名化**（表情保持・可逆/secret-key 方式）を `PrivacyProtector` に実装。
+  4. 音声クローンの**話者同意確認**と**音声ディープフェイク検出**の選択肢提供。
+- **参考**: Secure & reversible face anonymization (diffusion) — arXiv:2510.01031、
+  Face anonymization preserving expressions — arXiv:2603.17567、
+  Detecting Deepfake Talking Heads (biometric anomalies) — arXiv:2507.08917、
+  Identity Deepfake Threats to Biometric Auth — arXiv:2506.06825。
+
+### 7.5 監査ログ基盤の地に足の着いた実装（P2）
+- **現状**: `blockchain_audit.py` は `web3`（外部チェーン）依存 + ハッシュチェーン。
+  運用には重く、個人/小規模では過剰。
+- **改善**: 既定は**ローカルの改竄検知ハッシュチェーン**（`integrated_security` の SQLite 監査と
+  整合）にし、外部ブロックチェーンは opt-in に。重依存(web3)はオプション化。
+
+---
+
+## 8. 追加バックログ（Part 2）
+
+| # | 優先 | 項目 | 対象モジュール | 概算工数 |
+|---|---|---|---|---|
+| 9 | **P0** | PQC 実装是正（NIST FIPS 203/204/205, liboqs）/ 誇大表記の撤回 | `advanced_security_2025`, `integrated_security` | 中 |
+| 10 | P1 | 生成品質評価ハーネス (FID/CLIP/CSIM/FVD) + CI 回帰ゲート | 生成系 + `tests/` | 中 |
+| 11 | P1 | 3DGS 圧縮・モバイル描画・CDN 配信 | (項目1) + `global_edge_manager` | 大 |
+| 12 | P1 | 同意フロー・来歴透かし・顔匿名化・音声DF検出 | `PrivacyProtector`, `voice_cloning` | 中 |
+| 13 | P2 | 監査をローカルハッシュチェーン既定化（web3 を opt-in） | `blockchain_audit` | 小 |
+
+---
+
+## 9. 参考文献 Part 2 (Sources)
+
+**標準・PQC**
+- NIST: First 3 Finalized PQC Standards — https://www.nist.gov/news-events/news/2024/08/nist-releases-first-3-finalized-post-quantum-encryption-standards
+- NIST PQC Standardization (FIPS 203/204/205) — https://en.wikipedia.org/wiki/NIST_Post-Quantum_Cryptography_Standardization
+- quantum-safe: Hybrid-by-Default Python Crypto — https://arxiv.org/html/2605.17061
+- Quantum-Safe Code Auditing (LLM-assisted) — https://arxiv.org/pdf/2604.00560
+
+**3DGS 圧縮 / モバイル**
+- Mobile-GS — https://arxiv.org/abs/2603.11531
+- Perceive-Sample-Compress — https://arxiv.org/html/2508.04965
+- CompMarkGS (watermark) — https://arxiv.org/html/2503.12836
+
+**評価 / ベンチマーク**
+- WB-DH Whole-Body Digital Human Bench — https://arxiv.org/html/2508.08891
+- Large Face Angles / Identity-Preserving — https://arxiv.org/html/2508.09476v2
+- Awesome-Evaluation-of-Visual-Generation — https://github.com/ziqihuangg/Awesome-Evaluation-of-Visual-Generation
+
+**プライバシー / ディープフェイク**
+- Secure & reversible face anonymization — https://arxiv.org/abs/2510.01031
+- Face anonymization preserving expressions — https://arxiv.org/pdf/2603.17567
+- Detecting Deepfake Talking Heads — https://arxiv.org/abs/2507.08917
+- Identity Deepfake Threats to Biometric Auth — https://arxiv.org/html/2506.06825v1
