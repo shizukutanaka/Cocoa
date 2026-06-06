@@ -72,5 +72,38 @@ class TestConfigValidator(unittest.TestCase):
         self.assertIsInstance(r["warnings"], list)
 
 
+class TestConfigValidatorNestedSchema(unittest.TestCase):
+    """Optional 'backup' object has a nested schema with required subfields
+    and integer min/max bounds (interval_minutes 1..1440)."""
+
+    def setUp(self):
+        self.v = ConfigValidator()
+
+    def _valid(self, backup):
+        cfg = dict(BASE, backup=backup)
+        return self.v.validate_from_dict(cfg)["valid"]
+
+    def test_valid_backup(self):
+        self.assertTrue(self._valid({
+            "enabled": True, "interval_minutes": 60,
+            "max_backups": 10, "backup_path": "/tmp/b",
+        }))
+
+    def test_interval_below_min_rejected(self):
+        self.assertFalse(self._valid({
+            "enabled": True, "interval_minutes": 0,
+            "max_backups": 10, "backup_path": "/tmp/b",
+        }))
+
+    def test_interval_above_max_rejected(self):
+        self.assertFalse(self._valid({
+            "enabled": True, "interval_minutes": 99999,
+            "max_backups": 10, "backup_path": "/tmp/b",
+        }))
+
+    def test_missing_required_subfields_rejected(self):
+        self.assertFalse(self._valid({"enabled": True}))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
