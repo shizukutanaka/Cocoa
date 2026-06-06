@@ -25,6 +25,8 @@
 | REQ-PH-05 | 最新状態の取得 | ✅ 実装済 | `latest_state` |
 | REQ-PH-06 | 指定バージョン(after)の取得（負index対応） | ✅ 実装済 | `get_version` |
 | REQ-PH-07 | ロールバック（過去状態を返し、rollbackイベントを記録） | ✅ 実装済 | `rollback` |
+| REQ-PH-08 | 2状態の差分（ネスト dict 再帰・ドットパス） | ✅ 実装済 | `preset_history_diff_and_rollback.diff_dict` |
+| REQ-PH-09 | 時刻から履歴エントリ検索（timestamp 欠落に堅牢） | ✅ 実装済 | `find_entry_by_time`（+ `main` の空履歴ガード） |
 
 ## 4. 仕様詳細
 - **REQ-PH-03** `iter_history(preset_name=None)`: 空行と `JSONDecodeError` の行はスキップ。

@@ -3,23 +3,32 @@ import argparse
 from datetime import datetime
 from preset_change_history import PresetChangeHistory
 
-def diff_dict(d1, d2):
-    """シンプルなdict差分表示"""
-    keys = set(d1.keys()) | set(d2.keys())
+def diff_dict(d1, d2, prefix=""):
+    """dict 差分を返す。ネストした dict は再帰し、ドット区切りのパスで表示する。
+
+    返り値: ["path: v1 -> v2", ...]（変更箇所のみ）。フラットな dict では従来と同じ出力。
+    """
     diffs = []
-    for k in sorted(keys):
+    keys = set(d1.keys()) | set(d2.keys())
+    for k in sorted(keys, key=str):
+        path = f"{prefix}{k}"
         v1 = d1.get(k)
         v2 = d2.get(k)
-        if v1 != v2:
-            diffs.append(f"{k}: {v1} -> {v2}")
+        if isinstance(v1, dict) and isinstance(v2, dict):
+            diffs.extend(diff_dict(v1, v2, prefix=f"{path}."))
+        elif v1 != v2:
+            diffs.append(f"{path}: {v1} -> {v2}")
     return diffs
 
 def find_entry_by_time(entries, ts):
-    # ts: 'YYYY-mm-dd HH:MM:SS' 形式
+    # ts: 'YYYY-mm-dd HH:MM:SS' 形式。timestamp を持たないエントリはスキップ。
     target = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
     closest = None
     for e in entries:
-        if closest is None or abs(e['timestamp'] - target) < abs(closest['timestamp'] - target):
+        et = e.get("timestamp")
+        if not isinstance(et, (int, float)):
+            continue
+        if closest is None or abs(et - target) < abs(closest["timestamp"] - target):
             closest = e
     return closest
 
@@ -36,6 +45,9 @@ def main():
     if args.from_time and args.to_time:
         e1 = find_entry_by_time(entries, args.from_time)
         e2 = find_entry_by_time(entries, args.to_time)
+        if not e1 or not e2:
+            print("指定時刻の履歴が見つかりません")
+            return
         print(f"[{args.from_time}] -> [{args.to_time}] の差分:")
         for diff in diff_dict(e1['after'], e2['after']):
             print(diff)
