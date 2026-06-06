@@ -12,6 +12,11 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from .integrated_security import get_security_manager
+from .template_filters import (
+    sanitize_template_id,
+    validate_avatar_template,
+    validate_video_template,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -149,6 +154,10 @@ class TemplateLibrary:
             try:
                 with open(template_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+                    schema = validate_avatar_template(data)
+                    if not schema["valid"]:
+                        logger.warning(f"Skipping invalid avatar template {template_file}: {schema['errors']}")
+                        continue
                     template = AvatarTemplate(**data)
                     self.avatar_templates[template.template_id] = template
             except Exception as e:
@@ -159,6 +168,10 @@ class TemplateLibrary:
             try:
                 with open(template_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+                    schema = validate_video_template(data)
+                    if not schema["valid"]:
+                        logger.warning(f"Skipping invalid video template {template_file}: {schema['errors']}")
+                        continue
                     template = VideoTemplate(**data)
                     self.video_templates[template.template_id] = template
             except Exception as e:
@@ -963,7 +976,7 @@ class TemplateLibrary:
         """アバターテンプレートを保存"""
         self.avatar_templates[template.template_id] = template
 
-        template_file = self.avatar_templates_dir / f"{template.template_id}.json"
+        template_file = self.avatar_templates_dir / f"{sanitize_template_id(template.template_id)}.json"
         try:
             with open(template_file, 'w', encoding='utf-8') as f:
                 json.dump({
@@ -989,7 +1002,7 @@ class TemplateLibrary:
         """動画テンプレートを保存"""
         self.video_templates[template.template_id] = template
 
-        template_file = self.video_templates_dir / f"{template.template_id}.json"
+        template_file = self.video_templates_dir / f"{sanitize_template_id(template.template_id)}.json"
         try:
             with open(template_file, 'w', encoding='utf-8') as f:
                 json.dump({
@@ -1127,7 +1140,7 @@ class TemplateLibrary:
             template = self.avatar_templates[template_id]
 
             # ファイル削除
-            template_file = self.avatar_templates_dir / f"{template_id}.json"
+            template_file = self.avatar_templates_dir / f"{sanitize_template_id(template_id)}.json"
             if template_file.exists():
                 template_file.unlink()
 
@@ -1143,7 +1156,7 @@ class TemplateLibrary:
             template = self.video_templates[template_id]
 
             # ファイル削除
-            template_file = self.video_templates_dir / f"{template_id}.json"
+            template_file = self.video_templates_dir / f"{sanitize_template_id(template_id)}.json"
             if template_file.exists():
                 template_file.unlink()
 
