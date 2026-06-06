@@ -26,7 +26,7 @@
 | 9 | **音声クローン更新**（GPT-SoVITS/OpenVoice/XTTS, 感情, 多言語） | M | M | H | — | GPT-SoVITS, OpenVoice |
 | 10 | **会話アバター**（LLM人格+長期記憶+RAG+反省）= character brain | H | L | M | 8,9 | Letta/MemGPT, SillyTavern, Generative Agents |
 | 11 | **VRChat ワンクリック最適化**（非破壊 mesh/material/BlendTree/atlas） | H | M | H | — | d4rkAvatarOptimizer, VRCFury, NDMF |
-| 12 | **パラメータ予算最適化**（256bit予算+ビットパッキング+OSC I/F） | M | M | H | 3 | VRLabs Av3 Manager, OSCmooth |
+| 12 🟡着手 | **パラメータ予算最適化**（256bit予算+ビットパッキング+OSC I/F）。コスト/予算/提案モデル実装済(`vrchat_parameter_budget.py`)。残: OSC I/F・自動パッキング | M | M | H | 3 | VRLabs Av3 Manager, OSCmooth |
 | 13 | **可観測性の標準化**（独自→OpenTelemetry, Prometheus/Tempo/Loki/Grafana, SLO, Sentry） | M | M | H | 3 | fastapi-observability |
 | 14 | **プライバシー/同意/来歴**（アップロード同意GDPR/APPI, C2PA透かし, 顔匿名化, 音声DF検出） | M | M | M | — | C2PA, 顔匿名化(arXiv:2510.01031) |
 | 15 | **モバイル/Quest 3DGS 圧縮・配信**（Mobile-GS, HAC++ + edge/CDN） | M | L | M | 5 | Mobile-GS, CompMarkGS |
