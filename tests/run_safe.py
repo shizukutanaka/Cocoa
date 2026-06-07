@@ -40,6 +40,7 @@ SAFE_MODULES = [
     "tests.test_cache_manager",
     "tests.test_secret_manager",
     "tests.test_config_validator",
+    "tests.test_health_monitor",
 ]
 
 

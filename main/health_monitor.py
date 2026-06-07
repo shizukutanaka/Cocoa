@@ -11,7 +11,7 @@ import logging
 import time
 import os
 from typing import Dict, Any, Optional, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -39,7 +39,7 @@ class HealthCheckResult:
     status: HealthStatus
     message: str
     details: Dict[str, Any] = field(default_factory=dict)
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     response_time_ms: float = 0.0
 
 
@@ -65,6 +65,10 @@ class HealthMonitor:
 
     def register_check(self, name: str, check_func: Callable):
         """カスタムヘルスチェックの登録"""
+        if not callable(check_func):
+            raise TypeError(
+                f"check_func must be callable, got {type(check_func).__name__!r}"
+            )
         self.checks[name] = check_func
         logger.info(f"ヘルスチェック登録: {name}")
 
@@ -102,7 +106,7 @@ class HealthMonitor:
 
         return {
             "status": overall_status.value,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "uptime_seconds": round(time.time() - self.startup_time, 2),
             "checks": {name: self._result_to_dict(result) for name, result in results.items()},
             "summary": self._generate_summary(results)
@@ -147,7 +151,7 @@ class HealthMonitor:
 
         return {
             "ready": is_ready,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "checks": {name: self._result_to_dict(result) for name, result in results.items()}
         }
 
@@ -159,14 +163,14 @@ class HealthMonitor:
             return {
                 "alive": True,
                 "uptime_seconds": round(uptime, 2),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
         except Exception as e:
             logger.critical(f"Livenessチェック失敗: {e}")
             return {
                 "alive": False,
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
     # =============== Default Health Checks ===============
