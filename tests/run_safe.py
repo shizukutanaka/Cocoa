@@ -32,6 +32,7 @@ SAFE_MODULES = [
     "tests.test_preset_history_diff",
     "tests.test_batch_validator",
     "tests.test_i18n",
+    "tests.test_avatar_parameters",
 ]
 
 
