@@ -30,6 +30,7 @@ SAFE_MODULES = [
     "tests.test_template_filters",
     "tests.test_preset_history",
     "tests.test_preset_history_diff",
+    "tests.test_batch_validator",
 ]
 
 
