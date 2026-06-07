@@ -7,7 +7,7 @@ Production-gradeのGrafana統合機能を提供し、
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from collections import deque
 import threading
@@ -97,7 +97,7 @@ class GrafanaMetricsCollector:
             # ここではInfluxDB形式のデータを想定
             payload = {
                 "metrics": metrics_to_send,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
             # 実際のGrafana統合では、適切なエンドポイントに送信
@@ -330,7 +330,7 @@ class EnhancedPerformanceMonitor:
         # Grafana統合設定
         self.grafana_enabled = config.get('grafana_enabled', False) if config else False
         self.grafana_url = config.get('grafana_url', 'http://localhost:3000') if config else 'http://localhost:3000'
-        self.grafana_api_key = config.get('grafana_api_key')
+        self.grafana_api_key = config.get('grafana_api_key') if config else None
 
         # コンポーネント初期化
         self.grafana_service = None
@@ -427,7 +427,7 @@ class EnhancedPerformanceMonitor:
             network_io_total = network_recv + network_sent
 
             return {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'cpu_percent': cpu_percent,
                 'memory_percent': memory_percent,
                 'disk_io': disk_io_total,
@@ -438,7 +438,7 @@ class EnhancedPerformanceMonitor:
         except Exception as e:
             logger.error(f"メトリクス収集エラー: {e}")
             return {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'error': str(e)
             }
 
@@ -467,7 +467,7 @@ class EnhancedPerformanceMonitor:
                 'statistics': stats,
                 'grafana_enabled': self.grafana_enabled,
                 'grafana_url': self.grafana_url if self.grafana_enabled else None,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
 
         except Exception as e:
