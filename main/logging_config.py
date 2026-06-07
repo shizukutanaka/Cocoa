@@ -16,8 +16,20 @@ import json
 import sys
 from pathlib import Path
 from typing import Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 import os
+
+_VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+
+def _validate_level(level: str) -> int:
+    """Return the numeric logging level for *level*, raising ValueError if unknown."""
+    upper = level.upper()
+    if upper not in _VALID_LEVELS:
+        raise ValueError(
+            f"Invalid log level: {level!r}. Must be one of {sorted(_VALID_LEVELS)}"
+        )
+    return getattr(logging, upper)
 
 # グローバルロガーレジストリ
 _loggers: Dict[str, logging.Logger] = {}
@@ -48,7 +60,7 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record):
         log_data = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -81,13 +93,8 @@ def configure_logging(
         environment: 環境 (development/production)
     """
 
-    # ログレベルの決定
-    if environment == "production":
-        # 本番環境では最小限のログ
-        numeric_level = getattr(logging, level.upper(), logging.WARNING)
-    else:
-        # 開発環境ではより詳細
-        numeric_level = getattr(logging, level.upper(), logging.DEBUG)
+    # ログレベルの決定（無効な値は ValueError）
+    numeric_level = _validate_level(level)
 
     # ルートロガーの設定
     root_logger = logging.getLogger()
