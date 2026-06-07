@@ -25,7 +25,7 @@ class APIConfig:
     host: str = os.environ.get("API_HOST", "0.0.0.0")
     port: int = int(os.environ.get("API_PORT", "8000"))
     debug: bool = os.environ.get("API_DEBUG", "false").lower() == "true"
-    cors_origins: list = None
+    cors_origins: Optional[list] = None
 
     def __post_init__(self):
         if self.cors_origins is None:
@@ -54,13 +54,11 @@ class SecurityConfig:
     session_timeout_minutes: int = int(os.environ.get("SESSION_TIMEOUT", "60"))
 
     def validate(self):
-        """本番環境での検証"""
-        env = os.environ.get("ENVIRONMENT", "development")
-        if env == "production":
-            if self.secret_key == "change-me-in-production":
-                raise ValueError("SECRET_KEY must be set in production")
-            if self.encryption_key == "change-me-in-production":
-                raise ValueError("ENCRYPTION_KEY must be set in production")
+        """本番環境用の設定値検証（呼び元が適切なタイミングで呼ぶこと）"""
+        if self.secret_key == "change-me-in-production":
+            raise ValueError("SECRET_KEY must be set in production")
+        if self.encryption_key == "change-me-in-production":
+            raise ValueError("ENCRYPTION_KEY must be set in production")
 
 
 @dataclass

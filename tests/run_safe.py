@@ -41,6 +41,7 @@ SAFE_MODULES = [
     "tests.test_secret_manager",
     "tests.test_config_validator",
     "tests.test_health_monitor",
+    "tests.test_config",
 ]
 
 
