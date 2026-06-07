@@ -11,37 +11,77 @@ FONT_MAP = {
 }
 LOCALES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'locales')
 
+
+def _normalize_lang(lang: str) -> str:
+    """Normalize a locale code to lowercase BCP-47 style (underscore → hyphen).
+
+    Examples: 'zh_TW' → 'zh-tw', 'PT_BR' → 'pt-br', 'en' → 'en'.
+    """
+    if not lang:
+        return lang
+    return lang.lower().replace('_', '-')
+
+
 class I18N:
-    _translation_cache = {}
+    _translation_cache: dict = {}
+
     def __init__(self, lang=None):
-        self.lang = lang or self.detect_language()
+        self.lang = _normalize_lang(lang) if lang else self.detect_language()
         self.translations = self.load_translation(self.lang)
-        self.font = FONT_MAP.get(self.lang, 'Arial')
+        # Font lookup: try exact lang, then language-only prefix, then 'Arial'
+        lang_prefix = self.lang.split('-')[0]
+        self.font = FONT_MAP.get(self.lang) or FONT_MAP.get(lang_prefix, 'Arial')
+
     def detect_language(self):
         lang = os.environ.get('SATIN_LANG')
         if lang:
-            return lang.lower()
+            return _normalize_lang(lang)
         loc = locale.getdefaultlocale()[0]
         if loc:
-            return loc.lower().split('_')[0]
+            return _normalize_lang(loc)
         return 'en'
-    def load_translation(self, lang):
+
+    def load_translation(self, lang: str) -> dict:
+        """Load translations with a fallback chain: lang → lang-prefix → en → {}."""
         if lang in self._translation_cache:
             return self._translation_cache[lang]
-        path = os.path.join(LOCALES_DIR, f'{lang}.json')
-        if not os.path.exists(path):
-            path = os.path.join(LOCALES_DIR, 'en.json')
-        try:
-            with open(path, encoding='utf-8') as f:
-                data = json.load(f)
+
+        candidates = [lang]
+        prefix = lang.split('-')[0]
+        if prefix != lang:
+            candidates.append(prefix)
+        if 'en' not in candidates:
+            candidates.append('en')
+
+        for candidate in candidates:
+            path = os.path.join(LOCALES_DIR, f'{candidate}.json')
+            if not os.path.exists(path):
+                continue
+            try:
+                with open(path, encoding='utf-8') as f:
+                    data = json.load(f)
                 self._translation_cache[lang] = data
                 return data
-        except Exception:
-            return {}
+            except Exception:
+                continue
+
+        self._translation_cache[lang] = {}
+        return {}
+
     def t(self, key, default=None):
-        return self.translations.get(key, default or key)
+        """Return translation for *key*, or *default* if not found.
+
+        When *default* is None (the default), falls back to *key* itself.
+        An explicit ``default=""`` returns an empty string, not *key*.
+        """
+        result = self.translations.get(key)
+        if result is not None:
+            return result
+        return key if default is None else default
+
     def get_font(self, size=12, weight="normal"):
         return (self.font, size, weight)
+
 # --- Flask/Web用: 言語切替はリクエストやセッションから ---
 # --- サンプルGUI統合例 ---
 # if __name__ == "__main__":
