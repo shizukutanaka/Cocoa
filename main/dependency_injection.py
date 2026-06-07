@@ -52,10 +52,13 @@ class Dependency:
             return self.factory(**kwargs)
 
     def resolve_dependencies(self) -> Dict[str, Any]:
-        """依存性を解決"""
+        """依存性を解決。Dependency オブジェクトは get_instance()、生の値はそのまま使用。"""
         resolved = {}
         for name, dep in self.dependencies.items():
-            resolved[name] = dep.get_instance()
+            if isinstance(dep, Dependency):
+                resolved[name] = dep.get_instance()
+            else:
+                resolved[name] = dep
         return resolved
 
 
@@ -137,14 +140,17 @@ def init_container() -> Container:
 
 def inject(interface: Union[Type[T], str], scope: Scope = Scope.TRANSIENT):
     """依存性注入デコレータ（FastAPI Depends() 互換）"""
+    from functools import wraps
 
     def wrapper(func: Callable) -> Callable:
+        @wraps(func)
         async def async_wrapper(*args, **kwargs):
             container = get_container()
             instance = container.resolve(interface)
             kwargs[interface.__name__ if not isinstance(interface, str) else interface] = instance
             return await func(*args, **kwargs)
 
+        @wraps(func)
         def sync_wrapper(*args, **kwargs):
             container = get_container()
             instance = container.resolve(interface)
