@@ -4,8 +4,9 @@ import json
 import time
 import shutil
 import logging
-from datetime import datetime
-from typing import Dict, Any, Optional
+from collections import deque
+from datetime import datetime, timezone
+from typing import Dict, Any, Deque, Optional
 from performance_monitor import PerformanceMonitor
 
 class PresetPerformanceMonitor:
@@ -17,7 +18,9 @@ class PresetPerformanceMonitor:
             "history_size": 100,
             "preset_operation_threshold": 1000,  # ms
         })
-        self.operation_stats = {}
+        self.operation_stats: Dict[str, Any] = {}
+        self._op_history: Dict[str, Deque[Dict[str, Any]]] = {}
+        self._history_maxlen: int = 100
         self.logger = logging.getLogger(__name__)
 
     def start_operation(self, operation_name: str) -> str:
@@ -53,30 +56,37 @@ class PresetPerformanceMonitor:
                 f"プリセット操作が遅いです: {stats['operation']} ({duration:.2f}ms > {threshold}ms)"
             )
 
-        # 統計収集
-        if stats["operation"] not in self.performance_monitor.metrics_history:
-            self.performance_monitor.metrics_history[stats["operation"]] = []
-
-        self.performance_monitor.metrics_history[stats["operation"]].append({
-            "timestamp": stats["start_time"],
-            "value": duration
-        })
+        # 統計収集 (own history — do not mutate PerformanceMonitor internals)
+        op_name = stats["operation"]
+        if op_name not in self._op_history:
+            self._op_history[op_name] = deque(maxlen=self._history_maxlen)
+        self._op_history[op_name].append({"timestamp": stats["start_time"], "value": duration})
 
     def get_performance_report(self) -> Dict[str, Any]:
         """パフォーマンスレポートを取得"""
+        op_summary: Dict[str, Any] = {}
+        for op_name, history in self._op_history.items():
+            values = [s["value"] for s in history]
+            if values:
+                op_summary[op_name] = {
+                    "count": len(values),
+                    "avg_ms": sum(values) / len(values),
+                    "max_ms": max(values),
+                    "min_ms": min(values),
+                }
         return {
-            "preset_operations": dict(self.performance_monitor._build_history_summary_locked()),
-            "recent_operations": list(self.operation_stats.values())[-10:],  # 最新10件
+            "preset_operations": op_summary,
+            "recent_operations": list(self.operation_stats.values())[-10:],
             "slow_operations": [
                 op for op in self.operation_stats.values()
-                if op["status"] == "success" and op["duration_ms"] > 500
-            ]
+                if op.get("status") == "success" and op.get("duration_ms", 0) > 500
+            ],
         }
 
 def backup_file(filepath, backup_dir):
     os.makedirs(backup_dir, exist_ok=True)
     base = os.path.basename(filepath)
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
     backup_path = os.path.join(backup_dir, f"{base}.{ts}.bak")
     shutil.copy2(filepath, backup_path)
     return backup_path

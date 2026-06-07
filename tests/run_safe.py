@@ -44,6 +44,7 @@ SAFE_MODULES = [
     "tests.test_config",
     "tests.test_disaster_recovery",
     "tests.test_performance_monitor",
+    "tests.test_validate_and_repair_presets",
 ]
 
 
