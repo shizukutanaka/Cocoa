@@ -37,6 +37,7 @@ SAFE_MODULES = [
     "tests.test_dependency_injection",
     "tests.test_async_base",
     "tests.test_vrchat_analyzer",
+    "tests.test_cache_manager",
 ]
 
 
