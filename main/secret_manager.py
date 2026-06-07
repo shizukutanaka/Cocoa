@@ -365,12 +365,7 @@ class EnvironmentSecretManager(SecretManager):
 
     def list_secrets(self) -> List[str]:
         """シークレット一覧を取得"""
-        # プレフィックスでフィルタリング
-        prefix = "COCOA_"
-        return [
-            key for key in os.environ.keys()
-            if key.startswith(prefix)
-        ]
+        return list(self._secrets.keys())
 
     def rotate_secret(self, secret_name: str, new_value: str) -> bool:
         """シークレットをローテーション"""
@@ -434,7 +429,12 @@ def get_secret_manager(provider: Optional[str] = None) -> SecretManager:
         'env': SecretProvider.ENVIRONMENT
     }
 
-    provider_enum = provider_map.get(provider.lower(), SecretProvider.ENVIRONMENT)
+    provider_enum = provider_map.get(provider.lower())
+    if provider_enum is None:
+        raise ValueError(
+            f"Unknown secret provider: {provider!r}. "
+            f"Must be one of {list(provider_map.keys())}"
+        )
 
     return SecretManagerFactory.create(provider_enum)
 
