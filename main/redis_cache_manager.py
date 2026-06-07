@@ -7,6 +7,7 @@ Production-gradeのRedisキャッシュ機能を提供し、
 
 import os
 import asyncio
+import functools
 import json
 import time
 import hashlib
@@ -366,10 +367,11 @@ class FallbackCacheManager:
         return self.memory_cache.get(key)
 
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
-        # メモリキャッシュは同期的なので、簡単な実装
+        self.memory_cache.set(key, value)
         return True
 
     async def delete(self, key: str) -> bool:
+        self.memory_cache.delete(key)
         return True
 
     async def exists(self, key: str) -> bool:
@@ -379,10 +381,32 @@ class FallbackCacheManager:
         return {'cache_type': 'memory', 'message': 'Redis not available'}
 
     def cached_async(self, ttl: Optional[int] = None):
-        return self.memory_cache.cached_async(ttl)
+        def decorator(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+            @functools.wraps(func)
+            async def wrapper(*args, **kwargs) -> Any:
+                key = f"{func.__name__}:{args}:{frozenset(kwargs.items())}"
+                cached = self.memory_cache.get(key)
+                if cached is not None:
+                    return cached
+                result = await func(*args, **kwargs)
+                self.memory_cache.set(key, result)
+                return result
+            return wrapper
+        return decorator
 
     def cached_sync(self, ttl: Optional[int] = None):
-        return self.memory_cache.cached_sync(ttl)
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs) -> Any:
+                key = f"{func.__name__}:{args}:{frozenset(kwargs.items())}"
+                cached = self.memory_cache.get(key)
+                if cached is not None:
+                    return cached
+                result = func(*args, **kwargs)
+                self.memory_cache.set(key, result)
+                return result
+            return wrapper
+        return decorator
 
     async def close(self):
         pass
