@@ -9,6 +9,7 @@
 """
 
 import asyncio
+import time
 from typing import Callable, List, Optional, TypeVar, Any, Coroutine
 import logging
 from contextlib import asynccontextmanager
@@ -53,9 +54,12 @@ class AsyncBatch:
 
             try:
                 # 非ブロッキング: asyncio.gather を使用して並行実行
-                batch_results = await asyncio.gather(
-                    *[processor(item) for item in batch],
-                    return_exceptions=True  # 個別エラーをキャッチ
+                batch_results = await asyncio.wait_for(
+                    asyncio.gather(
+                        *[processor(item) for item in batch],
+                        return_exceptions=True  # 個別エラーをキャッチ
+                    ),
+                    timeout=self.timeout,
                 )
 
                 # エラーをログに記録
@@ -169,22 +173,20 @@ class AsyncCache:
         self._timestamps: dict = {}
 
     async def get(self, key: str) -> Optional[Any]:
-        """キャッシュから値を取得"""
+        """キャッシュから値を取得。ttl <= 0 のとき TTL 無効（永続）。"""
         if key in self._cache:
-            import time
+            if self.ttl <= 0:
+                return self._cache[key]
             elapsed = time.time() - self._timestamps[key]
             if elapsed < self.ttl:
                 return self._cache[key]
-            else:
-                # TTL切れ
-                del self._cache[key]
-                del self._timestamps[key]
-
+            # TTL切れ
+            del self._cache[key]
+            del self._timestamps[key]
         return None
 
     async def set(self, key: str, value: Any) -> None:
         """キャッシュに値を設定"""
-        import time
         self._cache[key] = value
         self._timestamps[key] = time.time()
 
