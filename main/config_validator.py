@@ -438,7 +438,7 @@ class ConfigValidator:
                     errors.append(f"フィールド '{field_name}' の値が許可されていません: {allowed_values}")
 
             elif field_type == "integer":
-                if not isinstance(value, int):
+                if not isinstance(value, int) or isinstance(value, bool):
                     errors.append(f"フィールド '{field_name}' は整数である必要があります")
                     return errors, warnings, None
 
@@ -731,6 +731,13 @@ class ConfigValidator:
                     )
             if security_config.get("max_login_attempts", 5) > 10:
                 warnings.append("security.max_login_attempts が高すぎます。10以下に調整してください。")
+
+        # billing / notification / rate_limiting のクロスフィールド検証
+        security_cfg = original_config.get("security")
+        if not isinstance(security_cfg, dict):
+            security_cfg = {}
+        self._validate_password_policy(security_cfg, errors, warnings, original_config, validated_config)
+
     def _validate_password_policy(
         self,
         security_config: Dict[str, Any],

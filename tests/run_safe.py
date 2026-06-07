@@ -39,6 +39,7 @@ SAFE_MODULES = [
     "tests.test_vrchat_analyzer",
     "tests.test_cache_manager",
     "tests.test_secret_manager",
+    "tests.test_config_validator",
 ]
 
 

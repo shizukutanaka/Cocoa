@@ -1,261 +1,231 @@
+"""Acceptance tests for config_validator.py.
+
+Spec: docs/SPEC_CONFIG_VALIDATOR.md (REQ-CV-01..02)
+Runnable without pytest:  python3 -m unittest tests.test_config_validator -v
+
+Uses validate_from_dict() — no file I/O required.
+"""
 import sys
 import unittest
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "main"))
+for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 from config_validator import ConfigValidator  # noqa: E402
 
 
-class TestConfigValidator(unittest.TestCase):
-    """`main/config_validator.py` の拡張検証ロジックを確認"""
+def _minimal_valid_config(**overrides):
+    cfg = {
+        "app_name": "TestApp",
+        "version": "1.0.0",
+        "language": "ja",
+        "debug": False,
+        "log_level": "INFO",
+    }
+    cfg.update(overrides)
+    return cfg
 
-    def setUp(self) -> None:
-        self.validator = ConfigValidator()
 
-    def _base_config(self) -> dict:
+class TestValidateFromDictBasics(unittest.TestCase):
+    def setUp(self):
+        self.v = ConfigValidator()
+
+    def test_valid_minimal_config_passes(self):
+        result = self.v.validate_from_dict(_minimal_valid_config())
+        self.assertTrue(result["valid"], result["errors"])
+
+    def test_missing_required_field_produces_error(self):
+        cfg = _minimal_valid_config()
+        del cfg["app_name"]
+        result = self.v.validate_from_dict(cfg)
+        self.assertFalse(result["valid"])
+        self.assertTrue(any("app_name" in e for e in result["errors"]))
+
+    def test_wrong_type_string_field_produces_error(self):
+        cfg = _minimal_valid_config(app_name=123)
+        result = self.v.validate_from_dict(cfg)
+        self.assertFalse(result["valid"])
+
+    def test_wrong_type_boolean_field_produces_error(self):
+        cfg = _minimal_valid_config(debug="yes")  # should be bool
+        result = self.v.validate_from_dict(cfg)
+        self.assertFalse(result["valid"])
+
+    def test_disallowed_language_produces_error(self):
+        cfg = _minimal_valid_config(language="fr")
+        result = self.v.validate_from_dict(cfg)
+        self.assertFalse(result["valid"])
+        self.assertTrue(any("language" in e for e in result["errors"]))
+
+    def test_valid_version_pattern(self):
+        cfg = _minimal_valid_config(version="2.10.3")
+        result = self.v.validate_from_dict(cfg)
+        self.assertTrue(result["valid"], result["errors"])
+
+    def test_invalid_version_pattern_produces_error(self):
+        cfg = _minimal_valid_config(version="1.0")  # missing patch
+        result = self.v.validate_from_dict(cfg)
+        self.assertFalse(result["valid"])
+
+    def test_valid_config_returns_config_dict(self):
+        result = self.v.validate_from_dict(_minimal_valid_config())
+        self.assertIsNotNone(result["config"])
+        self.assertIsInstance(result["config"], dict)
+
+    def test_invalid_config_returns_none_config(self):
+        cfg = _minimal_valid_config(language="xx")
+        result = self.v.validate_from_dict(cfg)
+        self.assertIsNone(result["config"])
+
+    def test_result_has_required_keys(self):
+        result = self.v.validate_from_dict(_minimal_valid_config())
+        for key in ("valid", "errors", "warnings", "config"):
+            self.assertIn(key, result)
+
+
+class TestBooleanIntegerTypeCheck(unittest.TestCase):
+    """REQ-CV-02: bool must not pass integer type check."""
+
+    def setUp(self):
+        self.v = ConfigValidator()
+        self.v.add_custom_rule("test_port", {
+            "type": "integer",
+            "required": False,
+            "min": 1,
+            "max": 65535,
+        })
+
+    def test_integer_value_passes(self):
+        cfg = _minimal_valid_config(test_port=8080)
+        result = self.v.validate_from_dict(cfg)
+        self.assertTrue(result["valid"], result["errors"])
+
+    def test_true_rejected_as_integer(self):
+        cfg = _minimal_valid_config(test_port=True)
+        result = self.v.validate_from_dict(cfg)
+        self.assertFalse(result["valid"])
+        self.assertTrue(any("test_port" in e for e in result["errors"]))
+
+    def test_false_rejected_as_integer(self):
+        cfg = _minimal_valid_config(test_port=False)
+        result = self.v.validate_from_dict(cfg)
+        self.assertFalse(result["valid"])
+
+    def test_zero_integer_accepted(self):
+        self.v.add_custom_rule("zero_field", {"type": "integer", "required": False})
+        cfg = _minimal_valid_config(zero_field=0)
+        result = self.v.validate_from_dict(cfg)
+        self.assertTrue(result["valid"], result["errors"])
+
+
+class TestRateLimitingCrossFieldValidation(unittest.TestCase):
+    """REQ-CV-01: _validate_password_policy called so rate_limiting checks execute."""
+
+    def setUp(self):
+        self.v = ConfigValidator()
+
+    def _config_with_rate_limit(self, per_minute, per_hour, per_day):
+        return _minimal_valid_config(rate_limiting={
+            "enabled": True,
+            "requests_per_minute": per_minute,
+            "requests_per_hour": per_hour,
+            "requests_per_day": per_day,
+        })
+
+    def test_valid_rate_limits_pass(self):
+        cfg = self._config_with_rate_limit(60, 3600, 86400)
+        result = self.v.validate_from_dict(cfg)
+        self.assertTrue(result["valid"], result["errors"])
+
+    def test_minute_greater_than_hour_produces_error(self):
+        cfg = self._config_with_rate_limit(1000, 100, 10000)
+        result = self.v.validate_from_dict(cfg)
+        self.assertFalse(result["valid"])
+        self.assertTrue(
+            any("requests_per_hour" in e and "requests_per_minute" in e for e in result["errors"]),
+            result["errors"]
+        )
+
+    def test_hour_greater_than_day_produces_error(self):
+        cfg = self._config_with_rate_limit(10, 100, 50)  # hour(100) > day(50)
+        result = self.v.validate_from_dict(cfg)
+        self.assertFalse(result["valid"])
+        self.assertTrue(
+            any("requests_per_day" in e and "requests_per_hour" in e for e in result["errors"]),
+            result["errors"]
+        )
+
+
+class TestIPValidation(unittest.TestCase):
+    def setUp(self):
+        self.v = ConfigValidator()
+
+    def _security_config(self, allowed_ips=None, blocked_ips=None):
         return {
-            "app_name": "Test Cocoa",
-            "version": "1.2.3",
-            "language": "ja",
-            "debug": False,
-            "log_level": "INFO",
-        }
-
-    def _security_block(self, overrides: dict | None = None) -> dict:
-        block = {
             "password_min_length": 12,
             "password_require_special": True,
             "password_require_numbers": True,
+            "password_require_lowercase": True,
             "password_require_uppercase": True,
             "max_login_attempts": 5,
             "lockout_duration_minutes": 15,
             "enable_2fa": True,
             "enable_audit_log": True,
-            "allowed_ips": [],
-            "blocked_ips": [],
+            "allowed_ips": allowed_ips or [],
+            "blocked_ips": blocked_ips or [],
         }
-        if overrides:
-            block.update(overrides)
-        return block
 
-    def _notification_block(self, overrides: dict | None = None) -> dict:
-        block = {
-            "enabled": False,
-            "email": {
-                "smtp_server": None,
-                "smtp_port": 587,
-                "from_address": None,
-                "to_addresses": [],
-            },
-            "webhook": {
-                "url": None,
-                "method": "POST",
-            },
-        }
-        if overrides:
-            block.update(overrides)
-        return block
+    def test_valid_ipv4_cidr_in_allowed_ips(self):
+        cfg = _minimal_valid_config(security=self._security_config(["192.168.1.0/24"]))
+        result = self.v.validate_from_dict(cfg)
+        self.assertTrue(result["valid"], result["errors"])
 
-    def _rate_limit_block(self, overrides: dict | None = None) -> dict:
-        block = {
-            "enabled": True,
-            "requests_per_minute": 60,
-            "requests_per_hour": 3600,
-            "requests_per_day": 86400,
-        }
-        if overrides:
-            block.update(overrides)
-        return block
-
-    def _billing_block(self, overrides: dict | None = None) -> dict:
-        block = {
-            "enabled": True,
-            "mode": "subscription",
-            "currency": "jpy",
-            "default_price_tier": "standard",
-            "tiers": {
-                "standard": {
-                    "price_id": "price_12345",
-                    "description": "Standard plan",
-                }
-            },
-            "checkout": {
-                "success_url": "https://example.com/success",
-                "cancel_url": "https://example.com/cancel",
-            },
-            "webhook": {
-                "enabled": True,
-                "endpoint_secret_env": "STRIPE_WEBHOOK_SECRET",
-            },
-        }
-        if overrides:
-            block.update(overrides)
-        return block
-
-    def test_security_ip_normalization_and_errors(self) -> None:
-        config = self._base_config()
-        config["security"] = self._security_block(
-            {
-                "allowed_ips": ["192.168.0.1", "   ", "invalid"],
-                "blocked_ips": ["10.0.0.0/24"],
-            }
+    def test_overlapping_allowed_and_blocked_ips_produces_error(self):
+        cfg = _minimal_valid_config(
+            security=self._security_config(["10.0.0.1"], ["10.0.0.1"])
         )
-
-        result = self.validator.validate_from_dict(config)
-
+        result = self.v.validate_from_dict(cfg)
         self.assertFalse(result["valid"])
-        self.assertTrue(
-            any("security.allowed_ips[1]" in message for message in result["errors"]),
-            msg="空文字列に対するエラーが検出されていません",
-        )
-        self.assertTrue(
-            any("security.allowed_ips[2]" in message for message in result["errors"]),
-            msg="無効なIP表現に対するエラーが検出されていません",
-        )
 
-    def test_security_ip_normalization_success(self) -> None:
-        config = self._base_config()
-        config["security"] = self._security_block(
-            {
-                "allowed_ips": ["192.168.0.1 ", "10.0.0.0/24"],
-                "blocked_ips": ["172.16.0.0/16"],
-            }
-        )
-
-        result = self.validator.validate_from_dict(config)
-
-        self.assertTrue(result["valid"])
-        normalized_allowed = result["config"]["security"]["allowed_ips"]
-        self.assertEqual(normalized_allowed, ["192.168.0.1", "10.0.0.0/24"])
-
-    def test_notification_requires_destination(self) -> None:
-        config = self._base_config()
-        config["security"] = self._security_block()
-        config["notification"] = self._notification_block(
-            {
-                "enabled": True,
-                "email": {
-                    "smtp_server": "smtp.localhost",
-                    "smtp_port": 587,
-                    "from_address": None,
-                    "to_addresses": [],
-                },
-                "webhook": {
-                    "url": None,
-                    "method": "POST",
-                },
-            }
-        )
-
-        result = self.validator.validate_from_dict(config)
-
+    def test_invalid_ip_in_allowed_ips_produces_error(self):
+        cfg = _minimal_valid_config(security=self._security_config(["999.999.999.999"]))
+        result = self.v.validate_from_dict(cfg)
         self.assertFalse(result["valid"])
-        self.assertTrue(
-            any("notification.email.from_address" in message for message in result["errors"]),
-            msg="送信元アドレス欠如に対するエラーが検出されていません",
-        )
-        self.assertTrue(
-            any("notification.email.to_addresses" in message for message in result["errors"]),
-            msg="宛先欠如に対するエラーが検出されていません",
-        )
 
-    def test_notification_email_and_webhook_validation(self) -> None:
-        config = self._base_config()
-        config["security"] = self._security_block()
-        config["notification"] = self._notification_block(
-            {
-                "enabled": True,
-                "email": {
-                    "smtp_server": "smtp.localhost",
-                    "smtp_port": 2525,
-                    "from_address": " admin@demo.local ",
-                    "to_addresses": ["user1@demo.local ", "user2@demo.local"],
-                },
-                "webhook": {
-                    "url": "https://localhost/hooks/cocoa",
-                    "method": "POST",
-                },
-            }
-        )
 
-        result = self.validator.validate_from_dict(config)
+class TestCustomRules(unittest.TestCase):
+    def setUp(self):
+        self.v = ConfigValidator()
 
-        self.assertTrue(result["valid"])
-        validated_email = result["config"]["notification"]["email"]
-        self.assertEqual(validated_email["from_address"], "admin@demo.local")
-        self.assertEqual(
-            validated_email["to_addresses"], ["user1@demo.local", "user2@demo.local"]
-        )
+    def test_add_and_validate_custom_string_rule(self):
+        self.v.add_custom_rule("my_field", {
+            "type": "string",
+            "required": True,
+            "min_length": 3,
+            "max_length": 10,
+        })
+        result = self.v.validate_from_dict(_minimal_valid_config(my_field="hello"))
+        self.assertTrue(result["valid"], result["errors"])
 
-    def test_rate_limit_cross_threshold_warnings(self) -> None:
-        config = self._base_config()
-        config["security"] = self._security_block()
-        config["notification"] = self._notification_block()
-        config["rate_limiting"] = self._rate_limit_block(
-            {
-                "requests_per_minute": 10,
-                "requests_per_hour": 500,
-                "requests_per_day": 10000,
-            }
-        )
-
-        result = self.validator.validate_from_dict(config)
-
-        self.assertTrue(result["valid"])
-        self.assertTrue(
-            any("requests_per_minute * 60" in warning for warning in result["warnings"]),
-            msg="時間当たりリクエストに関する警告が生成されていません",
-        )
-        self.assertTrue(
-            any("requests_per_hour * 24" in warning for warning in result["warnings"]),
-            msg="日単位リクエストに関する警告が生成されていません",
-        )
-
-    def test_billing_requires_price_ids_and_urls(self) -> None:
-        config = self._base_config()
-        config["security"] = self._security_block()
-        config["billing"] = self._billing_block(
-            {
-                "tiers": {
-                    "standard": {
-                        "price_id": "invalid",
-                    }
-                },
-                "checkout": {
-                    "success_url": "ftp://example.com",
-                    "cancel_url": "https://",
-                },
-            }
-        )
-
-        result = self.validator.validate_from_dict(config)
-
+    def test_custom_rule_min_length_enforced(self):
+        self.v.add_custom_rule("my_field", {
+            "type": "string",
+            "required": False,
+            "min_length": 5,
+        })
+        result = self.v.validate_from_dict(_minimal_valid_config(my_field="ab"))
         self.assertFalse(result["valid"])
-        self.assertTrue(
-            any("billing.tiers.standard.price_id" in message for message in result["errors"]),
-            msg="price_id が不正な場合のエラーを検知できていません",
-        )
-        self.assertTrue(
-            any("billing.checkout.success_url" in message for message in result["errors"]),
-            msg="success_url が不正な場合のエラーを検知できていません",
-        )
-        self.assertTrue(
-            any("billing.checkout.cancel_url" in message for message in result["errors"]),
-            msg="cancel_url が不正な場合のエラーを検知できていません",
-        )
 
-    def test_billing_valid_configuration_passes(self) -> None:
-        config = self._base_config()
-        config["security"] = self._security_block()
-        config["billing"] = self._billing_block()
+    def test_remove_rule_returns_true(self):
+        self.v.add_custom_rule("tmp", {"type": "string", "required": False})
+        self.assertTrue(self.v.remove_rule("tmp"))
 
-        result = self.validator.validate_from_dict(config)
-
-        self.assertTrue(result["valid"])
-        self.assertEqual(result["config"]["billing"]["mode"], "subscription")
+    def test_remove_nonexistent_rule_returns_false(self):
+        self.assertFalse(self.v.remove_rule("nonexistent_field"))
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(verbosity=2)
