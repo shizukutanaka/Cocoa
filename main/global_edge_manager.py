@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 
 try:
@@ -192,8 +192,8 @@ class GlobalEdgeManager:
                 bandwidth_mbps=1000,
                 status="active",
                 services=node_data["services"],
-                last_health_check=datetime.now(),
-                created_at=datetime.now()
+                last_health_check=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc)
             )
 
             self.edge_nodes[node.node_id] = node
@@ -246,7 +246,7 @@ class GlobalEdgeManager:
 
                 # 負荷状態の更新
                 node.latency_ms = latency
-                node.last_health_check = datetime.now()
+                node.last_health_check = datetime.now(timezone.utc)
 
                 # ステータス更新
                 if latency > 200:  # 200ms以上は問題あり
@@ -292,7 +292,7 @@ class GlobalEdgeManager:
         for node_id, node in self.edge_nodes.items():
             if node.status == "active":
                 analytics = EdgeAnalytics(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     node_id=node_id,
                     metrics={
                         "cpu_usage": node.current_load.get("cpu", 0),
@@ -317,7 +317,7 @@ class GlobalEdgeManager:
                 self.analytics_data[node_id].append(analytics)
 
                 # 古いデータを削除（24時間分保持）
-                cutoff_time = datetime.now() - timedelta(hours=24)
+                cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
                 self.analytics_data[node_id] = [
                     a for a in self.analytics_data[node_id]
                     if a.timestamp > cutoff_time
@@ -432,7 +432,7 @@ class GlobalEdgeManager:
             bandwidth_capacity_mbps=avg_bandwidth,
             cost_per_gb=cost_per_gb,
             reliability_score=reliability,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
 
         return route
@@ -484,17 +484,17 @@ class GlobalEdgeManager:
 
             # キャッシュエントリを作成
             cache_key = f"{content_type}_{content_id}_{hash(content_data)}"
-            cache_expires = datetime.now() + timedelta(hours=24)  # 24時間有効
+            cache_expires = datetime.now(timezone.utc) + timedelta(hours=24)  # 24時間有効
 
             cache = ContentCache(
                 content_id=content_id,
                 cache_key=cache_key,
                 content_type=content_type,
                 size_bytes=len(compressed_data),
-                cached_at=datetime.now(),
+                cached_at=datetime.now(timezone.utc),
                 expires_at=cache_expires,
                 access_count=0,
-                last_accessed=datetime.now(),
+                last_accessed=datetime.now(timezone.utc),
                 compression_ratio=compression_ratio
             )
 
@@ -579,7 +579,7 @@ class GlobalEdgeManager:
                             cache_key = cache_file.stem
                             if cache_key in self.content_cache:
                                 self.content_cache[cache_key].access_count += 1
-                                self.content_cache[cache_key].last_accessed = datetime.now()
+                                self.content_cache[cache_key].last_accessed = datetime.now(timezone.utc)
 
                             # 解凍
                             import gzip
@@ -613,7 +613,7 @@ class GlobalEdgeManager:
             分析データ
         """
         try:
-            cutoff_time = datetime.now() - timedelta(hours=time_range_hours)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=time_range_hours)
 
             # 地域フィルタ
             if region:

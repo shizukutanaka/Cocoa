@@ -46,6 +46,7 @@ SAFE_MODULES = [
     "tests.test_performance_monitor",
     "tests.test_validate_and_repair_presets",
     "tests.test_redis_cache_manager",
+    "tests.test_global_edge_manager",
 ]
 
 
