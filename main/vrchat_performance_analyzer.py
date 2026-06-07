@@ -300,42 +300,35 @@ class VRChatPerformanceAnalyzer:
             else VRChatPerformanceLimits.ANDROID_LIMITS
         )
 
+    def analyze_stats(self, stats: AvatarStats) -> PerformanceAnalysisResult:
+        """Pure stats analysis (no file I/O). Returns a PerformanceAnalysisResult."""
+        rank = self._calculate_rank(stats)
+        issues = self._detect_issues(stats)
+        suggestions = self._generate_suggestions(stats, rank)
+        score = self._calculate_score(stats, rank)
+        return PerformanceAnalysisResult(
+            rank=rank,
+            platform=self.platform,
+            avatar_stats=stats,
+            issues=issues,
+            suggestions=suggestions,
+            score=score,
+            details={
+                'preset_path': None,
+                'target_rank': PerformanceRank.GOOD.value,
+                'is_vrchat_compliant': len([i for i in issues if i['severity'] == 'critical']) == 0
+            }
+        )
+
     def analyze_preset(self, preset_path: Path) -> PerformanceAnalysisResult:
         """プリセットファイルを解析してパフォーマンスランクを評価"""
         try:
-            # プリセットファイル読み込み
             with open(preset_path, 'r', encoding='utf-8') as f:
                 preset_data = json.load(f)
-
-            # アバター統計情報を抽出
             stats = self._extract_avatar_stats(preset_data)
-
-            # パフォーマンスランクを計算
-            rank = self._calculate_rank(stats)
-
-            # 問題を検出
-            issues = self._detect_issues(stats)
-
-            # 最適化提案を生成
-            suggestions = self._generate_suggestions(stats, rank)
-
-            # スコア計算
-            score = self._calculate_score(stats, rank)
-
-            return PerformanceAnalysisResult(
-                rank=rank,
-                platform=self.platform,
-                avatar_stats=stats,
-                issues=issues,
-                suggestions=suggestions,
-                score=score,
-                details={
-                    'preset_path': str(preset_path),
-                    'target_rank': PerformanceRank.GOOD.value,
-                    'is_vrchat_compliant': len([i for i in issues if i['severity'] == 'critical']) == 0
-                }
-            )
-
+            result = self.analyze_stats(stats)
+            result.details['preset_path'] = str(preset_path)
+            return result
         except Exception as e:
             logger.error(f"Failed to analyze preset: {e}")
             raise
@@ -388,15 +381,13 @@ class VRChatPerformanceAnalyzer:
 
     def _calculate_rank(self, stats: AvatarStats) -> PerformanceRank:
         """統計からパフォーマンスランクを計算"""
-        # 各ランクの制限値と比較
         for rank in [PerformanceRank.EXCELLENT, PerformanceRank.GOOD,
                      PerformanceRank.MEDIUM, PerformanceRank.POOR]:
-            limits = self.limits_db[rank]
-
-            # すべての制限値を満たしているかチェック
+            limits = self.limits_db.get(rank)
+            if limits is None:
+                continue
             if self._meets_limits(stats, limits):
                 return rank
-
         return PerformanceRank.VERY_POOR
 
     def _meets_limits(self, stats: AvatarStats, limits: PerformanceLimits) -> bool:
@@ -467,7 +458,9 @@ class VRChatPerformanceAnalyzer:
 
         # 目標ランク（Goodを目指す）
         target_rank = PerformanceRank.GOOD
-        target_limits = self.limits_db[target_rank]
+        target_limits = self.limits_db.get(target_rank)
+        if target_limits is None:
+            return suggestions
 
         # ポリゴン数最適化
         if stats.polygons > target_limits.polygons:
