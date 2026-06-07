@@ -15,7 +15,7 @@ import platform
 import threading
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from statistics import mean, stdev, StatisticsError
 from typing import Any, Callable, Deque, Dict, List, Optional
 
@@ -260,7 +260,7 @@ class PerformanceMonitor:
     def _format_datetime(self, dt: Optional[datetime] = None) -> str:
         """設定されたフォーマットで日付をフォーマットします。"""
         if dt is None:
-            dt = datetime.now()
+            dt = datetime.now(timezone.utc)
         return dt.strftime(self._datetime_format)
 
     def validate_config(self) -> Dict[str, str]:
@@ -371,7 +371,7 @@ class PerformanceMonitor:
 
         # アラート情報をまとめる
         alert_info = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "alerts": alerts,
             "message": message,
             "severity": "high" if any(a.get("severity", "medium") == "high" for a in alerts) else "medium"
@@ -400,7 +400,7 @@ class PerformanceMonitor:
                 logger.error("アラートハンドラー実行中にエラーが発生しました: %s", exc, exc_info=True)
 
         # デフォルトのコンソール出力（後方互換性のため）
-        print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] パフォーマンスアラート: {message}")
+        print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}] パフォーマンスアラート: {message}")
 
     def add_stream_callback(self, callback: callable) -> bool:
         """リアルタイムストリーミング用のコールバックを追加します。"""
@@ -539,7 +539,7 @@ class PerformanceMonitor:
                 config_snapshot = dict(self.config)
 
             payload = {
-                "export_time": datetime.utcnow().isoformat(),
+                "export_time": datetime.now(timezone.utc).isoformat(),
                 "config": config_snapshot,
                 "report": report,
                 "history": history_snapshot,
@@ -617,7 +617,7 @@ class PerformanceMonitor:
             time.sleep(wait_time)
 
     def _collect_stats(self) -> StatsDict:
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         now = time.time()
 
         # エラー統計のリセット
@@ -776,7 +776,7 @@ class PerformanceMonitor:
                 }
             },
         )
-        print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] パフォーマンスアラート: {message}")
+        print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}] パフォーマンスアラート: {message}")
 
     def _evaluate_thresholds(self, stats: StatsDict) -> Dict[str, Dict[str, Any]]:
         values = {
@@ -967,7 +967,7 @@ class PerformanceMonitor:
 
     def _get_default_stats(self, timestamp: str = None) -> StatsDict:
         return {
-            "timestamp": timestamp or datetime.utcnow().isoformat(),
+            "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
             "memory": {"total": 0, "used": 0, "available": 0, "percent": 0.0},
             "cpu": {"percent": 0.0, "count": 0},
             "disk_io": {"read_bytes": 0, "write_bytes": 0, "read_kbps": 0.0, "write_kbps": 0.0},
@@ -985,7 +985,7 @@ class PerformanceMonitor:
                 'value': value,
                 'unit': unit,
                 'description': description,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
 
     def get_custom_metrics(self) -> Dict[str, Dict[str, Any]]:
@@ -1067,7 +1067,7 @@ class PerformanceMonitor:
             "custom_metrics": custom_metrics,
             "error_stats": dict(self._error_stats),
             "consecutive_errors": self._consecutive_errors,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     def add_prometheus_handler(self, handler: Callable[[bytes], None]) -> bool:
