@@ -13,7 +13,7 @@ import json
 import shutil
 import hashlib
 from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum
@@ -74,6 +74,10 @@ class DisasterRecoveryManager:
             'yearly': self.config.get('retention_yearly', 5),  # 年次バックアップを5年保持
         }
 
+        self.metadata_file = self.backup_dir / 'backup_metadata.json'
+        self.backup_metadata: List[BackupMetadata] = []
+        self._load_metadata()
+
     def create_backup(
         self,
         backup_name: Optional[str] = None,
@@ -84,7 +88,7 @@ class DisasterRecoveryManager:
         """バックアップの作成"""
         try:
             # バックアップIDとタイムスタンプ
-            timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
             backup_id = backup_name or f"backup_{timestamp}"
 
             logger.info(f"バックアップ作成開始: {backup_id}")
@@ -139,7 +143,7 @@ class DisasterRecoveryManager:
             # メタデータの作成
             metadata = BackupMetadata(
                 backup_id=backup_id,
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 status=BackupStatus.COMPLETED,
                 size_bytes=total_size,
                 checksum=combined_checksum,
@@ -234,7 +238,7 @@ class DisasterRecoveryManager:
 
             # 現在の状態をバックアップ (復元前)
             pre_restore_backup = self.create_backup(
-                backup_name=f"pre_restore_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+                backup_name=f"pre_restore_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
                 verify=False
             )
 
@@ -291,7 +295,7 @@ class DisasterRecoveryManager:
             backups = [b for b in backups if b.verification_passed]
 
         if days is not None:
-            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
             backups = [
                 b for b in backups
                 if datetime.fromisoformat(b.timestamp) > cutoff
@@ -309,7 +313,7 @@ class DisasterRecoveryManager:
         """古いバックアップを保持ポリシーに基づいてクリーンアップ"""
         if retention_days is not None:
             # カスタム保持期間を指定
-            cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
         else:
             # デフォルトのポリシーを適用
             cutoff_date = self._get_earliest_retention_date()
@@ -346,7 +350,7 @@ class DisasterRecoveryManager:
 
     def _get_earliest_retention_date(self) -> datetime:
         """保持ポリシーに基づく最も古い保持日を取得"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         # 年次バックアップの保持期間を基準に
         return now - timedelta(days=self.retention_policy['yearly'] * 365) + timedelta(days=1)
 
@@ -374,7 +378,7 @@ class DisasterRecoveryManager:
                 "verified": latest_backup.verification_passed
             } if latest_backup else None,
             "backup_directory": str(self.backup_dir),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
     # =============== Internal Methods ===============
