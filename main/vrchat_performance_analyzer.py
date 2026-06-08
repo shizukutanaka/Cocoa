@@ -316,7 +316,8 @@ class VRChatPerformanceAnalyzer:
             details={
                 'preset_path': None,
                 'target_rank': PerformanceRank.GOOD.value,
-                'is_vrchat_compliant': len([i for i in issues if i['severity'] == 'critical']) == 0
+                'is_vrchat_compliant': len([i for i in issues if i['severity'] == 'critical']) == 0,
+                'limiting_factors': self.get_limiting_factors(stats),
             }
         )
 
@@ -365,13 +366,7 @@ class VRChatPerformanceAnalyzer:
             height = texture.get('height', 1024)
             format_type = texture.get('format', 'RGBA32')
 
-            # フォーマット別のバイト数
-            bytes_per_pixel = {
-                'RGBA32': 4,
-                'RGB24': 3,
-                'DXT1': 0.5,  # 圧縮
-                'DXT5': 1.0   # 圧縮
-            }.get(format_type, 4)
+            bytes_per_pixel = self._format_bytes_per_pixel(format_type)
 
             # メモリ使用量計算（ミップマップ込み: 1.33倍）
             memory_bytes = width * height * bytes_per_pixel * 1.33
@@ -379,10 +374,62 @@ class VRChatPerformanceAnalyzer:
 
         return total_mb
 
+    # フォーマット別バイト/ピクセル。圧縮フォーマットはブロック圧縮の実効値。
+    # 参考: Unity TextureImporter / VRChat (Thry's Avatar Performance Tools)。
+    FORMAT_BYTES_PER_PIXEL: Dict[str, float] = {
+        # 非圧縮
+        'RGBA32': 4.0,
+        'ARGB32': 4.0,
+        'RGB24': 3.0,
+        'R8': 1.0,
+        'RGBAHALF': 8.0,
+        # 旧来のブロック圧縮 (DXT/BC)
+        'DXT1': 0.5,   # = BC1
+        'DXT5': 1.0,   # = BC3
+        'BC1': 0.5,
+        'BC3': 1.0,
+        'BC4': 0.5,    # 単チャンネル
+        'BC5': 1.0,    # 法線マップ向け 2 チャンネル
+        'BC7': 1.0,    # 高品質 RGBA
+        # ASTC (主に Quest/Android)
+        'ASTC_4X4': 1.0,
+        'ASTC_5X5': 0.64,
+        'ASTC_6X6': 0.44,
+        'ASTC_8X8': 0.25,
+        'ASTC_10X10': 0.16,
+        'ASTC_12X12': 0.11,
+    }
+
+    def _format_bytes_per_pixel(self, format_type: str) -> float:
+        """テクスチャフォーマット名から実効バイト/ピクセルを返す（大文字小文字非依存）。
+
+        未知フォーマットは安全側に倒して非圧縮 RGBA32 (4.0) を仮定する。
+        """
+        key = str(format_type).upper().replace('-', '_').replace(' ', '')
+        return self.FORMAT_BYTES_PER_PIXEL.get(key, 4.0)
+
+    # ベスト→ワーストのランク順序。総合ランクは全次元中の最悪ランク（VRChat 公式方式）。
+    RANK_ORDER: List[PerformanceRank] = [
+        PerformanceRank.EXCELLENT,
+        PerformanceRank.GOOD,
+        PerformanceRank.MEDIUM,
+        PerformanceRank.POOR,
+    ]
+
+    # PerformanceLimits / AvatarStats で共通する評価対象フィールド（全 22 次元）。
+    LIMIT_FIELDS: tuple = (
+        'polygons', 'materials', 'bones', 'skinned_meshes', 'mesh_count',
+        'material_slots', 'physbones_components', 'physbones_transforms',
+        'physbones_colliders', 'physbones_collision_checks', 'animators',
+        'lights', 'particle_systems', 'particle_max_particles',
+        'trail_renderers', 'line_renderers', 'cloths', 'cloth_vertices',
+        'physics_colliders', 'physics_rigidbodies', 'audio_sources',
+        'texture_memory_mb',
+    )
+
     def _calculate_rank(self, stats: AvatarStats) -> PerformanceRank:
-        """統計からパフォーマンスランクを計算"""
-        for rank in [PerformanceRank.EXCELLENT, PerformanceRank.GOOD,
-                     PerformanceRank.MEDIUM, PerformanceRank.POOR]:
+        """統計からパフォーマンスランクを計算（全次元の最悪ランク）。"""
+        for rank in self.RANK_ORDER:
             limits = self.limits_db.get(rank)
             if limits is None:
                 continue
@@ -391,18 +438,54 @@ class VRChatPerformanceAnalyzer:
         return PerformanceRank.VERY_POOR
 
     def _meets_limits(self, stats: AvatarStats, limits: PerformanceLimits) -> bool:
-        """統計が制限値を満たしているかチェック"""
-        return (
-            stats.polygons <= limits.polygons and
-            stats.materials <= limits.materials and
-            stats.bones <= limits.bones and
-            stats.skinned_meshes <= limits.skinned_meshes and
-            stats.mesh_count <= limits.mesh_count and
-            stats.physbones_components <= limits.physbones_components and
-            stats.lights <= limits.lights and
-            stats.particle_systems <= limits.particle_systems and
-            stats.texture_memory_mb <= limits.texture_memory_mb
-        )
+        """統計が全 22 次元で制限値を満たしているかチェック。
+
+        VRChat 公式のランク判定は「全カテゴリが当該ランクの制限内」のときのみ
+        そのランクを満たす（= 総合ランクは最悪カテゴリで決まる）。
+        """
+        for field in self.LIMIT_FIELDS:
+            if getattr(stats, field) > getattr(limits, field):
+                return False
+        return True
+
+    def _rank_for_value(self, field: str, value: float) -> PerformanceRank:
+        """単一次元の値が単独で達成するランクを返す。"""
+        for rank in self.RANK_ORDER:
+            limits = self.limits_db.get(rank)
+            if limits is None:
+                continue
+            if value <= getattr(limits, field):
+                return rank
+        return PerformanceRank.VERY_POOR
+
+    def get_limiting_factors(self, stats: AvatarStats) -> List[Dict[str, any]]:
+        """総合ランクを律速している次元（ボトルネック）を特定する。
+
+        各次元の単独ランクを求め、総合（最悪）ランクと一致する次元を返す。
+        全次元が EXCELLENT のときは空リスト。値が 0 の次元は除外する。
+        """
+        overall = self._calculate_rank(stats)
+        if overall == PerformanceRank.EXCELLENT:
+            return []
+
+        worst_index = self.RANK_ORDER.index(overall) if overall in self.RANK_ORDER else len(self.RANK_ORDER)
+        factors: List[Dict[str, any]] = []
+        for field in self.LIMIT_FIELDS:
+            value = getattr(stats, field)
+            if value <= 0:
+                continue
+            field_rank = self._rank_for_value(field, value)
+            field_index = (
+                self.RANK_ORDER.index(field_rank)
+                if field_rank in self.RANK_ORDER else len(self.RANK_ORDER)
+            )
+            if field_index >= worst_index:
+                factors.append({
+                    'field': field,
+                    'value': value,
+                    'rank': field_rank.value,
+                })
+        return factors
 
     def _detect_issues(self, stats: AvatarStats) -> List[Dict[str, any]]:
         """問題を検出"""
@@ -556,6 +639,17 @@ class VRChatPerformanceAnalyzer:
         report.append(f"Lights: {stats.lights} {'❌ REMOVE' if stats.lights > 0 else '✓'}")
         report.append(f"Particle Systems: {stats.particle_systems}")
         report.append(f"Texture Memory: {stats.texture_memory_mb:.1f} MB")
+
+        limiting_factors = result.details.get('limiting_factors', [])
+        if limiting_factors:
+            report.append("\n" + "-" * 70)
+            report.append(f"Limiting Factors (bottlenecks for {result.rank.value.upper()} rank)")
+            report.append("-" * 70)
+            for factor in limiting_factors:
+                report.append(
+                    f"  • {factor['field']}: {factor['value']} "
+                    f"(this stat alone = {factor['rank'].upper()})"
+                )
 
         if result.issues:
             report.append("\n" + "-" * 70)

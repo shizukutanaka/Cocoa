@@ -122,6 +122,121 @@ class TestAndroidAnalyzer(unittest.TestCase):
         self.assertIsInstance(result.suggestions, list)
 
 
+class TestAllDimensionRanking(unittest.TestCase):
+    """REQ-VP-04: overall rank = worst across ALL 22 dimensions."""
+
+    def test_physbones_transforms_downgrades_rank(self):
+        analyzer = _make_analyzer()
+        # Everything else EXCELLENT, but physbones_transforms=256 is POOR-tier on PC
+        result = analyzer.analyze_stats(_stats(physbones_transforms=256))
+        self.assertEqual(result.rank, PerformanceRank.POOR)
+
+    def test_audio_sources_downgrades_rank(self):
+        analyzer = _make_analyzer()
+        # PC EXCELLENT audio_sources limit is 1; 10 pushes to a worse rank
+        excellent = analyzer.analyze_stats(_stats())
+        with_audio = analyzer.analyze_stats(_stats(audio_sources=10))
+        self.assertEqual(excellent.rank, PerformanceRank.EXCELLENT)
+        self.assertNotEqual(with_audio.rank, PerformanceRank.EXCELLENT)
+
+    def test_physics_colliders_counted(self):
+        analyzer = _make_analyzer()
+        # EXCELLENT physics_colliders limit is 1 on PC; 16 is POOR-tier
+        result = analyzer.analyze_stats(_stats(physics_colliders=16))
+        self.assertEqual(result.rank, PerformanceRank.POOR)
+
+    def test_cloth_vertices_counted(self):
+        analyzer = _make_analyzer()
+        # EXCELLENT cloth_vertices limit is 0; 200 is MEDIUM-tier
+        result = analyzer.analyze_stats(_stats(cloth_vertices=200))
+        self.assertEqual(result.rank, PerformanceRank.MEDIUM)
+
+    def test_all_zero_extra_dims_stays_excellent(self):
+        analyzer = _make_analyzer()
+        result = analyzer.analyze_stats(_stats())
+        self.assertEqual(result.rank, PerformanceRank.EXCELLENT)
+
+
+class TestLimitingFactors(unittest.TestCase):
+    """REQ-VP-05: identify the dimensions that bottleneck the overall rank."""
+
+    def test_excellent_has_no_limiting_factors(self):
+        analyzer = _make_analyzer()
+        result = analyzer.analyze_stats(_stats())
+        self.assertEqual(result.details['limiting_factors'], [])
+
+    def test_limiting_factor_identifies_bottleneck(self):
+        analyzer = _make_analyzer()
+        result = analyzer.analyze_stats(_stats(physbones_transforms=256))
+        fields = [f['field'] for f in result.details['limiting_factors']]
+        self.assertIn('physbones_transforms', fields)
+
+    def test_limiting_factor_includes_rank_and_value(self):
+        analyzer = _make_analyzer()
+        result = analyzer.analyze_stats(_stats(physbones_transforms=256))
+        factor = next(f for f in result.details['limiting_factors'] if f['field'] == 'physbones_transforms')
+        self.assertEqual(factor['value'], 256)
+        self.assertEqual(factor['rank'], 'poor')
+
+    def test_zero_value_dims_excluded(self):
+        analyzer = _make_analyzer()
+        result = analyzer.analyze_stats(_stats(polygons=19000))  # POOR via polygons
+        fields = [f['field'] for f in result.details['limiting_factors']]
+        # bones default 75 is EXCELLENT, audio_sources=0 should not appear
+        self.assertNotIn('audio_sources', fields)
+
+    def test_get_limiting_factors_method(self):
+        analyzer = _make_analyzer()
+        factors = analyzer.get_limiting_factors(_stats(polygons=19000))
+        self.assertTrue(any(f['field'] == 'polygons' for f in factors))
+
+    def test_details_contains_limiting_factors_key(self):
+        analyzer = _make_analyzer()
+        result = analyzer.analyze_stats(_stats())
+        self.assertIn('limiting_factors', result.details)
+
+
+class TestTextureFormats(unittest.TestCase):
+    """REQ-VP-06: modern texture format VRAM estimation."""
+
+    def test_bc7_format(self):
+        analyzer = _make_analyzer()
+        # BC7 = 1.0 bpp; 1024x1024 x 1.33 mip / 1MB = 1.33
+        mb = analyzer._estimate_texture_memory([{'width': 1024, 'height': 1024, 'format': 'BC7'}])
+        self.assertAlmostEqual(mb, 1.33, places=2)
+
+    def test_astc_8x8_format(self):
+        analyzer = _make_analyzer()
+        # ASTC_8X8 = 0.25 bpp; 1024x1024 x 1.33 / 1MB = 0.3325
+        mb = analyzer._estimate_texture_memory([{'width': 1024, 'height': 1024, 'format': 'ASTC_8X8'}])
+        self.assertAlmostEqual(mb, 0.3325, places=3)
+
+    def test_format_case_insensitive(self):
+        analyzer = _make_analyzer()
+        upper = analyzer._estimate_texture_memory([{'width': 512, 'height': 512, 'format': 'BC7'}])
+        lower = analyzer._estimate_texture_memory([{'width': 512, 'height': 512, 'format': 'bc7'}])
+        self.assertEqual(upper, lower)
+
+    def test_bc5_normal_map(self):
+        analyzer = _make_analyzer()
+        # BC5 = 1.0 bpp, same as DXT5
+        bc5 = analyzer._estimate_texture_memory([{'width': 1024, 'height': 1024, 'format': 'BC5'}])
+        dxt5 = analyzer._estimate_texture_memory([{'width': 1024, 'height': 1024, 'format': 'DXT5'}])
+        self.assertEqual(bc5, dxt5)
+
+    def test_unknown_format_falls_back_to_rgba32(self):
+        analyzer = _make_analyzer()
+        unknown = analyzer._estimate_texture_memory([{'width': 256, 'height': 256, 'format': 'MADE_UP'}])
+        rgba = analyzer._estimate_texture_memory([{'width': 256, 'height': 256, 'format': 'RGBA32'}])
+        self.assertEqual(unknown, rgba)
+
+    def test_dxt1_unchanged(self):
+        analyzer = _make_analyzer()
+        # Regression: DXT1 still 0.5 bpp
+        mb = analyzer._estimate_texture_memory([{'width': 1024, 'height': 1024, 'format': 'DXT1'}])
+        self.assertAlmostEqual(mb, 0.665, places=2)
+
+
 class TestGenerateReport(unittest.TestCase):
     def test_report_is_string(self):
         analyzer = _make_analyzer()
@@ -135,6 +250,19 @@ class TestGenerateReport(unittest.TestCase):
         result = analyzer.analyze_stats(_stats())
         report = analyzer.generate_report(result)
         self.assertIn("EXCELLENT", report.upper())
+
+    def test_report_shows_limiting_factors(self):
+        analyzer = _make_analyzer()
+        result = analyzer.analyze_stats(_stats(physbones_transforms=256))
+        report = analyzer.generate_report(result)
+        self.assertIn("Limiting Factors", report)
+        self.assertIn("physbones_transforms", report)
+
+    def test_report_no_limiting_section_when_excellent(self):
+        analyzer = _make_analyzer()
+        result = analyzer.analyze_stats(_stats())
+        report = analyzer.generate_report(result)
+        self.assertNotIn("Limiting Factors", report)
 
 
 if __name__ == "__main__":
