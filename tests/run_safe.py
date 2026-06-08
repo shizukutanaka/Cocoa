@@ -51,6 +51,7 @@ SAFE_MODULES = [
     "tests.test_enhanced_disaster_recovery",
     "tests.test_joint_range_report",
     "tests.test_security_scanner",
+    "tests.test_services_config",
 ]
 
 
