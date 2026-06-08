@@ -56,6 +56,7 @@ SAFE_MODULES = [
     "tests.test_perf_log_viewer",
     "tests.test_language_scripts",
     "tests.test_generate_languages",
+    "tests.test_generate_languages_improved",
 ]
 
 

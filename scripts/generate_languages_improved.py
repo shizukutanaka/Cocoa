@@ -21,7 +21,7 @@ class LanguageFileGenerator:
     def __init__(self, locales_dir: str = "locales"):
         """言語ファイル生成クラスを初期化"""
         self.locales_dir = Path(locales_dir)
-        self.locales_dir.mkdir(exist_ok=True)
+        self.locales_dir.mkdir(parents=True, exist_ok=True)
 
         # 言語マッピング（言語コード -> 言語名）
         self.language_map = {
