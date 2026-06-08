@@ -19,7 +19,7 @@ import argparse
 import logging
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Cocoaモジュールのパスを追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "main"))
@@ -73,7 +73,7 @@ class PerformanceTestRunner:
                 # 個別テストを選択的に実行
                 test_results = {
                     "test_execution": {
-                        "start_time": datetime.now().isoformat(),
+                        "start_time": datetime.now(timezone.utc).isoformat(),
                         "quick_mode": True
                     },
                     "test_results": [],
@@ -95,7 +95,7 @@ class PerformanceTestRunner:
                         logger.error(f"テストエラー: {test_func.__name__} - {e}")
 
                 # 結果をまとめ
-                test_results["test_execution"]["end_time"] = datetime.now().isoformat()
+                test_results["test_execution"]["end_time"] = datetime.now(timezone.utc).isoformat()
                 test_results["test_results"] = [
                     {
                         "test_name": r.test_name,
@@ -169,7 +169,7 @@ class PerformanceTestRunner:
             comprehensive_data = {
                 "execution_info": {
                     "timestamp": self.execution_timestamp,
-                    "execution_time": datetime.now().isoformat(),
+                    "execution_time": datetime.now(timezone.utc).isoformat(),
                     "reports_generated": []
                 },
                 "performance_test_results": self.test_results,

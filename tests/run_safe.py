@@ -50,6 +50,7 @@ SAFE_MODULES = [
     "tests.test_grafana_integration",
     "tests.test_enhanced_disaster_recovery",
     "tests.test_joint_range_report",
+    "tests.test_security_scanner",
 ]
 
 
