@@ -100,7 +100,9 @@ class CocoaHealthChecker:
 
         # locales内の言語ファイル
         locales_files = list(locales_dir.glob('*.json'))
-        main_lang_files = [f for f in main_dir.glob('*.json') if f.name.endswith('.json') and len(f.name) == 6]  # xx.json
+        # 2文字言語コードのファイル (例: ja.json, en.json) を検出する。
+        # ステム長で判定する ("ja.json" -> stem "ja" -> len 2)。
+        main_lang_files = [f for f in main_dir.glob('*.json') if len(f.stem) == 2]
 
         if main_lang_files:
             self.warnings.append({
@@ -139,7 +141,7 @@ class CocoaHealthChecker:
                             duplicates.append((str(filepath), str(hashes[file_hash])))
                         else:
                             hashes[file_hash] = filepath
-                    except:
+                    except Exception:
                         pass
 
         if duplicates:
@@ -173,7 +175,7 @@ class CocoaHealthChecker:
                     lines = result.stdout.strip().split('\n')
                     if lines and lines[0]:
                         security_issues.extend(lines)
-            except:
+            except Exception:
                 pass
 
         if security_issues:
