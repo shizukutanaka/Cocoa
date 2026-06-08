@@ -48,6 +48,8 @@ SAFE_MODULES = [
     "tests.test_redis_cache_manager",
     "tests.test_global_edge_manager",
     "tests.test_grafana_integration",
+    "tests.test_enhanced_disaster_recovery",
+    "tests.test_joint_range_report",
 ]
 
 
