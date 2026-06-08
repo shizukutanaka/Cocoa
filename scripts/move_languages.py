@@ -5,30 +5,40 @@ Move remaining language files to locales/
 """
 import os
 from pathlib import Path
+from typing import Dict, List, Optional
+
+DEFAULT_REMAINING_LANGS = [
+    'de', 'es', 'fr', 'hi', 'id',
+    'ko', 'pt', 'ru', 'ur', 'zh',
+]
 
 
-def move_remaining_languages():
-    """残りの言語ファイルをmain/からlocales/へ移動"""
-    project_root = Path(__file__).resolve().parent.parent
+def move_remaining_languages(
+    project_root: Optional[Path] = None,
+    langs: Optional[List[str]] = None,
+) -> Dict[str, int]:
+    """残りの言語ファイルを main/ から locales/ へ移動する。
+
+    Args:
+        project_root: プロジェクトルート。未指定時はこのスクリプトの2階層上。
+        langs: 移動対象の言語コード。未指定時は DEFAULT_REMAINING_LANGS。
+
+    Returns:
+        {"moved": 移動件数}
+    """
+    if project_root is None:
+        project_root = Path(__file__).resolve().parent.parent
+    project_root = Path(project_root)
     main_dir = project_root / 'main'
     locales_dir = project_root / 'locales'
+    locales_dir.mkdir(parents=True, exist_ok=True)
 
-    # 移動する言語ファイル
-    remaining_langs = [
-        ('de', 'de.json'),
-        ('es', 'es.json'),
-        ('fr', 'fr.json'),
-        ('hi', 'hi.json'),
-        ('id', 'id.json'),
-        ('ko', 'ko.json'),
-        ('pt', 'pt.json'),
-        ('ru', 'ru.json'),
-        ('ur', 'ur.json'),
-        ('zh', 'zh.json')
-    ]
+    if langs is None:
+        langs = DEFAULT_REMAINING_LANGS
 
     moved = 0
-    for lang_code, filename in remaining_langs:
+    for lang_code in langs:
+        filename = f'{lang_code}.json'
         src_path = main_dir / filename
         dst_path = locales_dir / filename
 
@@ -53,6 +63,8 @@ def move_remaining_languages():
             print(f"- {filename} not found")
 
     print(f"\n移動完了: {moved} files moved")
+
+    return {"moved": moved}
 
 
 if __name__ == "__main__":

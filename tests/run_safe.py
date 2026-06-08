@@ -54,6 +54,7 @@ SAFE_MODULES = [
     "tests.test_services_config",
     "tests.test_health_checker",
     "tests.test_perf_log_viewer",
+    "tests.test_language_scripts",
 ]
 
 
