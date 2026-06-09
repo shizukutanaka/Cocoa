@@ -1,6 +1,16 @@
 from typing import Dict, Any, List
-import numpy as np
-from scipy.optimize import minimize
+
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+
+try:
+    from scipy.optimize import minimize
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
 from avatar_parameters import AvatarParameters
 from error_handling import ParameterError
 

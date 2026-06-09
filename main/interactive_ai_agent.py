@@ -16,7 +16,11 @@ import uuid
 
 import openai
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
-import torch
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
 
 from integrated_security import get_security_manager
 

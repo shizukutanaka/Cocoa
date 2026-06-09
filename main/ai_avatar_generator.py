@@ -12,8 +12,17 @@ from typing import Dict, List, Optional, Union
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-import torch
-from PIL import Image
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
 from transformers import CLIPProcessor, CLIPModel
 

@@ -15,8 +15,12 @@ from datetime import datetime, timezone
 import hashlib
 import hmac
 
-from aiohttp import web
-import aiofiles
+try:
+    from aiohttp import web
+    import aiofiles
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
 
 from video_creator import get_video_creator, VideoCreationRequest
 from template_library import get_template_library

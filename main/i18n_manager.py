@@ -13,7 +13,11 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
-import aiohttp
+try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
 
 from integrated_security import get_security_manager
 
@@ -198,7 +202,7 @@ class TranslationService:
 
     async def initialize(self):
         """初期化"""
-        if not self.session:
+        if not self.session and AIOHTTP_AVAILABLE:
             self.session = aiohttp.ClientSession()
 
     async def close(self):

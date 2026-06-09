@@ -14,7 +14,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import math
 
-import numpy as np
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
 
 try:
     import open3d as o3d

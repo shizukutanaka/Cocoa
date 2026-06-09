@@ -13,7 +13,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import requests
-from PIL import Image
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 from integrated_security import get_security_manager
 

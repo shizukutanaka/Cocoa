@@ -15,8 +15,17 @@ from datetime import datetime, timezone
 import uuid
 
 import cv2
-import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 import moviepy.editor as mp
 
 from integrated_security import get_security_manager

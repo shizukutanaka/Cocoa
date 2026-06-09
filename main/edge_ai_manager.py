@@ -12,9 +12,13 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-import torch
-import torch.nn as nn
-from torch.utils.data import Dataset
+try:
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import Dataset
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
 
 try:
     import onnx  # noqa: F401

@@ -11,8 +11,17 @@ from typing import Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from PIL import Image
-import numpy as np
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
 from moviepy.editor import AudioFileClip, CompositeVideoClip, TextClip
 
 from ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
