@@ -288,7 +288,7 @@ class TestErrorRecoverySystem(TestBase):
                 failing_function()
 
         # 4回目はサーキットブレーカーが作動
-        with self.assertRaises(Exception) as cm:
+        with self.assertRaises(Exception):
             failing_function()
 
         # サーキットブレーカーの状態確認
@@ -348,7 +348,7 @@ class TestDatabaseManager(TestBase):
         super().tearDown()
         try:
             self.db_manager.close()
-        except:
+        except Exception:
             pass
 
     def test_database_connection(self):
@@ -390,12 +390,12 @@ class TestDatabaseManager(TestBase):
         self.assertEqual(users[0]["name"], "Test User")
 
         # UPDATE
-        affected = self.db_manager.update("test_users", {"name": "Updated User"}, "id = ?", [user_id])
+        self.db_manager.update("test_users", {"name": "Updated User"}, "id = ?", [user_id])
         users = self.db_manager.select("test_users", where="id = ?", params=[user_id])
         self.assertEqual(users[0]["name"], "Updated User")
 
         # DELETE
-        deleted = self.db_manager.delete("test_users", "id = ?", [user_id])
+        self.db_manager.delete("test_users", "id = ?", [user_id])
         users = self.db_manager.select("test_users", where="id = ?", params=[user_id])
         self.assertEqual(len(users), 0)
 
@@ -452,7 +452,7 @@ class TestAdvancedLogger(TestBase):
         super().tearDown()
         try:
             self.logger.shutdown()
-        except:
+        except Exception:
             pass
 
     def test_structured_logging(self):
@@ -506,7 +506,7 @@ class TestAdvancedLogger(TestBase):
 
     def test_metrics_tracking(self):
         """メトリクス追跡テスト"""
-        initial_metrics = self.logger.get_metrics()
+        self.assertIsNotNone(self.logger.get_metrics())
 
         # ログを追加
         self.logger.log(
@@ -518,9 +518,8 @@ class TestAdvancedLogger(TestBase):
 
         time.sleep(0.2)
 
-        final_metrics = self.logger.get_metrics()
-        # エラーカウントが増加しているかチェック
-        # 実装によってはメトリクス更新にタイムラグがある可能性
+        # get_metrics() は常にdictを返す（実装によってはエラーカウントにタイムラグあり）
+        self.assertIsNotNone(self.logger.get_metrics())
 
 class TestBackupSystem(TestBase):
     """バックアップシステムテスト"""
@@ -544,7 +543,7 @@ class TestBackupSystem(TestBase):
         super().tearDown()
         try:
             self.backup_manager.shutdown()
-        except:
+        except Exception:
             pass
         finally:
             BackupManager._instance = None
@@ -611,7 +610,7 @@ class TestIntegration(TestBase):
 
         # 1. セキュリティマネージャーとログシステムの連携
         security_config = self.create_test_config("security.json", {})
-        security_manager = SecurityManager(security_config)
+        SecurityManager(security_config)
 
         log_config = self.create_test_config("logging.json", {
             "log_directory": str(self.temp_dir / "logs"),

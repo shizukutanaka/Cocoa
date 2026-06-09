@@ -574,6 +574,7 @@ const metaverseAI = new MetaverseAgenticAI(avatar, '{request.environment}');
                 "energy_optimization": True
             }
         }
+        return features
 
     async def _validate_request_2026(self, request: MetaverseAvatarRequest):
         """2026年対応のリクエスト検証"""
@@ -781,9 +782,7 @@ const metaverseAI = new MetaverseAgenticAI(avatar, '{request.environment}');
         globally_optimized_data = avatar_data.copy()
 
         if self.global_edge_manager:
-            # グローバル配信最適化
-            edge_status = self.global_edge_manager.get_global_edge_status()
-
+            self.global_edge_manager.get_global_edge_status()
             globally_optimized_data["global_optimization"] = {
                 "cdn_enabled": True,
                 "cache_strategy": "aggressive",

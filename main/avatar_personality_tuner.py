@@ -4,7 +4,6 @@ Avatar Personality Tuner Module for Cocoa
 ユーザーの話し方・表情を分析して自然なアバター動作を最適化
 """
 
-import os
 import logging
 import json
 import sqlite3
@@ -179,10 +178,7 @@ class PersonalityAnalyzer:
         # 簡易的な分析（実際には音声処理ライブラリを使用）
         if audio_path and Path(audio_path).exists():
             try:
-                # ファイルサイズから簡易推定
-                file_size = os.path.getsize(audio_path)
-                # 仮定: 平均話速150WPM、ファイルサイズから推定
-                estimated_duration = file_size / (44100 * 2 * 60)  # 仮定の計算
+                # 簡易推定: 平均話速150WPM
                 analysis['speaking_rate'] = 150 * (1 + np.random.normal(0, 0.1))  # 簡易乱数
 
                 # ピッチ範囲推定
@@ -456,8 +452,6 @@ class AvatarPersonalityTuner:
         # 既存プロファイル取得または新規作成
         if user_id not in self.profiles:
             self.profiles[user_id] = PersonalityProfile(user_id=user_id)
-
-        profile = self.profiles[user_id]
 
         # 全てのサンプルを取得
         samples = await self._get_user_behavior_samples(user_id)

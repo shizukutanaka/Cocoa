@@ -359,7 +359,7 @@ class BlockchainAuditManager:
             })
 
             # トランザクション待機
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash)
+            self.web3.eth.wait_for_transaction_receipt(tx_hash)
             logger.info(f"On-chain audit recorded: {transaction['event_id']}, tx: {tx_hash.hex()}")
 
         except Exception as e:

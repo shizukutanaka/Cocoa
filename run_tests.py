@@ -466,6 +466,7 @@ class SelfAdaptingMonitor:
                 print(f"  - テスト実行時間が{self.config.monitoring_thresholds['execution_time_per_test']:.1f}秒を超えました (現在: {avg_time:.2f}秒)")
             elif violation == "error_rate":
                 error_rate = (metrics.failed_tests / max(metrics.total_tests, 1)) * 100
+                print(f"  - エラー率が閾値を超えました (現在: {error_rate:.1f}%)")
 class AutoTestGenerator:
     """テストケースを自動生成する。"""
 
@@ -728,7 +729,7 @@ class TestRollbackManager:
 
         try:
             with backup_path.open("r", encoding="utf-8") as f:
-                backup_data = json.load(f)
+                json.load(f)  # validate JSON is well-formed before reporting success
 
             # 設定を復元
             if self.json_logger:

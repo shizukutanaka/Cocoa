@@ -261,20 +261,6 @@ class VRChatSDKManager:
         package_name = f"vrchat_avatar_{timestamp}.unitypackage"
         package_path = self.cache_dir / package_name
 
-        # Unityパッケージ構造の作成（簡易版）
-        package_structure = {
-            'Assets': {
-                'VRChat': {
-                    'Avatar': {
-                        'Textures': {},
-                        'Materials': {},
-                        'Prefabs': {}
-                    }
-                }
-            },
-            'ProjectSettings': {}
-        }
-
         # パッケージメタデータの作成
         with open(package_path.with_suffix('.json'), 'w', encoding='utf-8') as f:
             json.dump({

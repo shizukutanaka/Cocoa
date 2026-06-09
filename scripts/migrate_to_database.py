@@ -171,7 +171,7 @@ class CocoaDataMigrator:
         migrated_count = 0
 
         try:
-            with db_integration.transaction() as txn_id:
+            with db_integration.transaction():
                 for preset_info in presets_info:
                     try:
                         # プリセットファイル読み込み
@@ -217,7 +217,7 @@ class CocoaDataMigrator:
         migrated_count = 0
 
         try:
-            with db_integration.transaction() as txn_id:
+            with db_integration.transaction():
                 for config_info in config_files:
                     try:
                         config_file = Path(config_info["file"])

@@ -15,8 +15,6 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
         sys.path.insert(0, p)
 
 from global_edge_manager import (  # noqa: E402
-    ContentCache,
-    EdgeAnalytics,
     EdgeNode,
     GlobalEdgeManager,
     TrafficRoute,

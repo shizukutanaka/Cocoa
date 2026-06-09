@@ -1147,6 +1147,11 @@ class ZeroTrustSecurity:
         active_sessions = len(self.trusted_sessions)
         high_risk_sessions = sum(1 for s in self.trusted_sessions.values() if s['risk_score'] > 0.7)
         avg_risk_score = np.mean([s['risk_score'] for s in self.trusted_sessions.values()]) if self.trusted_sessions else 0.0
+        return {
+            "active_sessions": active_sessions,
+            "high_risk_sessions": high_risk_sessions,
+            "avg_risk_score": float(avg_risk_score),
+        }
 
 @dataclass
 class QuantumKeyPair:
@@ -1712,7 +1717,6 @@ class QuantumSafeManager:
         # 実際には標準PQCライブラリを使用
         # ここでは簡易的な実装
         import os
-        key = os.urandom(32)  # 簡易的な共有鍵
         nonce = os.urandom(12)
         # AES-256-GCM実装（実際にはcryptographyライブラリを使用）
         return nonce + plaintext  # 簡易実装

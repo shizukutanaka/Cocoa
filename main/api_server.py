@@ -469,7 +469,7 @@ async def enable_two_factor_auth(username: str, token: str, current_user: dict =
     try:
         if setup_2fa:
             user_id = current_user.get("user_id", 1)
-            result = setup_2fa(user_id, username)  # 実際には別途有効化関数が必要
+            setup_2fa(user_id, username)  # 実際には別途有効化関数が必要
 
             # トークン検証
             if verify_2fa_token:

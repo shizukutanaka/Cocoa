@@ -21,7 +21,6 @@ from enhanced_disaster_recovery import (  # noqa: E402
     RPOConfig,
     RTOConfig,
     RecoveryStrategy,
-    RecoveryTestResult,
     StorageType,
     TestType,
 )
@@ -84,7 +83,7 @@ class TestDataclasses(unittest.TestCase):
 
 class TestEnhanced321BackupManagerInit(unittest.TestCase):
     def test_default_constructor_does_not_raise(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory():
             mgr = Enhanced321BackupManager()
             self.assertIsNotNone(mgr)
 

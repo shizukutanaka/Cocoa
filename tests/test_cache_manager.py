@@ -113,7 +113,6 @@ class TestCacheManagerInvalidate(unittest.TestCase):
 
 class TestCachedDecorator(unittest.TestCase):
     def setUp(self):
-        from cache_manager import _cache_manager, get_cache_manager
         import cache_manager
         cache_manager._cache_manager = None  # reset global
 
@@ -160,7 +159,6 @@ class TestAsyncCachedDecorator(unittest.TestCase):
         self.assertFalse(inspect.iscoroutine(result), "async_cached() must not return a coroutine")
 
     def test_async_cached_returns_decorator(self):
-        import inspect
         decorator = async_cached()
         self.assertTrue(callable(decorator))
 

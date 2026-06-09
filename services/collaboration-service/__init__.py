@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
         for connection in connections:
             try:
                 await connection.close()
-            except:
+            except Exception:
                 pass
 
     # WebRTC接続を閉じる
@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
             for peer_connection in session_connections.values():
                 try:
                     await peer_connection.close()
-                except:
+                except Exception:
                     pass
 
     logger.info("Collaboration Service stopped")
@@ -141,7 +141,7 @@ class ConnectionManager:
         """個人メッセージを送信"""
         try:
             await websocket.send_text(message)
-        except:
+        except Exception:
             pass
 
     async def broadcast_to_session(self, session_id: str, message: str, exclude: Optional[WebSocket] = None):
@@ -151,7 +151,7 @@ class ConnectionManager:
                 if connection != exclude:
                     try:
                         await connection.send_text(message)
-                    except:
+                    except Exception:
                         # 切断された接続は削除
                         self.disconnect(session_id, connection)
 
@@ -212,7 +212,7 @@ async def websocket_endpoint(
         # セッション存在確認
         session = await db.query(CollaborationSession).filter(
             CollaborationSession.id == session_id,
-            CollaborationSession.is_active == True
+            CollaborationSession.is_active.is_(True)
         ).first()
 
         if not session:
@@ -251,7 +251,7 @@ async def websocket_endpoint(
         logging.error(f"WebSocket接続エラー: {e}")
         try:
             await websocket.close(code=1011, reason="サーバーエラー")
-        except:
+        except Exception:
             pass
 
 
@@ -440,7 +440,7 @@ async def join_collaboration_session(
         # セッション存在確認
         session = await db.query(CollaborationSession).filter(
             CollaborationSession.id == session_id,
-            CollaborationSession.is_active == True
+            CollaborationSession.is_active.is_(True)
         ).first()
 
         if not session:

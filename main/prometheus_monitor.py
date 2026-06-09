@@ -485,7 +485,7 @@ def example_usage():
         time.sleep(0.1)
         return "processed"
 
-    result = process_data()
+    process_data()
 
     # メトリクスをテキスト形式で出力
     metrics_text = monitor.expose_metrics().decode('utf-8')

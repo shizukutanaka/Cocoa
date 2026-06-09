@@ -178,24 +178,19 @@ class TwoFactorAuthManager:
             # バックアップコードを生成
             backup_codes = self._generate_backup_codes()
 
-            # データベースに保存（実際の実装では適切なデータベース操作）
-            setup_data = {
-                'user_id': user_id,
-                'username': username,
-                'secret': secret,
-                'backup_codes': backup_codes,
-                'is_enabled': False,  # セットアップ完了まで無効
-                'created_at': datetime.now().isoformat(),
-                'setup_completed': False
-            }
-
-            # 暗号化して保存
-            encrypted_data = self._encrypt_data(setup_data)
-
             # データベース保存処理（実際の実装では適切なデータベース操作）
             if self.db_manager:
-                # データベースに保存する処理をここに実装
-                pass
+                from datetime import timezone
+                setup_data = {
+                    'user_id': user_id,
+                    'username': username,
+                    'secret': secret,
+                    'backup_codes': backup_codes,
+                    'is_enabled': False,
+                    'created_at': datetime.now(timezone.utc).isoformat(),
+                    'setup_completed': False,
+                }
+                self.db_manager.save('two_factor_setup', setup_data)
 
             return {
                 'secret': secret,

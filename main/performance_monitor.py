@@ -1143,6 +1143,7 @@ class PerformanceMonitor:
             target = min(self._interval_max, self._current_interval * 1.2)
         elif pressure <= 0.5:
             target = max(self._interval_min, self._current_interval * 0.85)
+        self._current_interval = target
 
 class HybridMode(Enum):
     """ハイブリッドモード"""
@@ -1391,10 +1392,6 @@ class HybridSystemManager:
     async def _calculate_allocation_for_resource(self, cloud_resource: CloudResourceInfo,
                                                 workload: Dict[str, Any], budget: float) -> HybridResourceAllocation:
         """特定のリソースに対する割り当てを計算"""
-        # ローカルリソースの使用率に基づいてクラウドリソースを決定
-        local_cpu_usage = workload["cpu_demand"]
-        local_memory_usage = workload["memory_demand"]
-
         # クラウドリソースの必要性を計算
         cloud_cpu_needed = max(0, workload["cpu_demand"] - 0.8)  # 80%を超えた分をクラウドに
         cloud_memory_needed = max(0, workload["memory_demand"] - 0.8)

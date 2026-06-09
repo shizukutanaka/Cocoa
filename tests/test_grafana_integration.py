@@ -4,8 +4,7 @@ Spec: docs/SPEC_GRAFANA_INTEGRATION.md (REQ-GI-01)
 Runnable without pytest:  python3 -m unittest tests.test_grafana_integration -v
 
 GrafanaMetricsCollector / GrafanaDashboardManager / GrafanaIntegrationService
-require `requests` + `aiohttp` which are not installed; only
-EnhancedPerformanceMonitor (no grafana deps) is exercised here.
+require `requests` (optional); EnhancedPerformanceMonitor has no grafana deps.
 """
 import sys
 import unittest
@@ -138,8 +137,10 @@ class TestGrafanaAvailabilityFlag(unittest.TestCase):
     def test_grafana_available_is_bool(self):
         self.assertIsInstance(gi.GRAFANA_AVAILABLE, bool)
 
-    def test_grafana_not_available_in_test_env(self):
-        self.assertFalse(gi.GRAFANA_AVAILABLE)
+    def test_grafana_available_matches_requests_presence(self):
+        import importlib.util
+        requests_present = importlib.util.find_spec("requests") is not None
+        self.assertEqual(gi.GRAFANA_AVAILABLE, requests_present)
 
 
 if __name__ == "__main__":

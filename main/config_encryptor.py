@@ -260,7 +260,6 @@ def create_secure_config_backup(config_path: str, key: Optional[str] = None) -> 
     encryptor = ConfigEncryptor(key)
 
     # バックアップパスの生成
-    config_obj = Path(config_path)
     backup_path = f"{config_path}.backup.{int(time.time())}"
 
     return encryptor.create_secure_backup(config_path, backup_path)

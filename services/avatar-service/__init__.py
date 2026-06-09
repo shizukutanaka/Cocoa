@@ -136,7 +136,7 @@ async def list_avatars(
             # 管理者以外は自分のアバターか公開アバターのみ
             query = query.filter(
                 (Avatar.user_id == current_user["id"]) |
-                (Avatar.is_public == True)
+                (Avatar.is_public.is_(True))
             )
 
         if category:

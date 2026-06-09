@@ -114,8 +114,6 @@ class SecurityTestCase(unittest.TestCase):
 
         # セッション作成
         session_id = sm.create_session("test_user", "127.0.0.1")
-        session = sm.active_sessions[session_id]
-
         # セッション検証
         valid, session_info = sm.validate_session(session_id, "127.0.0.1")
         self.assertTrue(valid)

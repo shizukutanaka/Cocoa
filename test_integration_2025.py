@@ -200,7 +200,7 @@ class Cocoa2025IntegrationTester:
         try:
             # 全システムの連携テスト
             rag_system = await get_rag_system()
-            nft_manager = await get_nft_manager()
+            await get_nft_manager()
             vr_system = await get_vr_system()
             security_manager = await get_advanced_security_manager()
 

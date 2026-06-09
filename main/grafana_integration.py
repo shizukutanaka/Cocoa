@@ -15,7 +15,6 @@ import os
 
 try:
     import requests
-    import aiohttp
     GRAFANA_AVAILABLE = True
 except ImportError:
     GRAFANA_AVAILABLE = False
@@ -93,15 +92,10 @@ class GrafanaMetricsCollector:
                 metrics_to_send = self.metrics_buffer.copy()
                 self.metrics_buffer.clear()
 
-            # Grafana HTTP APIに送信（実際の実装では適切なエンドポイントを使用）
-            # ここではInfluxDB形式のデータを想定
-            payload = {
-                "metrics": metrics_to_send,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
-
             # 実際のGrafana統合では、適切なエンドポイントに送信
-            # response = requests.post(f"{self.grafana_url}/api/annotations", json=payload, headers=self._get_headers())
+            # response = requests.post(f"{self.grafana_url}/api/annotations",
+            #     json={"metrics": metrics_to_send, "timestamp": datetime.now(timezone.utc).isoformat()},
+            #     headers=self._get_headers())
 
             logger.info(f"メトリクスをGrafanaに送信: {len(metrics_to_send)}件")
             return True
@@ -258,8 +252,6 @@ class GrafanaIntegrationService:
 
     def collect_system_metrics(self, cpu_percent: float, memory_percent: float, disk_io: float, network_io: float):
         """システムメトリクスを収集"""
-        timestamp = int(time.time() * 1000)
-
         # CPUメトリクス
         self.metrics_collector.add_metric(
             "cocoa_cpu_usage",

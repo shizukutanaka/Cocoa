@@ -108,7 +108,7 @@ class TestAndroidAnalyzer(unittest.TestCase):
         android_analyzer = _make_analyzer(Platform.ANDROID)
         # Same stats: should be Excellent on PC, possibly not on Android
         s = _stats(polygons=7000, materials=1, texture_memory_mb=8.0)
-        pc_result = pc_analyzer.analyze_stats(s)
+        pc_analyzer.analyze_stats(s)
         android_result = android_analyzer.analyze_stats(s)
         # PC ≥ Android rank is not guaranteed for every combo, but
         # Android should handle it without crashing

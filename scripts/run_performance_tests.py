@@ -209,7 +209,6 @@ class PerformanceTestRunner:
         try:
             # テスト結果サマリー
             if self.test_results:
-                test_execution = self.test_results.get("test_execution", {})
                 test_results = self.test_results.get("test_results", [])
 
                 if test_results:
@@ -238,7 +237,6 @@ class PerformanceTestRunner:
 
             # 最適化結果サマリー
             if self.optimization_results:
-                opt_execution = self.optimization_results.get("optimization_execution", {})
                 opt_results = self.optimization_results.get("optimization_results", [])
 
                 if opt_results:

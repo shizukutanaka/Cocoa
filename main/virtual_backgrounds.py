@@ -661,7 +661,6 @@ class VirtualBackgroundsService:
                 # 六角形を描画
                 points = []
                 for i in range(6):
-                    angle = i * 60
                     px = x + hex_size * (1 + (i % 2) * 0.5)
                     py = y + hex_size * (1 + (i // 2) * 0.5)
                     points.extend([px, py])

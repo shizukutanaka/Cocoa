@@ -544,7 +544,6 @@ class SocialMediaOptimizer:
                 image = Image.fromarray(frame_rgb)
 
                 # プラットフォームに応じたサイズ調整
-                spec = self.platform_specs[platform_id]
                 if platform_id == "tiktok":
                     # TikTokは正方形サムネイル推奨
                     size = (500, 500)

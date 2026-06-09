@@ -5,7 +5,6 @@ Runnable without pytest:  python3 -m unittest tests.test_disaster_recovery -v
 """
 import sys
 import tempfile
-import time
 import unittest
 from datetime import timezone
 from pathlib import Path
@@ -17,7 +16,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
 
 from disaster_recovery import (  # noqa: E402
     BackupMetadata, BackupStatus, DisasterRecoveryManager,
-    get_recovery_manager, initialize_disaster_recovery,
+    initialize_disaster_recovery,
 )
 
 

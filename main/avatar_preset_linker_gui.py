@@ -277,9 +277,9 @@ class AvatarPresetLinkerGUI:
 
         # ファイルアクセス権限確認
         try:
-            with open(avatar, 'rb') as f:
+            with open(avatar, 'rb'):
                 pass
-            with open(preset, 'rb') as f:
+            with open(preset, 'rb'):
                 pass
         except PermissionError:
             self.show_status("ファイルへのアクセス権限がありません", 'error')

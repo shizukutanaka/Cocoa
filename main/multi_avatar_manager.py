@@ -580,19 +580,6 @@ class MultiAvatarManager:
             script = ' '.join(script_parts)
 
             if script.strip():
-                # 動画作成リクエスト
-                request = {
-                    'user_id': 'multi_avatar_system',
-                    'script': script,
-                    'avatar_style': avatar.avatar_id.split('_')[0] if '_' in avatar.avatar_id else 'professional',
-                    'voice_settings': avatar.voice_settings,
-                    'video_settings': {
-                        'resolution': '1080p',
-                        'fps': 30,
-                        'background': 'transparent'  # 透明背景
-                    }
-                }
-
                 # 動画生成（簡易実装）
                 # 実際にはvideo_creatorを使用
                 video_path = f"data/temp/avatar_{avatar.instance_id}_video.mp4"
