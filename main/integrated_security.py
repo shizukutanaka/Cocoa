@@ -44,7 +44,7 @@ except ImportError:
     logger.warning("Open Quantum Safe library not available. Quantum-safe features will be limited.")
 
 try:
-    import pqcrystals
+    import pqcrystals  # noqa: F401
     PQCRYSTALS_AVAILABLE = True
 except ImportError:
     PQCRYSTALS_AVAILABLE = False

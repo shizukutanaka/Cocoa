@@ -8,16 +8,12 @@
 - スマートコントラクト統合
 """
 
-import json
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime
-import os
-from pathlib import Path
 
 try:
     from web3 import Web3
-    from eth_account import Account
     import ipfshttpclient
     WEB3_AVAILABLE = True
 except ImportError:

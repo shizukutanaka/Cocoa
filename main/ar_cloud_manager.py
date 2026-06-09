@@ -24,7 +24,7 @@ except ImportError:
     logging.warning("Open3D not available. 3D reconstruction features will be limited.")
 
 try:
-    import pyproj
+    import pyproj  # noqa: F401
     PYPROJ_AVAILABLE = True
 except ImportError:
     PYPROJ_AVAILABLE = False

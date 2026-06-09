@@ -3,19 +3,16 @@ Avatar Service
 アバターの管理、プリセット処理、AI生成などの機能を提供
 """
 
-import asyncio
 import logging
 from datetime import datetime
-from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
-from fastapi.responses import JSONResponse
+from typing import Dict, Any, Optional
+from fastapi import FastAPI, HTTPException, Depends
 import uvicorn
 from contextlib import asynccontextmanager
-import json
 
-from services.shared.config import get_config, ConfigManager
-from services.shared.models import Avatar, Preset, User, PresetHistory
-from services.shared.database import DatabaseManager, get_db
+from services.shared.config import get_config
+from services.shared.models import Avatar, Preset, PresetHistory
+from services.shared.database import DatabaseManager
 from services.shared.logger import setup_logging
 
 

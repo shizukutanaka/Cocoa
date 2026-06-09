@@ -3,10 +3,8 @@ API Gateway Service
 全マイクロサービスへのリクエストをルーティングし、認証・認可を管理
 """
 
-import asyncio
 import logging
 from typing import Dict, Any, Optional
-import os
 from fastapi import FastAPI, Request, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -14,7 +12,7 @@ import httpx
 import uvicorn
 from contextlib import asynccontextmanager
 
-from services.shared.config import get_config, ConfigManager
+from services.shared.config import get_config
 from services.shared.logger import setup_logging
 
 

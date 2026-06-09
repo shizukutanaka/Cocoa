@@ -19,7 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 try:
-    import mne
+    import mne  # noqa: F401
     MNE_AVAILABLE = True
 except ImportError:
     MNE_AVAILABLE = False

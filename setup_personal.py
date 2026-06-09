@@ -27,7 +27,7 @@ except ImportError:
     print("推奨: pip install bcrypt")
 
 try:
-    from cryptography.fernet import Fernet
+    from cryptography.fernet import Fernet  # noqa: F401
     CRYPTO_AVAILABLE = True
 except ImportError:
     CRYPTO_AVAILABLE = False

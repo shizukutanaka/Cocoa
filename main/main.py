@@ -82,7 +82,7 @@ class CocoaLauncher:
         """メインGUIを実行"""
         try:
             import tkinter as tk
-            from tkinter import ttk, messagebox
+            from tkinter import ttk
         except ImportError:
             print("Error: tkinter is required but not installed.")
             print("Please install tkinter: pip install tk")
@@ -90,7 +90,7 @@ class CocoaLauncher:
 
         # 言語マネージャーの初期化を試行
         try:
-            from .i18n_manager import get_i18n_manager, I18NManager
+            from .i18n_manager import get_i18n_manager
             i18n_manager = get_i18n_manager()
             _ = i18n_manager.translate
         except ImportError:

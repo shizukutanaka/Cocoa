@@ -17,15 +17,15 @@ import torch.nn as nn
 from torch.utils.data import Dataset
 
 try:
-    import onnx
-    import onnxruntime as ort
+    import onnx  # noqa: F401
+    import onnxruntime as ort  # noqa: F401
     ONNX_AVAILABLE = True
 except ImportError:
     ONNX_AVAILABLE = False
     logging.warning("ONNX not available. Edge AI features will be limited.")
 
 try:
-    import tflite_runtime.interpreter as tflite
+    import tflite_runtime.interpreter as tflite  # noqa: F401
     TFLITE_AVAILABLE = True
 except ImportError:
     TFLITE_AVAILABLE = False

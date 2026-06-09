@@ -3,7 +3,6 @@ Collaboration Service
 リアルタイムコラボレーション機能を提供（WebSocket + WebRTCベース）
 """
 
-import asyncio
 import json
 import logging
 from typing import Dict, Any, List, Optional
@@ -15,14 +14,13 @@ from contextlib import asynccontextmanager
 # WebRTC関連インポート
 try:
     from aiortc import RTCPeerConnection, RTCSessionDescription, RTCDataChannel, RTCConfiguration, RTCIceServer
-    from aiortc.contrib.media import MediaBlackhole, MediaPlayer, MediaRecorder
     WEBRTC_AVAILABLE = True
 except ImportError:
     WEBRTC_AVAILABLE = False
 
-from services.shared.config import get_config, ConfigManager
-from services.shared.models import CollaborationSession, CollaborationParticipant, CollaborationMessage, User
-from services.shared.database import DatabaseManager, get_db
+from services.shared.config import get_config
+from services.shared.models import CollaborationSession, CollaborationParticipant, CollaborationMessage
+from services.shared.database import DatabaseManager
 
 logger = logging.getLogger(__name__)
 from services.shared.logger import setup_logging

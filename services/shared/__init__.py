@@ -19,13 +19,10 @@ Shared Services for Microservices Architecture
 - 共通モデルと設定
 """
 
-import asyncio
-import json
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import aiohttp
-import socket
 
 logger = logging.getLogger(__name__)
 
