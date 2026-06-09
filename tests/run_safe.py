@@ -63,6 +63,7 @@ SAFE_MODULES = [
     "tests.test_preset_change_history",
     "tests.test_notification_system",
     "tests.test_logging_manager",
+    "tests.test_i18n_manager",
 ]
 
 

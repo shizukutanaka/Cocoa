@@ -21,14 +21,14 @@ try:
     from cryptography.hazmat.primitives.kdf.hkdf import HKDF
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     _AEAD_AVAILABLE = True
-except ImportError:
+except (ImportError, BaseException):
     _AEAD_AVAILABLE = False
 
 # 耐量子暗号 (NIST PQC: ML-KEM/ML-DSA) — liboqs (oqs-python) を使用
 try:
     import oqs  # https://github.com/open-quantum-safe/liboqs-python
     POST_QUANTUM_AVAILABLE = True
-except ImportError:
+except (ImportError, BaseException):
     oqs = None
     POST_QUANTUM_AVAILABLE = False
     logger.info(

@@ -26,27 +26,27 @@ logger = logging.getLogger(__name__)
 try:
     import numpy as np
     NUMPY_AVAILABLE = True
-except ImportError:
+except (ImportError, BaseException):
     NUMPY_AVAILABLE = False
 
 try:
     from sklearn.ensemble import IsolationForest
     from sklearn.preprocessing import StandardScaler
     SKLEARN_AVAILABLE = True
-except ImportError:
+except (ImportError, BaseException):
     SKLEARN_AVAILABLE = False
 
 try:
     import oqs
     OQS_AVAILABLE = True
-except ImportError:
+except (ImportError, BaseException):
     OQS_AVAILABLE = False
     logger.warning("Open Quantum Safe library not available. Quantum-safe features will be limited.")
 
 try:
     import pqcrystals  # noqa: F401
     PQCRYSTALS_AVAILABLE = True
-except ImportError:
+except (ImportError, BaseException):
     PQCRYSTALS_AVAILABLE = False
     logger.warning("PQ Crystals library not available. Using fallback quantum-safe implementation.")
 
@@ -102,7 +102,7 @@ try:
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     CRYPTO_AVAILABLE = True
-except ImportError:
+except (ImportError, BaseException):
     CRYPTO_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
@@ -281,7 +281,7 @@ class AdvancedBehaviorAnalyzer:
         except Exception as e:
             logger.error(f"モデル更新エラー ({user_id}, {behavior_type}): {e}")
 
-    def _extract_features(self, user_id: str, behavior_type: str) -> Optional[np.ndarray]:
+    def _extract_features(self, user_id: str, behavior_type: str) -> "Optional[Any]":
         """行動データから特徴量を抽出"""
         behavior_key = f"{behavior_type}_{user_id}"
         behaviors = list(self.user_behaviors[behavior_key])
@@ -457,6 +457,28 @@ class SecurityAuditor:
         self.db_path = str(resolved)
         self.events = []
         self._init_database()
+
+    def _init_database(self):
+        """SQLiteデータベースを初期化"""
+        try:
+            with self._connect() as conn:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS security_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event_type TEXT,
+                        user_id TEXT,
+                        resource TEXT,
+                        details TEXT,
+                        timestamp TEXT
+                    )
+                ''')
+        except Exception as e:
+            logger.error(f"セキュリティDBの初期化に失敗: {e}")
+
+    def _connect(self):
+        """データベース接続を返す"""
+        import sqlite3
+        return sqlite3.connect(self.db_path)
 
     def log_event(self, event: SecurityEvent):
         """イベント記録 - 直接的で高速"""
