@@ -67,7 +67,7 @@ class ParameterOptimizer:
             }
 
         except Exception as e:
-            raise ParameterError(f"Optimization failed: {str(e)}")
+            raise ParameterError(f"Optimization failed: {str(e)}") from e
 
     def _calculate_performance_gain(self, optimized_values: np.ndarray) -> float:
         """Calculate performance gain from optimization"""

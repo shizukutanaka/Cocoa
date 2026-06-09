@@ -293,7 +293,7 @@ class VoiceCloningEngine:
                 raise ValueError("Invalid sample rate (8000-48000 Hz)")
 
         except Exception as e:
-            raise ValueError(f"Invalid audio file: {e}")
+            raise ValueError(f"Invalid audio file: {e}") from e
 
     def _get_audio_info(self, audio_path: str) -> Tuple[float, int]:
         """音声ファイルの情報を取得"""
@@ -317,7 +317,7 @@ class VoiceCloningEngine:
                 duration = waveform.shape[1] / sample_rate
                 return duration, sample_rate
             except Exception as e2:
-                raise ValueError(f"Could not read audio file: {e2}")
+                raise ValueError(f"Could not read audio file: {e2}") from e2
 
     def _assess_audio_quality(self, audio_path: str) -> float:
         """音声品質を評価（0.0-1.0）"""

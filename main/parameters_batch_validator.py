@@ -103,7 +103,7 @@ def main():
         param_types = _parse_type_map(raw_map)
     except ValueError as exc:
         print(f"Error in type map: {exc}")
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
 
     result = batch_validate_presets(args.preset_dir, param_types)
     with open(args.report, "w", encoding="utf-8") as f:

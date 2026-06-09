@@ -39,7 +39,7 @@ class CocoaLauncher:
                 str(editor_path)
             ], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except Exception as e:
-            raise RuntimeError(f"Failed to launch avatar editor: {e}")
+            raise RuntimeError(f"Failed to launch avatar editor: {e}") from e
 
     def open_config_file(self):
         """設定ファイルをOSデフォルトエディタで開く"""
@@ -56,18 +56,14 @@ class CocoaLauncher:
             else:
                 subprocess.Popen(['xdg-open', str(config_path)])
         except Exception as e:
-            raise RuntimeError(f"Failed to open config file: {e}")
+            raise RuntimeError(f"Failed to open config file: {e}") from e
 
     def validate_config(self):
         """設定ファイルを検証"""
         try:
-            from .config_validator import ConfigValidator
-        except ImportError:
-            # フォールバックインポート
-            try:
-                from config_validator import ConfigValidator
-            except ImportError:
-                raise ImportError("ConfigValidator module not found")
+            from config_validator import ConfigValidator
+        except ImportError as e:
+            raise ImportError("ConfigValidator module not found") from e
 
         config_path = self.project_root / 'config' / 'config.json'
         if not config_path.exists():

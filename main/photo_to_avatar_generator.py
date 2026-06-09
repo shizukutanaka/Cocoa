@@ -356,7 +356,7 @@ class PhotoToAvatarGenerator:
                     raise ValueError("Unsupported image format")
 
         except Exception as e:
-            raise ValueError(f"Invalid photo file: {e}")
+            raise ValueError(f"Invalid photo file: {e}") from e
 
         # スタイルの検証
         if request.target_style not in self.style_models:

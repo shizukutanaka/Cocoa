@@ -37,7 +37,7 @@ class PerformanceAnalyzer:
                 time.sleep(interval)
         except Exception as e:
             self.logger.error(f"Error in performance monitoring: {str(e)}")
-            raise PerformanceError(f"Failed to monitor performance: {str(e)}")
+            raise PerformanceError(f"Failed to monitor performance: {str(e)}") from e
 
     def stop_monitoring(self) -> None:
         """Stop performance monitoring"""
@@ -89,7 +89,7 @@ class PerformanceAnalyzer:
 
         except Exception as e:
             self.logger.error(f"Error collecting metrics: {str(e)}")
-            raise PerformanceError(f"Failed to collect metrics: {str(e)}")
+            raise PerformanceError(f"Failed to collect metrics: {str(e)}") from e
 
     def get_metrics(self) -> Dict[str, Any]:
         """Get collected metrics"""
@@ -106,7 +106,7 @@ class PerformanceAnalyzer:
             }
             return analysis
         except Exception as e:
-            raise PerformanceError(f"Failed to analyze performance: {str(e)}")
+            raise PerformanceError(f"Failed to analyze performance: {str(e)}") from e
 
     def _analyze_cpu(self) -> Dict[str, Any]:
         """Analyze CPU metrics"""

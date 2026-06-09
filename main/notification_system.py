@@ -49,7 +49,7 @@ class NotificationSystem:
 
         except Exception as e:
             self.logger.error(f"Error sending notification: {str(e)}")
-            raise NotificationError(f"Failed to send notification: {str(e)}")
+            raise NotificationError(f"Failed to send notification: {str(e)}") from e
 
     def get_notifications(self) -> List[Dict[str, Any]]:
         """Get notification history"""
@@ -89,7 +89,7 @@ class ConsoleNotificationHandler(NotificationHandler):
 
         except Exception as e:
             self.logger.error(f"Error sending console notification: {str(e)}")
-            raise NotificationError(f"Failed to send console notification: {str(e)}")
+            raise NotificationError(f"Failed to send console notification: {str(e)}") from e
 
 class FileNotificationHandler(NotificationHandler):
     """Handle notifications by writing to file"""
@@ -107,7 +107,7 @@ class FileNotificationHandler(NotificationHandler):
 
         except Exception as e:
             self.logger.error(f"Error sending file notification: {str(e)}")
-            raise NotificationError(f"Failed to send file notification: {str(e)}")
+            raise NotificationError(f"Failed to send file notification: {str(e)}") from e
 
 class WebNotificationHandler(NotificationHandler):
     """Handle notifications by sending to web interface"""
@@ -124,4 +124,4 @@ class WebNotificationHandler(NotificationHandler):
 
         except Exception as e:
             self.logger.error(f"Error sending web notification: {str(e)}")
-            raise NotificationError(f"Failed to send web notification: {str(e)}")
+            raise NotificationError(f"Failed to send web notification: {str(e)}") from e

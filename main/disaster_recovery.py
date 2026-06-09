@@ -403,7 +403,7 @@ class DisasterRecoveryManager:
             try:
                 directory.mkdir(parents=True, exist_ok=True)
             except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(f"{label} ディレクトリを作成できません: {directory} ({exc})")
+                raise RuntimeError(f"{label} ディレクトリを作成できません: {directory} ({exc})") from exc
 
             if not os.access(directory, os.R_OK | os.X_OK):
                 logger.warning("%s ディレクトリへの読み取り/実行権限が不足しています: %s", label, directory)

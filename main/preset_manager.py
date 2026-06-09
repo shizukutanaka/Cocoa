@@ -41,7 +41,7 @@ class PresetManager:
 
         except Exception as e:
             self.logger.error(f"Error loading presets: {str(e)}")
-            raise PresetError(f"Failed to load presets: {str(e)}")
+            raise PresetError(f"Failed to load presets: {str(e)}") from e
 
     def _load_preset(self, preset_file: Path) -> Dict[str, Any]:
         """Load a single preset"""
@@ -55,7 +55,7 @@ class PresetManager:
 
         except Exception as e:
             self.logger.error(f"Error loading preset {preset_file}: {str(e)}")
-            raise PresetError(f"Failed to load preset {preset_file}: {str(e)}")
+            raise PresetError(f"Failed to load preset {preset_file}: {str(e)}") from e
 
     def _update_index(self, preset_name: str, preset_data: Dict[str, Any]) -> None:
         """プリセットのインデックスを更新"""
@@ -133,7 +133,7 @@ class PresetManager:
 
         except Exception as e:
             self.logger.error(f"Error saving preset {preset_name}: {str(e)}")
-            raise PresetError(f"Failed to save preset {preset_name}: {str(e)}")
+            raise PresetError(f"Failed to save preset {preset_name}: {str(e)}") from e
 
     def delete_preset(self, preset_name: str) -> None:
         """Delete a preset"""
@@ -156,7 +156,7 @@ class PresetManager:
 
         except Exception as e:
             self.logger.error(f"Error deleting preset {preset_name}: {str(e)}")
-            raise PresetError(f"Failed to delete preset {preset_name}: {str(e)}")
+            raise PresetError(f"Failed to delete preset {preset_name}: {str(e)}") from e
 
     def _remove_from_index(self, preset_name: str, preset_data: Dict[str, Any]) -> None:
         """プリセットをインデックスから削除"""
@@ -215,7 +215,7 @@ class PresetManager:
 
         except Exception as e:
             self.logger.error(f"Error comparing presets: {str(e)}")
-            raise PresetError(f"Failed to compare presets: {str(e)}")
+            raise PresetError(f"Failed to compare presets: {str(e)}") from e
 
     def merge_presets(self, base_preset: str, update_preset: str) -> Dict[str, Any]:
         """Merge two presets, with update_preset taking precedence"""
@@ -236,4 +236,4 @@ class PresetManager:
 
         except Exception as e:
             self.logger.error(f"Error merging presets: {str(e)}")
-            raise PresetError(f"Failed to merge presets: {str(e)}")
+            raise PresetError(f"Failed to merge presets: {str(e)}") from e
