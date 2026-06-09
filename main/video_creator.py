@@ -402,7 +402,7 @@ class VideoCreator:
             logger.warning(f"Duration calculation failed: {e}")
             # フォールバック: 等分
             default_duration = 2.0
-            return {sentence: default_duration for sentence in sentences}
+            return dict.fromkeys(sentences, default_duration)
 
     def _create_avatar_clip(self, avatar_path: str, duration: float, width: int, height: int):
         """アバター画像から動画クリップを作成"""

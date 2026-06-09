@@ -164,7 +164,7 @@ class PerformanceMonitor:
         self._last_disk_counters: Any = None
         self._last_net_counters: Any = None
 
-        self._consecutive_alerts: Dict[str, int] = {metric: 0 for metric in self.HISTORY_METRICS}
+        self._consecutive_alerts: Dict[str, int] = dict.fromkeys(self.HISTORY_METRICS, 0)
         self._last_alert_details: List[Dict[str, Any]] = []
         self._last_alert_time: Optional[float] = None
 
