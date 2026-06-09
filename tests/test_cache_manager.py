@@ -15,7 +15,6 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
         sys.path.insert(0, p)
 
 import tempfile
-import os
 
 from cache_manager import (  # noqa: E402
     MemoryCache, CacheManager, cached, async_cached, FileCache,

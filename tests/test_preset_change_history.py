@@ -61,7 +61,6 @@ class TestPrintHistory(unittest.TestCase):
         finally:
             sys.stdout = sys_stdout
         out = buf.getvalue()
-        import re
         self.assertRegex(out, r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}')
 
     def test_print_history_empty(self):
