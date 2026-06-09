@@ -163,8 +163,8 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     last_login = Column(DateTime, nullable=True)
 
     # リレーションシップ
@@ -184,8 +184,8 @@ class Avatar(Base):
     preset_data = Column(JSON, nullable=True)  # プリセットデータ
     thumbnail_url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 外部キー
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -203,7 +203,7 @@ class AvatarSession(Base):
     session_id = Column(String(100), unique=True, index=True, nullable=False)
     avatar_id = Column(Integer, ForeignKey("avatars.id"), nullable=False)
     status = Column(String(20), default="active")  # active, inactive, error
-    start_time = Column(DateTime, default=datetime.utcnow)
+    start_time = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     end_time = Column(DateTime, nullable=True)
     metrics = Column(JSON, nullable=True)  # セッションメトリクス
     error_log = Column(Text, nullable=True)
@@ -225,8 +225,8 @@ class Preset(Base):
     version = Column(String(20), default="1.0.0")
     is_public = Column(Boolean, default=False)
     download_count = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 外部キー
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -240,7 +240,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(BigInteger, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     action = Column(String(100), nullable=False)  # create, update, delete, login, etc.
     resource_type = Column(String(50), nullable=False)  # user, avatar, preset, system
@@ -260,7 +260,7 @@ class SystemMetrics(Base):
     __tablename__ = "system_metrics"
 
     id = Column(BigInteger, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     metric_type = Column(String(50), nullable=False)  # cpu, memory, disk, network
     value = Column(Float, nullable=False)
     unit = Column(String(20), nullable=False)  # %, bytes, count, etc.
@@ -272,7 +272,7 @@ class SecurityAlert(Base):
     __tablename__ = "security_alerts"
 
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     alert_type = Column(String(50), nullable=False)  # intrusion, anomaly, policy_violation
     severity = Column(String(20), nullable=False)  # low, medium, high, critical
     title = Column(String(200), nullable=False)
