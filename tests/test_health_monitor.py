@@ -191,5 +191,44 @@ class TestRunAllChecks(unittest.TestCase):
         self.assertIsInstance(monitor, HealthMonitor)
 
 
+class TestStatusPropagation(unittest.TestCase):
+    """Enum-based status comparison — verifies the fix to .value string comparison."""
+
+    def _monitor_with_results(self, *statuses):
+        monitor = HealthMonitor.__new__(HealthMonitor)
+        monitor.checks = {}
+        monitor.last_results = {}
+        monitor.startup_time = time.time()
+        for i, status in enumerate(statuses):
+            s = status
+            monitor.checks[f"check_{i}"] = lambda s=s: HealthCheckResult(
+                component=f"check_{i}", status=s, message="test"
+            )
+        return monitor
+
+    def test_degraded_overrides_healthy(self):
+        m = self._monitor_with_results(HealthStatus.HEALTHY, HealthStatus.DEGRADED)
+        self.assertEqual(m.run_all_checks()["status"], "degraded")
+
+    def test_unhealthy_overrides_degraded(self):
+        m = self._monitor_with_results(HealthStatus.DEGRADED, HealthStatus.UNHEALTHY)
+        self.assertEqual(m.run_all_checks()["status"], "unhealthy")
+
+    def test_critical_overrides_all(self):
+        m = self._monitor_with_results(
+            HealthStatus.UNHEALTHY, HealthStatus.CRITICAL, HealthStatus.DEGRADED
+        )
+        self.assertEqual(m.run_all_checks()["status"], "critical")
+
+    def test_critical_not_downgraded_by_unhealthy(self):
+        m = self._monitor_with_results(HealthStatus.CRITICAL, HealthStatus.UNHEALTHY)
+        self.assertEqual(m.run_all_checks()["status"], "critical")
+
+    def test_enum_not_string(self):
+        """Status enum members must not equal their .value strings."""
+        self.assertNotEqual(HealthStatus.CRITICAL, "critical")
+        self.assertEqual(HealthStatus.CRITICAL, HealthStatus.CRITICAL)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

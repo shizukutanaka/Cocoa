@@ -504,7 +504,6 @@ class GlobalEdgeManager:
             for node_id in optimal_nodes:
                 await self._deploy_to_edge_node(node_id, cache_key, compressed_data)
 
-            self.cache_misses += 1  # 新規キャッシュ
             logger.info(f"Content cached: {content_id} in {len(optimal_nodes)} nodes")
 
             return True
@@ -641,8 +640,14 @@ class GlobalEdgeManager:
                             if a.timestamp > cutoff_time
                         ]
                         if recent_data:
-                            avg_performance = np.mean([a.performance_score for a in recent_data])
-                            avg_latency = np.mean([a.metrics.get("latency_ms", 0) for a in recent_data])
+                            scores = [a.performance_score for a in recent_data]
+                            latencies = [a.metrics.get("latency_ms", 0) for a in recent_data]
+                            if NUMPY_AVAILABLE:
+                                avg_performance = float(np.mean(scores))
+                                avg_latency = float(np.mean(latencies))
+                            else:
+                                avg_performance = sum(scores) / len(scores)
+                                avg_latency = sum(latencies) / len(latencies)
                             region_analytics.append({
                                 "node_id": node_id,
                                 "performance_score": avg_performance,
@@ -651,9 +656,17 @@ class GlobalEdgeManager:
                             })
 
                 if region_analytics:
+                    perf_scores = [a["performance_score"] for a in region_analytics]
+                    latency_vals = [a["average_latency"] for a in region_analytics]
+                    if NUMPY_AVAILABLE:
+                        avg_perf = float(np.mean(perf_scores))
+                        avg_lat = float(np.mean(latency_vals))
+                    else:
+                        avg_perf = sum(perf_scores) / len(perf_scores)
+                        avg_lat = sum(latency_vals) / len(latency_vals)
                     analytics["regional_performance"][region_name] = {
-                        "average_performance": np.mean([a["performance_score"] for a in region_analytics]),
-                        "average_latency": np.mean([a["average_latency"] for a in region_analytics]),
+                        "average_performance": avg_perf,
+                        "average_latency": avg_lat,
                         "node_count": len(region_analytics),
                         "nodes": region_analytics
                     }

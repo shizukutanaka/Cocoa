@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 class PresetChangeHistory:
     def __init__(self, history_file="preset_change_history.jsonl"):
@@ -77,7 +77,7 @@ class PresetChangeHistory:
 
     def print_history(self, preset_name=None):
         for entry in self.iter_history(preset_name):
-            ts = datetime.fromtimestamp(entry["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+            ts = datetime.fromtimestamp(entry["timestamp"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             print(f"[{ts}] {entry['preset_name']} {entry['change_type']}: {entry.get('note')}")
 
 if __name__ == "__main__":

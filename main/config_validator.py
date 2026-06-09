@@ -623,7 +623,7 @@ class ConfigValidator:
                     web_admin_validated["ssl"] = ssl_validated
 
                 ssl_enabled = ssl_config.get("enabled")
-                if ssl_enabled is True:
+                if ssl_enabled:
                     cert_path = ssl_config.get("cert_path")
                     key_path = ssl_config.get("key_path")
 
@@ -717,9 +717,9 @@ class ConfigValidator:
                     errors.append(
                         "allowed_ips と blocked_ips に重複があります: " + ", ".join(sorted(overlaps))
                     )
-            if security_config.get("enable_audit_log") is False:
+            if not security_config.get("enable_audit_log"):
                 errors.append("security.enable_audit_log は true に設定してください。国家レベル運用では監査ログが必須です。")
-            if security_config.get("enable_2fa") is False:
+            if not security_config.get("enable_2fa"):
                 errors.append("security.enable_2fa は true に設定してください。多要素認証を無効化することは許可されていません。")
             if normalized_allowed is not None:
                 if not normalized_allowed:

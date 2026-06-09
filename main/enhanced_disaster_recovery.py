@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 import json
 import logging
@@ -328,7 +328,7 @@ class Enhanced321BackupManager:
     def _check_321_compliance(
         self,
         results: Dict[BackupLocation, BackupMetadata]
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """3-2-1ルール準拠チェック"""
 
         # 成功したバックアップ
@@ -371,7 +371,7 @@ class Enhanced321BackupManager:
         self,
         backup_name: str,
         results: Dict[BackupLocation, BackupMetadata],
-        compliance: Dict[str, any]
+        compliance: Dict[str, Any]
     ):
         """バックアップメタデータを保存"""
         metadata_file = self.metadata_dir / f"{backup_name}_metadata.json"
@@ -392,7 +392,7 @@ class Enhanced321BackupManager:
             }
         }
 
-        with open(metadata_file, 'w') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, indent=2)
 
     def list_backups(

@@ -87,11 +87,11 @@ class HealthMonitor:
                 self.last_results[name] = result
 
                 # 最悪のステータスを全体ステータスとする
-                if result.status.value == "critical":
+                if result.status == HealthStatus.CRITICAL:
                     overall_status = HealthStatus.CRITICAL
-                elif result.status.value == "unhealthy" and overall_status != HealthStatus.CRITICAL:
+                elif result.status == HealthStatus.UNHEALTHY and overall_status != HealthStatus.CRITICAL:
                     overall_status = HealthStatus.UNHEALTHY
-                elif result.status.value == "degraded" and overall_status == HealthStatus.HEALTHY:
+                elif result.status == HealthStatus.DEGRADED and overall_status == HealthStatus.HEALTHY:
                     overall_status = HealthStatus.DEGRADED
 
             except Exception as e:

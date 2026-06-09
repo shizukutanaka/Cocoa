@@ -180,12 +180,12 @@ class PerformanceMonitor:
         self._cache_ttl: float = 1.0  # キャッシュ有効時間（秒）
 
         # リアルタイムストリーミング用の変数
-        self._stream_callbacks: List[callable] = []
+        self._stream_callbacks: List[Callable] = []
         self._stream_interval: float = 1.0  # ストリーミング間隔
         self._stream_thread: Optional[threading.Thread] = None
 
         # アラート出力先用の変数
-        self._alert_handlers: List[callable] = []
+        self._alert_handlers: List[Callable] = []
         self._prometheus_handlers: List[Callable[[bytes], None]] = []
         self._prometheus_labels: Dict[str, str] = {
             str(key): str(value)
@@ -759,24 +759,6 @@ class PerformanceMonitor:
                     self._last_alert_details = [dict(entry) for entry in triggered]
 
         return triggered
-
-    def _send_alert(self, alerts: List[Dict[str, Any]]) -> None:
-        message_parts = [
-            f"{entry['metric']} {entry['value']:.2f} > {entry['threshold']:.2f}"
-            for entry in alerts
-        ]
-        message = " / ".join(message_parts)
-        logger.warning(
-            "performance_alert",
-            extra={
-                "extra_data": {
-                    "component": self.log_component,
-                    "alerts": alerts,
-                    "message": message,
-                }
-            },
-        )
-        print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}] パフォーマンスアラート: {message}")
 
     def _evaluate_thresholds(self, stats: StatsDict) -> Dict[str, Dict[str, Any]]:
         values = {
