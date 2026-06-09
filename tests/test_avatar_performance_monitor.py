@@ -1,12 +1,11 @@
 """Tests for AvatarPerformanceMonitor — metrics, stats, health."""
-import asyncio
 import os
 import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 from avatar_performance_monitor import (
-    AvatarPerformanceMonitor, AvatarPerformanceMetrics, PerformanceStats, PerformanceAlert,
+    AvatarPerformanceMonitor, AvatarPerformanceMetrics, PerformanceStats,
 )
 
 

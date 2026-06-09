@@ -9,11 +9,16 @@ import time
 import secrets
 from pathlib import Path
 from typing import Dict, Any, Optional
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
+
+try:
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    CRYPTO_AVAILABLE = True
+except (ImportError, BaseException):
+    CRYPTO_AVAILABLE = False
 import logging
 
 logger = logging.getLogger(__name__)
