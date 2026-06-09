@@ -58,6 +58,8 @@ SAFE_MODULES = [
     "tests.test_generate_languages",
     "tests.test_generate_languages_improved",
     "tests.test_preset_history_alert",
+    "tests.test_avatar_parameter_sets",
+    "tests.test_parameters",
 ]
 
 

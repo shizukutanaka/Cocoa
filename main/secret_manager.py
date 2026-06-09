@@ -21,6 +21,7 @@ from typing import Optional, List
 import os
 import json
 import logging
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +228,7 @@ class AWSSecretsManager(SecretManager):
                 Tags=[
                     {
                         'Key': 'LastRotation',
-                        'Value': json.dumps({'timestamp': str(os.times())})
+                        'Value': json.dumps({'timestamp': datetime.now(timezone.utc).isoformat()})
                     }
                 ]
             )
