@@ -276,6 +276,11 @@ class OptimizationSuggestion:
     suggestion: str
     action: str
     reference_url: Optional[str] = None
+    reduction: int = 0  # 削減量 (current_value - target_value); __post_init__ で算出
+
+    def __post_init__(self):
+        # 削減量を自動算出（負値にはしない）
+        self.reduction = max(0, self.current_value - self.target_value)
 
 
 @dataclass
@@ -681,6 +686,83 @@ class VRChatPerformanceAnalyzer:
         report.append("=" * 70)
 
         return "\n".join(report)
+
+
+# ----------------------------------------------------------------------
+# クロスプラットフォーム解析 (PC ↔ Quest/Android)
+# VRChat アバターは複数プラットフォーム向けにアップロードされ、各々で
+# 個別のランクが付く。最も厳しい (=最悪) ランクが実効的な体験を決める。
+# ----------------------------------------------------------------------
+
+_DEFAULT_CROSS_PLATFORMS = (Platform.PC, Platform.ANDROID)
+
+# 最悪ランク判定用の順序（良い→悪い）。
+_RANK_SEVERITY = [
+    PerformanceRank.EXCELLENT,
+    PerformanceRank.GOOD,
+    PerformanceRank.MEDIUM,
+    PerformanceRank.POOR,
+    PerformanceRank.VERY_POOR,
+]
+
+
+def analyze_all_platforms(
+    stats: AvatarStats,
+    platforms: Optional[List[Platform]] = None,
+) -> Dict[str, PerformanceAnalysisResult]:
+    """同一の AvatarStats を複数プラットフォームで解析する。
+
+    Args:
+        stats: 解析対象のアバター統計。
+        platforms: 対象プラットフォーム。未指定時は PC と Android。
+
+    Returns:
+        プラットフォーム値 ("pc"/"android"/"ios") をキーとする解析結果の dict。
+    """
+    if platforms is None:
+        platforms = list(_DEFAULT_CROSS_PLATFORMS)
+    results: Dict[str, PerformanceAnalysisResult] = {}
+    for platform in platforms:
+        analyzer = VRChatPerformanceAnalyzer(platform=platform)
+        results[platform.value] = analyzer.analyze_stats(stats)
+    return results
+
+
+def worst_platform_rank(results: Dict[str, PerformanceAnalysisResult]) -> PerformanceRank:
+    """全プラットフォーム中の最悪ランク（実効ランク）を返す。"""
+    worst = PerformanceRank.EXCELLENT
+    worst_index = 0
+    for result in results.values():
+        idx = _RANK_SEVERITY.index(result.rank)
+        if idx > worst_index:
+            worst_index = idx
+            worst = result.rank
+    return worst
+
+
+def generate_cross_platform_report(results: Dict[str, PerformanceAnalysisResult]) -> str:
+    """複数プラットフォームの解析結果を表形式でまとめる。"""
+    lines = []
+    lines.append("=" * 70)
+    lines.append("VRChat Avatar Cross-Platform Performance Report")
+    lines.append("=" * 70)
+    lines.append(f"\n{'Platform':<12}{'Rank':<14}{'Score':<10}{'Compliant':<10}")
+    lines.append("-" * 70)
+    for platform_key, result in results.items():
+        compliant = "Yes" if result.details.get('is_vrchat_compliant') else "No"
+        lines.append(
+            f"{platform_key.upper():<12}{result.rank.value.upper():<14}"
+            f"{result.score:<10.1f}{compliant:<10}"
+        )
+    lines.append("-" * 70)
+    effective = worst_platform_rank(results)
+    lines.append(f"\nEffective rank (worst across platforms): {effective.value.upper()}")
+    lines.append(
+        "Note: avatars are gated by their worst platform. "
+        "Optimize for Quest/Android to lift the effective rank."
+    )
+    lines.append("=" * 70)
+    return "\n".join(lines)
 
 
 def main():

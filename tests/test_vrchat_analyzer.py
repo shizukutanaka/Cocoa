@@ -14,7 +14,10 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
 
 from vrchat_performance_analyzer import (  # noqa: E402
     AvatarStats, PerformanceRank, Platform,
+    PerformanceAnalysisResult,
     VRChatPerformanceAnalyzer,
+    analyze_all_platforms, worst_platform_rank,
+    generate_cross_platform_report,
 )
 
 
@@ -263,6 +266,93 @@ class TestGenerateReport(unittest.TestCase):
         result = analyzer.analyze_stats(_stats())
         report = analyzer.generate_report(result)
         self.assertNotIn("Limiting Factors", report)
+
+
+class TestCrossPlatform(unittest.TestCase):
+    """REQ-VP-07..09: analyze the same stats across PC and Quest/Android."""
+
+    def test_returns_pc_and_android(self):
+        results = analyze_all_platforms(_stats())
+        self.assertIn("pc", results)
+        self.assertIn("android", results)
+
+    def test_each_value_is_result(self):
+        results = analyze_all_platforms(_stats())
+        for r in results.values():
+            self.assertIsInstance(r, PerformanceAnalysisResult)
+
+    def test_android_not_better_than_pc(self):
+        # Android limits are stricter, so its rank index >= PC's (same or worse)
+        order = [PerformanceRank.EXCELLENT, PerformanceRank.GOOD,
+                 PerformanceRank.MEDIUM, PerformanceRank.POOR, PerformanceRank.VERY_POOR]
+        results = analyze_all_platforms(_stats(polygons=9000, texture_memory_mb=30.0))
+        pc_idx = order.index(results["pc"].rank)
+        android_idx = order.index(results["android"].rank)
+        self.assertGreaterEqual(android_idx, pc_idx)
+
+    def test_platforms_argument_limits_scope(self):
+        results = analyze_all_platforms(_stats(), platforms=[Platform.PC])
+        self.assertEqual(list(results.keys()), ["pc"])
+
+    def test_worst_platform_rank(self):
+        results = analyze_all_platforms(_stats(polygons=9000, texture_memory_mb=30.0))
+        worst = worst_platform_rank(results)
+        self.assertIsInstance(worst, PerformanceRank)
+        # worst should be the android (stricter) rank here
+        self.assertEqual(worst, results["android"].rank)
+
+    def test_worst_platform_rank_all_excellent(self):
+        # Android EXCELLENT is stricter (polygons<=5000, texture<=5MB), so use
+        # stats that are EXCELLENT on both PC and Android.
+        excellent_both = _stats(
+            polygons=5000, materials=1, texture_memory_mb=5.0, physbones_components=2,
+        )
+        results = analyze_all_platforms(excellent_both)
+        self.assertEqual(results["android"].rank, PerformanceRank.EXCELLENT)
+        self.assertEqual(worst_platform_rank(results), PerformanceRank.EXCELLENT)
+
+    def test_cross_platform_report_is_string(self):
+        results = analyze_all_platforms(_stats())
+        report = generate_cross_platform_report(results)
+        self.assertIsInstance(report, str)
+
+    def test_cross_platform_report_lists_platforms(self):
+        results = analyze_all_platforms(_stats())
+        report = generate_cross_platform_report(results)
+        self.assertIn("PC", report)
+        self.assertIn("ANDROID", report)
+
+    def test_cross_platform_report_shows_effective_rank(self):
+        results = analyze_all_platforms(_stats(polygons=9000, texture_memory_mb=30.0))
+        report = generate_cross_platform_report(results)
+        self.assertIn("Effective rank", report)
+
+
+class TestOptimizationReduction(unittest.TestCase):
+    """REQ-VP-10: suggestions quantify the reduction (impact)."""
+
+    def test_polygon_reduction_value(self):
+        analyzer = _make_analyzer()
+        result = analyzer.analyze_stats(_stats(polygons=18000))
+        poly = next(s for s in result.suggestions if s.category == "Polygon Reduction")
+        self.assertEqual(poly.reduction, poly.current_value - poly.target_value)
+        self.assertEqual(poly.reduction, 18000 - 10000)
+
+    def test_all_suggestions_have_reduction(self):
+        analyzer = _make_analyzer()
+        result = analyzer.analyze_stats(_stats(polygons=18000, materials=12, texture_memory_mb=100.0))
+        for s in result.suggestions:
+            self.assertTrue(hasattr(s, "reduction"))
+            self.assertGreaterEqual(s.reduction, 0)
+
+    def test_reduction_never_negative(self):
+        from vrchat_performance_analyzer import OptimizationSuggestion
+        # target above current should clamp reduction to 0
+        s = OptimizationSuggestion(
+            category="x", severity="info", current_value=5, target_value=10,
+            suggestion="s", action="a",
+        )
+        self.assertEqual(s.reduction, 0)
 
 
 if __name__ == "__main__":
