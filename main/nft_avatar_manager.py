@@ -12,9 +12,21 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 import hashlib
 
-from web3 import Web3
-from eth_account import Account
-import ipfshttpclient
+try:
+    from web3 import Web3
+    from eth_account import Account
+    WEB3_AVAILABLE = True
+except ImportError:
+    WEB3_AVAILABLE = False
+    Web3 = None
+    Account = None
+
+try:
+    import ipfshttpclient
+    IPFS_AVAILABLE = True
+except ImportError:
+    IPFS_AVAILABLE = False
+    ipfshttpclient = None
 
 from integrated_security import get_security_manager
 
@@ -98,6 +110,8 @@ class NFTAvatarManager:
             if not network_config:
                 raise ValueError(f"Unsupported blockchain network: {self.blockchain_network}")
 
+            if not WEB3_AVAILABLE:
+                raise RuntimeError("web3 not installed")
             # Web3インスタンス作成
             self.web3 = Web3(Web3.HTTPProvider(network_config["rpc_url"]))
 
@@ -110,7 +124,8 @@ class NFTAvatarManager:
                 self.account = Account.from_key(private_key)
 
             # IPFSクライアント初期化
-            self.ipfs_client = ipfshttpclient.connect('/ip4/127.0.0.1/tcp/5001/http')
+            if IPFS_AVAILABLE:
+                self.ipfs_client = ipfshttpclient.connect('/ip4/127.0.0.1/tcp/5001/http')
 
             logger.info(f"Blockchain initialized: {self.blockchain_network}")
 

@@ -12,7 +12,33 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from video_encoding import get_video_encoder, EncodingPreset
+try:
+    from video_encoding import get_video_encoder, EncodingPreset
+    VIDEO_ENCODING_AVAILABLE = True
+except ImportError:
+    VIDEO_ENCODING_AVAILABLE = False
+    get_video_encoder = None
+
+    from dataclasses import dataclass as _dc, field as _field
+
+    @_dc
+    class EncodingPreset:
+        preset_id: str = ""
+        name: str = ""
+        description: str = ""
+        target_platform: str = ""
+        video_codec: str = "libx264"
+        audio_codec: str = "aac"
+        bitrate_video: str = "2000k"
+        bitrate_audio: str = "128k"
+        resolution: tuple = (1920, 1080)
+        fps: int = 30
+        quality: str = "high"
+        file_format: str = "mp4"
+        estimated_file_size_mb: float = 50.0
+        encoding_speed: str = "balanced"
+        settings: dict = _field(default_factory=dict)
+
 from integrated_security import get_security_manager
 
 # Configure logging
@@ -87,7 +113,7 @@ class SocialMediaOptimizer:
 
     async def initialize(self):
         """初期化"""
-        if not self.video_encoder:
+        if not self.video_encoder and VIDEO_ENCODING_AVAILABLE and get_video_encoder:
             self.video_encoder = await get_video_encoder()
 
     def _create_platform_specs(self) -> Dict[str, PlatformSpec]:

@@ -9,8 +9,19 @@ from typing import Dict, List, Optional
 from datetime import datetime, timezone
 import json
 
-from sentence_transformers import SentenceTransformer
-import chromadb
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+    SentenceTransformer = None
+
+try:
+    import chromadb
+    CHROMADB_AVAILABLE = True
+except ImportError:
+    CHROMADB_AVAILABLE = False
+    chromadb = None
 
 from integrated_security import get_security_manager
 
@@ -24,7 +35,7 @@ class AvatarRAGSystem:
 
     def __init__(self, embedding_model: str = "all-MiniLM-L6-v2"):
         self.security_manager = get_security_manager()
-        self.embedding_model = SentenceTransformer(embedding_model)
+        self.embedding_model = SentenceTransformer(embedding_model) if SENTENCE_TRANSFORMERS_AVAILABLE else None
         self.vector_store = None
         self.chroma_client = None
         self.collection = None
@@ -87,6 +98,8 @@ class AvatarRAGSystem:
         """ベクターストアを初期化"""
         try:
             # ChromaDBクライアントの初期化
+            if not CHROMADB_AVAILABLE:
+                raise RuntimeError("chromadb not available")
             self.chroma_client = chromadb.PersistentClient(path=str(self.cache_dir / "chroma_db"))
 
             # コレクションの作成または取得
