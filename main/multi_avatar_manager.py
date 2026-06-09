@@ -12,9 +12,9 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
 
-from .integrated_security import get_security_manager
-from .ai_avatar_generator import get_ai_avatar_generator
-from .video_creator import get_video_creator
+from integrated_security import get_security_manager
+from ai_avatar_generator import get_ai_avatar_generator
+from video_creator import get_video_creator
 
 # Configure logging
 logger = logging.getLogger(__name__)

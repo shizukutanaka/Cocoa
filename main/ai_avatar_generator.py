@@ -17,7 +17,7 @@ from PIL import Image
 from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
 from transformers import CLIPProcessor, CLIPModel
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

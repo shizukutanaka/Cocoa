@@ -12,8 +12,8 @@ import threading
 from pathlib import Path
 import json
 
-from .ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest, AvatarStyle
-from .video_creator import get_video_creator, VideoCreationRequest
+from ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest, AvatarStyle
+from video_creator import get_video_creator, VideoCreationRequest
 
 class AIAvatarGeneratorGUI:
     """

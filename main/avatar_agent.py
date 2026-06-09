@@ -37,8 +37,8 @@ try:
 except ImportError:
     AIOFILES_AVAILABLE = False
 
-from .interactive_avatar import InteractiveAvatar, create_interactive_avatar
-from .integrated_security import get_security_manager
+from interactive_avatar import InteractiveAvatar, create_interactive_avatar
+from integrated_security import get_security_manager
 
 @dataclass
 class AgentSession:

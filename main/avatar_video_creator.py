@@ -19,7 +19,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import moviepy.editor as mp
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

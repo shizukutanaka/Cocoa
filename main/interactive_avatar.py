@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import queue
 
-from .ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
-from .integrated_security import get_security_manager
+from ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

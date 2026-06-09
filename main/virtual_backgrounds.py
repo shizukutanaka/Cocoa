@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from PIL import Image, ImageEnhance, ImageFilter
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

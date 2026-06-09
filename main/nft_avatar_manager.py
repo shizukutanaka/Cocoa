@@ -16,7 +16,7 @@ from web3 import Web3
 from eth_account import Account
 import ipfshttpclient
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 logger = logging.getLogger(__name__)
 

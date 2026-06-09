@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from dataclasses import dataclass, asdict
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 logger = logging.getLogger(__name__)
 

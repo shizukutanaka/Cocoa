@@ -18,9 +18,9 @@ import hmac
 from aiohttp import web
 import aiofiles
 
-from .video_creator import get_video_creator, VideoCreationRequest
-from .template_library import get_template_library
-from .integrated_security import get_security_manager
+from video_creator import get_video_creator, VideoCreationRequest
+from template_library import get_template_library
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

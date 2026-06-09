@@ -15,7 +15,7 @@ import numpy as np
 from transformers import pipeline
 import face_recognition
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

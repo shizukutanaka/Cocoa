@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 
-from .parameters import CATEGORIES, SUBCATEGORIES, AVATAR_PARAMETERS
+from parameters import CATEGORIES, SUBCATEGORIES, AVATAR_PARAMETERS
 import json
 
 PAGE_SIZE = 50

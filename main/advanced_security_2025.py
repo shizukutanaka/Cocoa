@@ -56,7 +56,7 @@ def _is_kem_alg(name: str) -> bool:
     return _resolve_pq_alg(name).upper().startswith("ML-KEM")
 
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 @dataclass
 class ZeroTrustContext:

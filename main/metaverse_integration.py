@@ -13,16 +13,16 @@ from dataclasses import dataclass
 from datetime import datetime
 
 
-from .quantum_safe_manager import get_quantum_safe_manager
-from .edge_ai_manager import get_edge_ai_manager, ModelCompressionConfig
-from .blockchain_audit import get_blockchain_audit_manager, BlockchainAuditEvent
-from .ar_cloud_manager import get_ar_cloud_manager
-from .bci_manager import get_bci_manager
-from .global_edge_manager import get_global_edge_manager
-from .integrated_security import get_security_manager, get_ai_security_manager
-from .i18n_manager import get_i18n_manager
-from .performance_monitor import get_hybrid_system_manager
-from .avatar_agent import get_agentic_ai_manager
+from quantum_safe_manager import get_quantum_safe_manager
+from edge_ai_manager import get_edge_ai_manager, ModelCompressionConfig
+from blockchain_audit import get_blockchain_audit_manager, BlockchainAuditEvent
+from ar_cloud_manager import get_ar_cloud_manager
+from bci_manager import get_bci_manager
+from global_edge_manager import get_global_edge_manager
+from integrated_security import get_security_manager, get_ai_security_manager
+from i18n_manager import get_i18n_manager
+from performance_monitor import get_hybrid_system_manager
+from avatar_agent import get_agentic_ai_manager
 
 logger = logging.getLogger(__name__)
 

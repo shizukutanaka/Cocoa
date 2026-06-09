@@ -1,8 +1,8 @@
 from typing import Dict, Any, List
 import numpy as np
 from scipy.optimize import minimize
-from .avatar_parameters import AvatarParameters
-from .error_handling import ParameterError
+from avatar_parameters import AvatarParameters
+from error_handling import ParameterError
 
 class ParameterOptimizer:
     """Optimize avatar parameters for better performance"""

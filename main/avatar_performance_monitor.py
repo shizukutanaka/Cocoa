@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from collections import deque
 import statistics
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

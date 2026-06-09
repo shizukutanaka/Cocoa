@@ -162,7 +162,7 @@
 
 | ID | 課題 | 対応 |
 |---|---|---|
-| X-01 | `main/` に `__init__.py` 無しで相対 import を使う 8 モジュール | 規約（絶対 import）に統一すべき。ただし大半が crypto-crash する `integrated_security` に依存し本環境で検証不可。要 follow-up |
+| X-01 | `main/` に `__init__.py` 無しで相対 import を使うトップレベルモジュール（28ファイル, モジュールレベル `from .X import`） | ✅ 対応済: 全て絶対 import に統一（`from .X` → `from X`）。`main/integrations/` は正規パッケージ（`__init__.py` 有）のため相対 import を維持。`dependency_injection.ConfigService` の関数内相対 import（fallback 無し・インスタンス化でクラッシュ）も修正しテスト追加。py_compile + ruff E9 で検証（多くは crypto/heavy-dep で import 自体は本環境で不可だが、相対 import 欠陥は除去） |
 | X-02 | naive `datetime` の散在 | 本ループで主要モジュールを UTC 化済（performance_monitor, health_monitor, disaster_recovery 系, global_edge_manager, grafana_integration, scripts 群）。残: preset_history_alert |
 | X-03 | テスト不能な heavy-dep 群 | 依存をインストールするか、純ロジックを dep から分離する設計（DI）を推奨 |
 

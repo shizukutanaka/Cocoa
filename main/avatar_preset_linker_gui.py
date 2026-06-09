@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import json
 from pathlib import Path
-from .ai_avatar_gui import AIAvatarGeneratorGUI
+from ai_avatar_gui import AIAvatarGeneratorGUI
 
 logger = logging.getLogger(__name__)
 

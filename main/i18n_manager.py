@@ -15,7 +15,7 @@ from datetime import datetime
 import hashlib
 import aiohttp
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 import cv2
 import face_recognition
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

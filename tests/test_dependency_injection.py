@@ -146,5 +146,21 @@ class TestInjectDecorator(unittest.TestCase):
         self.assertIsInstance(result, _SimpleService)
 
 
+class TestConfigService(unittest.TestCase):
+    """Regression: ConfigService used a relative import (from .config) that
+    crashed on instantiation under the project's absolute-import convention."""
+
+    def test_config_service_instantiates(self):
+        from dependency_injection import ConfigService
+        # Must not raise ImportError("attempted relative import ...")
+        service = ConfigService()
+        self.assertTrue(hasattr(service, "config"))
+
+    def test_config_service_get_api_config(self):
+        from dependency_injection import ConfigService
+        service = ConfigService()
+        self.assertIsNotNone(service.get_api_config())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

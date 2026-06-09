@@ -12,7 +12,7 @@ import json
 from sentence_transformers import SentenceTransformer
 import chromadb
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 logger = logging.getLogger(__name__)
 

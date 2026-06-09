@@ -18,7 +18,7 @@ import openai
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
 import torch
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

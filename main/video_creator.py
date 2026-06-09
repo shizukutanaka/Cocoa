@@ -15,8 +15,8 @@ from PIL import Image
 import numpy as np
 from moviepy.editor import AudioFileClip, CompositeVideoClip, TextClip
 
-from .ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
-from .integrated_security import get_security_manager
+from ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

@@ -12,8 +12,8 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
 
-from .video_encoding import get_video_encoder, EncodingPreset
-from .integrated_security import get_security_manager
+from video_encoding import get_video_encoder, EncodingPreset
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)

@@ -170,7 +170,7 @@ class ConfigService:
     """設定サービス（サンプル）"""
 
     def __init__(self):
-        from .config import get_config
+        from config import get_config
         self.config = get_config()
 
     def get_api_config(self):

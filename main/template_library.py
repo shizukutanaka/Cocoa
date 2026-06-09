@@ -11,8 +11,8 @@ from typing import Dict, List, Optional, Union
 from dataclasses import dataclass
 from datetime import datetime
 
-from .integrated_security import get_security_manager
-from .template_filters import (
+from integrated_security import get_security_manager
+from template_filters import (
     sanitize_template_id,
     validate_avatar_template,
     validate_video_template,

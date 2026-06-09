@@ -16,7 +16,7 @@ import statistics
 import threading
 import queue
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
