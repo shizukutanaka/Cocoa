@@ -14,8 +14,11 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+import tempfile
+import os
+
 from cache_manager import (  # noqa: E402
-    MemoryCache, CacheManager, cached, async_cached,
+    MemoryCache, CacheManager, cached, async_cached, FileCache,
 )
 
 
@@ -169,6 +172,55 @@ class TestAsyncCachedDecorator(unittest.TestCase):
 
         result = asyncio.run(fetch(3))
         self.assertEqual(result, 30)
+
+
+class TestFileCache(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.cache = FileCache(cache_dir=self.tmpdir, ttl_seconds=60)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_set_and_get(self):
+        self.cache.set("key1", "value1")
+        self.assertEqual(self.cache.get("key1"), "value1")
+
+    def test_get_missing_returns_none(self):
+        self.assertIsNone(self.cache.get("nonexistent"))
+
+    def test_set_complex_value(self):
+        data = {"nested": [1, 2, 3], "flag": True}
+        self.cache.set("complex", data)
+        self.assertEqual(self.cache.get("complex"), data)
+
+    def test_clear_removes_all(self):
+        self.cache.set("a", 1)
+        self.cache.set("b", 2)
+        self.cache.clear()
+        self.assertIsNone(self.cache.get("a"))
+        self.assertIsNone(self.cache.get("b"))
+
+    def test_ttl_expiry(self):
+        cache = FileCache(cache_dir=self.tmpdir, ttl_seconds=0)
+        cache.set("expiring", "val")
+        # Immediately after setting with TTL=0, mtime check means already expired
+        time.sleep(0.01)
+        self.assertIsNone(cache.get("expiring"))
+
+    def test_cleanup_expired_returns_count(self):
+        fast_cache = FileCache(cache_dir=self.tmpdir, ttl_seconds=0)
+        fast_cache.set("e1", "v1")
+        fast_cache.set("e2", "v2")
+        time.sleep(0.01)
+        count = fast_cache.cleanup_expired()
+        self.assertGreaterEqual(count, 2)
+
+    def test_overwrite_key(self):
+        self.cache.set("k", "old")
+        self.cache.set("k", "new")
+        self.assertEqual(self.cache.get("k"), "new")
 
 
 if __name__ == "__main__":

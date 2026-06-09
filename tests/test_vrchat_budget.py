@@ -94,5 +94,26 @@ class TestSuggestions(unittest.TestCase):
         self.assertTrue(any("local_blink" in s and "synced=False" in s for s in suggestions))
 
 
+class TestCalculateSyncCost(unittest.TestCase):
+    def test_empty_list(self):
+        self.assertEqual(vpb.calculate_sync_cost([]), 0)
+
+    def test_single_bool(self):
+        self.assertEqual(vpb.calculate_sync_cost([{"type": "Bool"}]), 1)
+
+    def test_multiple_params(self):
+        params = [{"type": "Bool"}, {"type": "Int"}, {"type": "Float"}]
+        self.assertEqual(vpb.calculate_sync_cost(params), 1 + 8 + 8)
+
+    def test_unsynced_excluded(self):
+        params = [{"type": "Bool"}, {"type": "Float", "synced": False}]
+        self.assertEqual(vpb.calculate_sync_cost(params), 1)
+
+    def test_matches_parameter_cost_sum(self):
+        params = [{"type": "Trigger"}, {"type": "Int"}, {"type": "Int"}]
+        expected = sum(vpb.parameter_cost(p) for p in params)
+        self.assertEqual(vpb.calculate_sync_cost(params), expected)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

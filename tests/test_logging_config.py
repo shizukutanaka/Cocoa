@@ -15,7 +15,10 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
         sys.path.insert(0, p)
 
 import logging_config as lc  # noqa: E402
-from logging_config import _validate_level, JSONFormatter, CorrelationIdFilter  # noqa: E402
+from logging_config import (  # noqa: E402
+    _validate_level, JSONFormatter, CorrelationIdFilter,
+    LogContext, set_correlation_id, get_correlation_id,
+)
 
 
 class TestValidateLevel(unittest.TestCase):
@@ -128,6 +131,64 @@ class TestGetLogger(unittest.TestCase):
         l1 = lc.get_logger("test.cached")
         l2 = lc.get_logger("test.cached")
         self.assertIs(l1, l2)
+
+
+class TestSetCorrelationId(unittest.TestCase):
+    def tearDown(self):
+        set_correlation_id(None)
+
+    def test_set_and_get(self):
+        set_correlation_id("req-abc-123")
+        self.assertEqual(get_correlation_id(), "req-abc-123")
+
+    def test_overwrite(self):
+        set_correlation_id("first")
+        set_correlation_id("second")
+        self.assertEqual(get_correlation_id(), "second")
+
+    def test_set_none_clears(self):
+        set_correlation_id("some-id")
+        set_correlation_id(None)
+        self.assertIsNone(get_correlation_id())
+
+
+class TestLogContext(unittest.TestCase):
+
+    def _make_logger(self):
+        logger = logging.getLogger(f"test_ctx_{id(self)}")
+        logger.setLevel(logging.DEBUG)
+        return logger
+
+    def test_enter_returns_self(self):
+        logger = self._make_logger()
+        ctx = LogContext(logger, "operation")
+        result = ctx.__enter__()
+        self.assertIs(result, ctx)
+
+    def test_exit_success_returns_false(self):
+        logger = self._make_logger()
+        ctx = LogContext(logger, "op")
+        ctx.__enter__()
+        result = ctx.__exit__(None, None, None)
+        self.assertFalse(result)
+
+    def test_exit_exception_returns_false(self):
+        logger = self._make_logger()
+        ctx = LogContext(logger, "op")
+        ctx.__enter__()
+        result = ctx.__exit__(ValueError, ValueError("oops"), None)
+        self.assertFalse(result)
+
+    def test_context_manager_protocol(self):
+        logger = self._make_logger()
+        with LogContext(logger, "test-op") as ctx:
+            self.assertIsInstance(ctx, LogContext)
+
+    def test_exception_propagates(self):
+        logger = self._make_logger()
+        with self.assertRaises(RuntimeError):
+            with LogContext(logger, "failing-op"):
+                raise RuntimeError("intentional")
 
 
 if __name__ == "__main__":

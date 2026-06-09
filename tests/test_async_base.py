@@ -13,7 +13,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from async_base import AsyncBatch, AsyncCache  # noqa: E402
+from async_base import AsyncBatch, AsyncCache, async_timeout, process_stream  # noqa: E402
 
 
 def run(coro):
@@ -124,6 +124,77 @@ class TestAsyncCache(unittest.TestCase):
         run(cache.set("key", "v1"))
         run(cache.set("key", "v2"))
         self.assertEqual(run(cache.get("key")), "v2")
+
+
+class TestAsyncTimeout(unittest.TestCase):
+
+    def test_completes_within_timeout(self):
+        @async_timeout(1.0)
+        async def fast():
+            return 42
+
+        self.assertEqual(run(fast()), 42)
+
+    def test_raises_on_timeout(self):
+        @async_timeout(0.05)
+        async def slow():
+            await asyncio.sleep(10)
+
+        with self.assertRaises(asyncio.TimeoutError):
+            run(slow())
+
+    def test_preserves_function_name(self):
+        @async_timeout(1.0)
+        async def my_func():
+            return 1
+
+        self.assertEqual(my_func.__name__, "my_func")
+
+    def test_passes_args(self):
+        @async_timeout(1.0)
+        async def add(a, b):
+            return a + b
+
+        self.assertEqual(run(add(3, 4)), 7)
+
+
+class TestProcessStream(unittest.TestCase):
+
+    def test_processes_all_items(self):
+        results = []
+
+        async def collector(item):
+            results.append(item)
+
+        async def stream():
+            for i in range(5):
+                yield i
+
+        run(process_stream(stream(), collector, max_concurrent=3))
+        self.assertEqual(sorted(results), [0, 1, 2, 3, 4])
+
+    def test_empty_stream(self):
+        calls = []
+
+        async def noop(item):
+            calls.append(item)
+
+        async def empty():
+            return
+            yield  # make it an async generator
+
+        run(process_stream(empty(), noop))
+        self.assertEqual(calls, [])
+
+    def test_processor_exception_does_not_crash(self):
+        async def bad_processor(item):
+            raise ValueError("intentional")
+
+        async def stream():
+            for i in range(3):
+                yield i
+
+        run(process_stream(stream(), bad_processor))  # should not raise
 
 
 if __name__ == "__main__":
