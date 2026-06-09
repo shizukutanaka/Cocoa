@@ -16,9 +16,9 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent / "main"))
 
 try:
-    from security_manager import SecurityManager, SecurityPolicy, ThreatLevel
+    from security_manager import SecurityManager
     from performance_manager import PerformanceMonitor, MetricType, HealthStatus
-    from error_recovery_system import ErrorRecoverySystem, ErrorSeverity, CircuitBreaker
+    from error_recovery_system import ErrorRecoverySystem
     from database_manager import DatabaseManager, DatabaseConfig, DatabaseType
     from advanced_logging import AdvancedLogger, LogLevel, LogCategory, EventType
     from backup_recovery_system import BackupManager, BackupType, StorageType

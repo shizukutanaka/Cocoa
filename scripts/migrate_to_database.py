@@ -28,7 +28,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "main"))
 
 try:
     from database_integration import CocoaDatabaseIntegration
-    from database_manager import DatabaseType
 except ImportError as e:
     print(f"エラー: Cocoaモジュールをインポートできません: {e}")
     sys.exit(1)
