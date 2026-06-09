@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 try:
     from cryptography.fernet import Fernet
     CRYPTOGRAPHY_AVAILABLE = True
-except ImportError:
+except BaseException:
     CRYPTOGRAPHY_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
@@ -295,7 +295,8 @@ class LoggingManager:
                 return {"error": "ログファイルが存在しません"}
 
             file_size = log_file.stat().st_size
-            line_count = sum(1 for _ in open(log_file, 'r', encoding='utf-8'))
+            with open(log_file, 'r', encoding='utf-8') as _f:
+                line_count = sum(1 for _ in _f)
 
             return {
                 "file_size": file_size,

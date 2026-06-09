@@ -1,10 +1,11 @@
 import json
+import logging
 import platform
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
 
-from logging_manager import Logger
+Logger = logging.Logger
 
 
 class NotificationError(Exception):

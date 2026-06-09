@@ -61,6 +61,8 @@ SAFE_MODULES = [
     "tests.test_avatar_parameter_sets",
     "tests.test_parameters",
     "tests.test_preset_change_history",
+    "tests.test_notification_system",
+    "tests.test_logging_manager",
 ]
 
 

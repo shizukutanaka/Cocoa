@@ -1,0 +1,95 @@
+"""Tests for LoggingManager and JsonLogFormatter."""
+import json
+import logging
+import os
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
+from logging_manager import JsonLogFormatter, LoggingManager
+
+
+class TestJsonLogFormatter(unittest.TestCase):
+
+    def setUp(self):
+        self.formatter = JsonLogFormatter()
+
+    def _make_record(self, msg="hello", level=logging.INFO):
+        record = logging.LogRecord(
+            name="test", level=level, pathname="", lineno=0,
+            msg=msg, args=(), exc_info=None,
+        )
+        return record
+
+    def test_output_is_valid_json(self):
+        record = self._make_record()
+        output = self.formatter.format(record)
+        data = json.loads(output)
+        self.assertIsInstance(data, dict)
+
+    def test_output_has_required_keys(self):
+        record = self._make_record()
+        data = json.loads(self.formatter.format(record))
+        for key in ("timestamp", "logger", "level", "message"):
+            self.assertIn(key, data)
+
+    def test_timestamp_is_iso_format(self):
+        record = self._make_record()
+        data = json.loads(self.formatter.format(record))
+        ts = data["timestamp"]
+        self.assertIn("T", ts)
+
+    def test_timestamp_contains_utc_offset(self):
+        record = self._make_record()
+        data = json.loads(self.formatter.format(record))
+        ts = data["timestamp"]
+        self.assertTrue(ts.endswith("+00:00") or ts.endswith("Z") or "+" in ts or "-" in ts[-6:])
+
+    def test_message_content(self):
+        record = self._make_record("test message")
+        data = json.loads(self.formatter.format(record))
+        self.assertEqual(data["message"], "test message")
+
+    def test_level_name(self):
+        record = self._make_record(level=logging.ERROR)
+        data = json.loads(self.formatter.format(record))
+        self.assertEqual(data["level"], "ERROR")
+
+
+class TestLoggingManager(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.lm = LoggingManager({"log_dir": self.tmpdir, "enable_console": False})
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        # Restore root logger handlers
+        root = logging.getLogger()
+        for h in list(root.handlers):
+            root.removeHandler(h)
+            h.close()
+
+    def test_log_file_created(self):
+        import os
+        log_file = os.path.join(self.tmpdir, "otedama.log")
+        self.assertTrue(os.path.exists(log_file))
+
+    def test_set_log_level_valid(self):
+        result = self.lm.set_log_level("DEBUG")
+        self.assertTrue(result)
+
+    def test_set_log_level_invalid_returns_false(self):
+        result = self.lm.set_log_level("NONSENSE")
+        self.assertFalse(result)
+
+    def test_get_log_stats_returns_dict(self):
+        stats = self.lm.get_log_stats()
+        self.assertIsInstance(stats, dict)
+
+    def test_get_log_stats_has_keys(self):
+        stats = self.lm.get_log_stats()
+        self.assertIn("line_count", stats)
+        self.assertIn("file_size", stats)
