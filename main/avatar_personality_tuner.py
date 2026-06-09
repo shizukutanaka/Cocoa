@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import statistics
 import numpy as np
 
@@ -44,7 +44,7 @@ class PersonalityProfile:
         if self.voice_characteristics is None:
             self.voice_characteristics = {}
         if self.last_updated is None:
-            self.last_updated = datetime.now()
+            self.last_updated = datetime.now(timezone.utc)
 
 @dataclass
 class BehaviorSample:
@@ -60,7 +60,7 @@ class BehaviorSample:
         if self.analysis_results is None:
             self.analysis_results = {}
         if self.timestamp is None:
-            self.timestamp = datetime.now()
+            self.timestamp = datetime.now(timezone.utc)
 
 @dataclass
 class TunedAvatarConfig:
@@ -78,7 +78,7 @@ class TunedAvatarConfig:
         if self.performance_metrics is None:
             self.performance_metrics = {}
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 class PersonalityAnalyzer:
     """
@@ -362,7 +362,7 @@ class AvatarPersonalityTuner:
         Returns:
             サンプルID
         """
-        sample_id = f"sample_{user_id}_{int(datetime.now().timestamp() * 1000)}"
+        sample_id = f"sample_{user_id}_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
 
         # コンテンツ分析
         analysis_results = await self._analyze_content(content_type, content, additional_data)
@@ -544,7 +544,7 @@ class AvatarPersonalityTuner:
 
         # 信頼度スコア計算
         profile.confidence_score = min(1.0, len(samples) / 10.0)  # 10サンプルで信頼度1.0
-        profile.last_updated = datetime.now()
+        profile.last_updated = datetime.now(timezone.utc)
 
         return profile
 
@@ -702,7 +702,7 @@ class AvatarPersonalityTuner:
 
         report = {
             "user_id": user_id,
-            "analysis_date": datetime.now().isoformat(),
+            "analysis_date": datetime.now(timezone.utc).isoformat(),
             "confidence_score": profile.confidence_score,
             "samples_analyzed": profile.samples_analyzed,
             "speaking_style": profile.speaking_style,

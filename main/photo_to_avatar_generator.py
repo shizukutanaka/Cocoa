@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -298,7 +298,7 @@ class PhotoToAvatarGenerator:
                     "model_used": self.style_models.get(request.target_style, "unknown"),
                     "enhancement_applied": request.enhance_features,
                     "identity_preserved": request.preserve_identity,
-                    "generation_timestamp": datetime.now().isoformat()
+                    "generation_timestamp": datetime.now(timezone.utc).isoformat()
                 },
                 processing_time=processing_time
             )
@@ -492,7 +492,7 @@ class PhotoToAvatarGenerator:
     async def _save_generated_avatars(self, images: List[Image.Image], request: PhotoToAvatarRequest) -> Dict[str, str]:
         """生成されたアバターを保存"""
         avatar_paths = {}
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "output" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 

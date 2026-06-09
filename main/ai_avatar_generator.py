@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 import torch
 from PIL import Image
@@ -317,7 +317,7 @@ class AIAvatarGenerator:
         image = generation_result["image"]
 
         # ファイルパス生成
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.cache_dir / request.user_id
         user_dir.mkdir(exist_ok=True)
 
@@ -344,7 +344,7 @@ class AIAvatarGenerator:
             "customizations": request.customizations,
             "image_size": image.size,
             "file_size": os.path.getsize(avatar_path),
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
 
         return AvatarGenerationResult(

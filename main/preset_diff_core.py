@@ -144,10 +144,10 @@ def save_diff_html(
     if output_path:
         destination = Path(output_path)
         if destination.is_dir():
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             destination = destination / f"diff_{timestamp}.html"
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         destination = directory / f"diff_{timestamp}.html"
 
     with destination.open("w", encoding="utf-8") as handle:

@@ -10,7 +10,7 @@ import json
 import websockets
 from typing import Dict, List, Optional
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import queue
 
 from ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
@@ -49,7 +49,7 @@ class AvatarResponse:
         if self.animation_data is None:
             self.animation_data = {}
         if self.timestamp is None:
-            self.timestamp = datetime.now()
+            self.timestamp = datetime.now(timezone.utc)
 
 class InteractiveAvatar:
     """
@@ -148,8 +148,8 @@ class InteractiveAvatar:
             # クライアント登録
             self.connected_clients[client_id] = {
                 "websocket": websocket,
-                "connected_at": datetime.now(),
-                "last_activity": datetime.now()
+                "connected_at": datetime.now(timezone.utc),
+                "last_activity": datetime.now(timezone.utc)
             }
 
             logger.info(f"Client {client_id} connected")
@@ -160,7 +160,7 @@ class InteractiveAvatar:
                 "avatar_id": self.avatar_id,
                 "style": self.style,
                 "emotion": self.current_emotion,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             await websocket.send(json.dumps(welcome_msg))
 
@@ -169,11 +169,11 @@ class InteractiveAvatar:
                 try:
                     data = json.loads(message)
                     interaction = InteractionMessage(
-                        message_id=f"msg_{datetime.now().timestamp()}",
+                        message_id=f"msg_{datetime.now(timezone.utc).timestamp()}",
                         user_id=client_id,
                         message_type=data.get("type", "text"),
                         content=data.get("content", ""),
-                        timestamp=datetime.now(),
+                        timestamp=datetime.now(timezone.utc),
                         metadata=data.get("metadata", {})
                     )
 
@@ -181,7 +181,7 @@ class InteractiveAvatar:
                     self.message_queue.put(interaction)
 
                     # 最終アクティビティ更新
-                    self.connected_clients[client_id]["last_activity"] = datetime.now()
+                    self.connected_clients[client_id]["last_activity"] = datetime.now(timezone.utc)
 
                 except json.JSONDecodeError:
                     logger.warning(f"Invalid JSON received from {client_id}")
@@ -225,7 +225,7 @@ class InteractiveAvatar:
     async def _generate_response(self, message: InteractionMessage) -> AvatarResponse:
         """メッセージに対する応答を生成"""
         try:
-            response_id = f"resp_{datetime.now().timestamp()}"
+            response_id = f"resp_{datetime.now(timezone.utc).timestamp()}"
 
             if message.message_type == "text":
                 # テキストメッセージの処理
@@ -269,7 +269,7 @@ class InteractiveAvatar:
         except Exception as e:
             logger.error(f"Response generation failed: {e}")
             return AvatarResponse(
-                response_id=f"error_{datetime.now().timestamp()}",
+                response_id=f"error_{datetime.now(timezone.utc).timestamp()}",
                 avatar_id=self.avatar_id,
                 response_type="text",
                 content="申し訳ありません、エラーが発生しました。",
@@ -315,7 +315,7 @@ class InteractiveAvatar:
 
         if command == "status":
             return AvatarResponse(
-                response_id=f"cmd_{datetime.now().timestamp()}",
+                response_id=f"cmd_{datetime.now(timezone.utc).timestamp()}",
                 avatar_id=self.avatar_id,
                 response_type="text",
                 content=f"現在のステータス: アクティブ, 感情: {self.current_emotion}, 接続クライアント数: {len(self.connected_clients)}",
@@ -325,7 +325,7 @@ class InteractiveAvatar:
         elif command == "emotion":
             available_emotions = ["happy", "sad", "angry", "surprised", "neutral"]
             return AvatarResponse(
-                response_id=f"cmd_{datetime.now().timestamp()}",
+                response_id=f"cmd_{datetime.now(timezone.utc).timestamp()}",
                 avatar_id=self.avatar_id,
                 response_type="text",
                 content=f"利用可能な感情: {', '.join(available_emotions)}",
@@ -337,7 +337,7 @@ class InteractiveAvatar:
             if new_emotion in ["happy", "sad", "angry", "surprised", "neutral"]:
                 self.current_emotion = new_emotion
                 return AvatarResponse(
-                    response_id=f"cmd_{datetime.now().timestamp()}",
+                    response_id=f"cmd_{datetime.now(timezone.utc).timestamp()}",
                     avatar_id=self.avatar_id,
                     response_type="text",
                     content=f"感情を {new_emotion} に変更しました",
@@ -345,7 +345,7 @@ class InteractiveAvatar:
                 )
             else:
                 return AvatarResponse(
-                    response_id=f"cmd_{datetime.now().timestamp()}",
+                    response_id=f"cmd_{datetime.now(timezone.utc).timestamp()}",
                     avatar_id=self.avatar_id,
                     response_type="text",
                     content="無効な感情です",
@@ -354,7 +354,7 @@ class InteractiveAvatar:
 
         else:
             return AvatarResponse(
-                response_id=f"cmd_{datetime.now().timestamp()}",
+                response_id=f"cmd_{datetime.now(timezone.utc).timestamp()}",
                 avatar_id=self.avatar_id,
                 response_type="text",
                 content="不明なコマンドです。'status', 'emotion', 'set_emotion [感情]' が利用可能です。",
@@ -364,7 +364,7 @@ class InteractiveAvatar:
     def _add_to_history(self, message: InteractionMessage, response: AvatarResponse):
         """会話履歴に追加"""
         history_entry = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "user_message": {
                 "type": message.message_type,
                 "content": message.content,
@@ -412,7 +412,7 @@ class InteractiveAvatar:
 
     async def _cleanup_inactive_clients(self):
         """非アクティブなクライアントをクリーンアップ"""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         inactive_clients = []
 
         for client_id, client_info in self.connected_clients.items():

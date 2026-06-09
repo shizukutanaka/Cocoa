@@ -8,7 +8,7 @@ import time
 import json
 import random
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from collections import defaultdict, deque
 from typing import Dict, List, Optional, Any
@@ -65,7 +65,7 @@ class AgenticTask:
 
     def __post_init__(self):
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class EnvironmentContext:
@@ -80,7 +80,7 @@ class EnvironmentContext:
 
     def __post_init__(self):
         if self.timestamp is None:
-            self.timestamp = datetime.now()
+            self.timestamp = datetime.now(timezone.utc)
 @dataclass
 class AgentConfiguration:
     """アバターエージェント設定"""
@@ -97,7 +97,7 @@ class AgentConfiguration:
 
     def __post_init__(self):
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 class AgenticAIManager:
     """
@@ -225,7 +225,7 @@ class AgenticAIManager:
 
     def _get_time_of_day(self) -> str:
         """時間帯を取得"""
-        hour = datetime.now().hour
+        hour = datetime.now(timezone.utc).hour
         if 6 <= hour < 12:
             return "morning"
         elif 12 <= hour < 18:
@@ -295,7 +295,7 @@ class AgenticAIManager:
 
             # タスク完了
             task.status = "completed"
-            task.completed_at = datetime.now()
+            task.completed_at = datetime.now(timezone.utc)
             self.completed_tasks.append(task)
 
             # 履歴記録
@@ -313,7 +313,7 @@ class AgenticAIManager:
         except Exception as e:
             logger.error(f"Task execution failed: {task.task_id} - {e}")
             task.status = "failed"
-            task.completed_at = datetime.now()
+            task.completed_at = datetime.now(timezone.utc)
             self.task_history[task.task_type].append({
                 "task_id": task.task_id,
                 "success": False,
@@ -440,7 +440,7 @@ class AgenticAIManager:
             "autonomous_mode": self.autonomous_mode,
             "learning_enabled": self.learning_enabled,
             "active_tasks": len(self.active_tasks),
-            "completed_tasks_today": len([t for t in self.completed_tasks if t.created_at.date() == datetime.now().date()]),
+            "completed_tasks_today": len([t for t in self.completed_tasks if t.created_at.date() == datetime.now(timezone.utc).date()]),
             "success_rates": dict(self.success_rates),
             "environment_context": self.environment_history[-1] if self.environment_history else None
         }
@@ -1036,13 +1036,13 @@ class AvatarAgentService:
                     session_id=session_id,
                     agent_id=agent_id,
                     client_id=user_id,
-                    start_time=datetime.now(),
-                    last_activity=datetime.now()
+                    start_time=datetime.now(timezone.utc),
+                    last_activity=datetime.now(timezone.utc)
                 )
 
             session = self.active_sessions[session_id]
             session.message_count += 1
-            session.last_activity = datetime.now()
+            session.last_activity = datetime.now(timezone.utc)
 
             # メッセージ処理（ここでは簡易的な応答）
             response = f"こんにちは！ {message} についてお答えします。"
@@ -1050,7 +1050,7 @@ class AvatarAgentService:
             return web.json_response({
                 "response": response,
                 "session_id": session_id,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
         except Exception as e:
@@ -1077,7 +1077,7 @@ class AvatarAgentService:
                 response = {
                     "type": "response",
                     "content": f"エージェント {agent_id} からの応答: {data.get('content', '')}",
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 await ws.send_str(json.dumps(response, ensure_ascii=False))
             elif msg.type == aiohttp.WSMsgType.ERROR:

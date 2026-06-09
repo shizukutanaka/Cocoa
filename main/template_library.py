@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from integrated_security import get_security_manager
 from template_filters import (
@@ -42,7 +42,7 @@ class AvatarTemplate:
         if self.tags is None:
             self.tags = []
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class VideoTemplate:
@@ -69,7 +69,7 @@ class VideoTemplate:
         if self.tags is None:
             self.tags = []
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 class TemplateCategory:
     """テンプレートカテゴリ"""
@@ -1091,7 +1091,7 @@ class TemplateLibrary:
             custom_config.update(customizations.get("config", {}))
 
             custom_template = AvatarTemplate(
-                template_id=f"custom_{base_template_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                template_id=f"custom_{base_template_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
                 name=customizations.get("name", f"{base_template.name} (カスタム)"),
                 description=customizations.get("description", base_template.description),
                 category=customizations.get("category", base_template.category),
@@ -1117,7 +1117,7 @@ class TemplateLibrary:
             custom_video_settings.update(customizations.get("video_settings", {}))
 
             custom_template = VideoTemplate(
-                template_id=f"custom_{base_template_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                template_id=f"custom_{base_template_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
                 name=customizations.get("name", f"{base_template.name} (カスタム)"),
                 description=customizations.get("description", base_template.description),
                 category=customizations.get("category", base_template.category),

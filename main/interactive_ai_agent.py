@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Any
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 import openai
@@ -116,7 +116,7 @@ class KnowledgeBaseManager:
                 json.dump({
                     'user_id': user_id,
                     'knowledge': existing_knowledge,
-                    'updated_at': datetime.now().isoformat()
+                    'updated_at': datetime.now(timezone.utc).isoformat()
                 }, f, ensure_ascii=False, indent=2)
 
             return True
@@ -314,7 +314,7 @@ class InteractiveAIAgent:
             context.conversation_history.append({
                 "user": user_message,
                 "agent": processed_response.response_text,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
             # 履歴が長くなりすぎないよう制限

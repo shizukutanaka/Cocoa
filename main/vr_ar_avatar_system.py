@@ -7,7 +7,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 
 from integrated_security import get_security_manager
@@ -186,7 +186,7 @@ class VRAvatarSystem:
         """VRアバター設定を保存"""
 
         config_dict = asdict(vr_config)
-        config_dict["created_at"] = datetime.now().isoformat()
+        config_dict["created_at"] = datetime.now(timezone.utc).isoformat()
 
         config_file = self.vr_data_dir / f"vr_avatar_{vr_config.avatar_id}.json"
         with open(config_file, 'w', encoding='utf-8') as f:
@@ -430,7 +430,7 @@ class VRAvatarSystem:
                 "performance_score": performance_score,
                 "metaverse_compatibility": config.metaverse_compatibility,
                 "recommendations": await self._generate_webxr_recommendations(config),
-                "generated_at": datetime.now().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
 
             return report
@@ -509,7 +509,7 @@ class VRAvatarSystem:
                 "metaverse_visits": ["decentraland", "sandbox"],
                 "performance_issues": 2,
                 "user_satisfaction_score": 4.2,
-                "generated_at": datetime.now().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
 
             return analytics

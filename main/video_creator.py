@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from PIL import Image
 import numpy as np
@@ -91,7 +91,7 @@ class VoiceGenerator:
             audio_dir = Path("data/temp_audio")
             audio_dir.mkdir(parents=True, exist_ok=True)
 
-            audio_filename = f"voice_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+            audio_filename = f"voice_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.wav"
             audio_path = audio_dir / audio_filename
 
             self.tts_engine.save_to_file(text, str(audio_path))
@@ -194,7 +194,7 @@ class VideoCreator:
                     "avatar_style": request.avatar_style,
                     "voice_settings": request.voice_settings,
                     "video_settings": request.video_settings,
-                    "created_at": datetime.now().isoformat()
+                    "created_at": datetime.now(timezone.utc).isoformat()
                 }
             )
 
@@ -349,7 +349,7 @@ class VideoCreator:
             final_video = final_video.set_duration(audio_clip.duration)
 
             # 出力ファイルパス
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             output_filename = f"avatar_video_{timestamp}.{request.output_format}"
             output_path = self.output_dir / output_filename
 

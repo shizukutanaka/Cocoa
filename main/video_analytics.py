@@ -11,7 +11,7 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import statistics
 import threading
 import queue
@@ -53,7 +53,7 @@ class VideoMetrics:
         if self.drop_off_points is None:
             self.drop_off_points = []
         if self.last_updated is None:
-            self.last_updated = datetime.now()
+            self.last_updated = datetime.now(timezone.utc)
 
 @dataclass
 class AnalyticsReport:
@@ -69,7 +69,7 @@ class AnalyticsReport:
 
     def __post_init__(self):
         if self.generated_at is None:
-            self.generated_at = datetime.now()
+            self.generated_at = datetime.now(timezone.utc)
 
 class VideoAnalyticsService:
     """
@@ -242,7 +242,7 @@ class VideoAnalyticsService:
                 # ドロップオフポイント更新
                 self._update_drop_off_points(metrics, event.position)
 
-            metrics.last_updated = datetime.now()
+            metrics.last_updated = datetime.now(timezone.utc)
 
     def _update_drop_off_points(self, metrics: VideoMetrics, position: float):
         """ドロップオフポイントを更新"""
@@ -301,7 +301,7 @@ class VideoAnalyticsService:
         if not force_refresh:
             with self.cache_lock:
                 cached = self.metrics_cache.get(video_id)
-                if cached and (datetime.now() - cached.last_updated).seconds < self.cache_ttl:
+                if cached and (datetime.now(timezone.utc) - cached.last_updated).seconds < self.cache_ttl:
                     return cached
 
         # データベースから読み込み
@@ -447,7 +447,7 @@ class VideoAnalyticsService:
         """
         # 日付範囲設定
         if not start_date or not end_date:
-            end_date = datetime.now()
+            end_date = datetime.now(timezone.utc)
             if report_type == 'daily':
                 start_date = end_date - timedelta(days=1)
             elif report_type == 'weekly':
@@ -468,7 +468,7 @@ class VideoAnalyticsService:
 
         # レポート作成
         report = AnalyticsReport(
-            report_id=f"report_{video_id}_{report_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            report_id=f"report_{video_id}_{report_type}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
             video_id=video_id,
             report_type=report_type,
             start_date=start_date,
@@ -674,7 +674,7 @@ class VideoAnalyticsService:
 
         export_data = {
             "video_id": video_id,
-            "exported_at": datetime.now().isoformat(),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
             "current_metrics": {
                 "total_views": metrics.total_views,
                 "unique_viewers": metrics.unique_viewers,
@@ -707,7 +707,7 @@ class VideoAnalyticsService:
         export_dir = Path("data/analytics_exports")
         export_dir.mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"analytics_{video_id}_{timestamp}.{format}"
         export_path = export_dir / filename
 
@@ -746,7 +746,7 @@ class VideoAnalyticsService:
     async def _update_metrics_cache(self):
         """メトリクスキャッシュを定期的に更新"""
         # 古いキャッシュエントリをクリーンアップ
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
 
         with self.cache_lock:
             to_remove = []
@@ -759,7 +759,7 @@ class VideoAnalyticsService:
 
     async def cleanup_old_data(self, days_to_keep: int = 90):
         """古いデータをクリーンアップ"""
-        cutoff_date = datetime.now() - timedelta(days=days_to_keep)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
 
         with sqlite3.connect(str(self.db_path)) as conn:
             cursor = conn.cursor()

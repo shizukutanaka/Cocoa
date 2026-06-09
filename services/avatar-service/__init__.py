@@ -4,7 +4,7 @@ Avatar Service
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Depends
 import uvicorn
@@ -208,7 +208,7 @@ async def update_avatar(
             if hasattr(avatar, key):
                 setattr(avatar, key, value)
 
-        avatar.updated_at = datetime.utcnow()
+        avatar.updated_at = datetime.now(timezone.utc)
         await db.commit()
 
         return {

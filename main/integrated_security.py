@@ -15,7 +15,7 @@ import logging
 from stat import S_IMODE
 from pathlib import Path
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from typing import Dict, List, Optional, Tuple, Any
@@ -915,7 +915,7 @@ class IntegratedSecurityManager:
         behavior_anomalies = sum(1 for e in recent_events if e.get('details', {}).get('anomaly_detected', False))
 
         return {
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'security_level': self.policy.level.value,
             'threat_level': threat_level.value,
             'statistics': {
@@ -990,7 +990,7 @@ class IntegratedSecurityManager:
         incident = {
             'type': incident_type,
             'user_id': user_id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'details': details
         }
         self.security_incidents.append(incident)
@@ -1443,7 +1443,7 @@ class AISecurityManager:
         """
         event = AIAuditEvent(
             event_id=secrets.token_hex(16),
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             event_type="ai_interaction",
             user_id=user_id,
             model_id=model_id,
@@ -1628,7 +1628,7 @@ class QuantumSafeManager:
                 public_key, private_key = await self._generate_fallback_keypair(algorithm)
 
             key_id = secrets.token_hex(32)
-            created_at = datetime.now()
+            created_at = datetime.now(timezone.utc)
             expires_at = created_at.replace(year=created_at.year + 2)  # 2年有効
 
             key_pair = QuantumKeyPair(
@@ -1787,7 +1787,7 @@ class QuantumSafeManager:
             algorithm=algorithm,
             message_hash=hashlib.sha256(message).hexdigest(),
             signer_key_id=signer_key_id,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
         self.active_signatures[quantum_signature.signer_key_id] = quantum_signature
@@ -1855,7 +1855,7 @@ class QuantumSafeManager:
     async def _perform_threat_assessment(self) -> QuantumThreatAssessment:
         """量子脅威評価を実行"""
         # 現在の量子コンピューティングの進展に基づく評価
-        current_year = datetime.now().year
+        current_year = datetime.now(timezone.utc).year
 
         # 脅威レベルの推定（簡易的）
         if current_year < 2028:
@@ -1884,7 +1884,7 @@ class QuantumSafeManager:
             timeline_years=timeline,
             affected_algorithms=affected_algorithms,
             recommended_actions=recommended_actions,
-            assessment_date=datetime.now()
+            assessment_date=datetime.now(timezone.utc)
         )
 
         self.threat_assessments.append(assessment)
@@ -1907,7 +1907,7 @@ class QuantumSafeManager:
         rotated_keys = []
 
         for key_id, key_pair in list(self.key_pairs.items()):
-            if key_pair.expires_at and datetime.now() > key_pair.expires_at:
+            if key_pair.expires_at and datetime.now(timezone.utc) > key_pair.expires_at:
                 # 期限切れの鍵を新しい鍵で置き換え
                 new_algorithm = key_pair.algorithm  # 同じアルゴリズムを使用
                 new_key_pair = await self.generate_quantum_keypair(new_algorithm)
@@ -1930,7 +1930,7 @@ class QuantumSafeManager:
     def get_quantum_security_status(self) -> Dict[str, Any]:
         """量子セキュリティステータスを取得"""
         active_keys = len(self.key_pairs)
-        expired_keys = sum(1 for k in self.key_pairs.values() if k.expires_at and datetime.now() > k.expires_at)
+        expired_keys = sum(1 for k in self.key_pairs.values() if k.expires_at and datetime.now(timezone.utc) > k.expires_at)
 
         latest_assessment = self.threat_assessments[-1] if self.threat_assessments else None
 

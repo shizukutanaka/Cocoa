@@ -7,7 +7,7 @@ Production-gradeのデータベース統合機能を提供し、
 
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Type, TypeVar, Generic
 from contextlib import contextmanager
 
@@ -355,7 +355,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
 
     def get_recent_logs(self, session: Session, hours: int = 24) -> List[AuditLog]:
         """最近のログを取得"""
-        since = datetime.utcnow() - timedelta(hours=hours)
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
         return session.query(AuditLog).filter(AuditLog.timestamp >= since).all()
 
     def get_logs_by_user(self, session: Session, user_id: int, limit: int = 100) -> List[AuditLog]:
@@ -418,7 +418,7 @@ class DatabaseService:
     def get_system_metrics_summary(self, hours: int = 24) -> Dict[str, Any]:
         """システムメトリクスのサマリーを取得"""
         with self.db_manager.get_session() as session:
-            since = datetime.utcnow() - timedelta(hours=hours)
+            since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
             # 各メトリクスタイプの最新値を取得
             latest_metrics = {}
@@ -438,7 +438,7 @@ class DatabaseService:
             return {
                 'time_range_hours': hours,
                 'metrics': latest_metrics,
-                'generated_at': datetime.utcnow().isoformat()
+                'generated_at': datetime.now(timezone.utc).isoformat()
             }
 
 
@@ -522,7 +522,7 @@ def create_avatar_preset(user_id: int, name: str, parameters: Dict) -> Dict[str,
         db_service = get_database_service()
         avatar = db_service.create_avatar(
             name=name,
-            avatar_id=f"preset_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            avatar_id=f"preset_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
             owner_id=user_id,
             parameters=parameters
         )

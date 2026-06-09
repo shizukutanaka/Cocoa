@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from integrated_security import get_security_manager
 from ai_avatar_generator import get_ai_avatar_generator
@@ -82,7 +82,7 @@ class MultiAvatarScene:
         if self.audio_tracks is None:
             self.audio_tracks = []
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class SceneTimeline:
@@ -227,7 +227,7 @@ class MultiAvatarManager:
         Returns:
             シーンID
         """
-        scene_id = f"scene_{int(datetime.now().timestamp() * 1000)}"
+        scene_id = f"scene_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
 
         # アバターインスタンス作成
         avatars = []
@@ -394,7 +394,7 @@ class MultiAvatarManager:
             return None
 
         scene = self.scenes[scene_id]
-        timeline_id = f"timeline_{scene_id}_{int(datetime.now().timestamp())}"
+        timeline_id = f"timeline_{scene_id}_{int(datetime.now(timezone.utc).timestamp())}"
 
         # スクリプトからイベント生成
         events = []
@@ -488,11 +488,11 @@ class MultiAvatarManager:
 
         # 出力パス設定
         if not output_path:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             output_path = f"data/multi_avatar_scenes/scene_{scene_id}_{timestamp}.mp4"
 
         # 実行ID生成
-        execution_id = f"exec_{scene_id}_{int(datetime.now().timestamp())}"
+        execution_id = f"exec_{scene_id}_{int(datetime.now(timezone.utc).timestamp())}"
 
         try:
             # 実行開始記録
@@ -713,7 +713,7 @@ class MultiAvatarManager:
                 execution_id,
                 scene_id,
                 'running',
-                datetime.now().isoformat()
+                datetime.now(timezone.utc).isoformat()
             ))
 
             conn.commit()
@@ -730,7 +730,7 @@ class MultiAvatarManager:
             ''', (
                 'completed',
                 output_path,
-                datetime.now().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 execution_id
             ))
 
@@ -748,7 +748,7 @@ class MultiAvatarManager:
             ''', (
                 'failed',
                 error_message,
-                datetime.now().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 execution_id
             ))
 

@@ -159,7 +159,7 @@ class AdvancedSecurityManager:
                 private_key=bytes(private_key),
                 algorithm=alg,
                 key_id=secrets.token_hex(16),
-                created_at=datetime.now().isoformat()
+                created_at=datetime.now(timezone.utc).isoformat()
             )
 
         except Exception as e:
@@ -316,7 +316,7 @@ class AdvancedSecurityManager:
         risk_score = 0.0
 
         # 時間帯チェック
-        current_hour = datetime.now().hour
+        current_hour = datetime.now(timezone.utc).hour
         if current_hour not in behavioral_pattern.get("usual_login_hours", []):
             risk_score += self.risk_factors["unusual_login_time"]
 
@@ -481,7 +481,7 @@ class AdvancedSecurityManager:
 
                 # 古い鍵をバックアップ
                 old_key_backup = self.post_quantum_keys[algorithm]
-                backup_file = self.security_data_dir / f"key_backup_{algorithm}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                backup_file = self.security_data_dir / f"key_backup_{algorithm}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
 
                 with open(backup_file, 'w') as f:
                     json.dump({
@@ -489,7 +489,7 @@ class AdvancedSecurityManager:
                         "public_key": old_key_backup.public_key.hex(),
                         "private_key": old_key_backup.private_key.hex(),
                         "key_id": old_key_backup.key_id,
-                        "backed_up_at": datetime.now().isoformat()
+                        "backed_up_at": datetime.now(timezone.utc).isoformat()
                     }, f)
 
                 # 新しい鍵をアクティブに設定
@@ -529,9 +529,9 @@ class AdvancedSecurityManager:
                     "gdpr_compliant": True,
                     "sox_compliant": True,
                     "hipaa_compliant": True,
-                    "last_audit": datetime.now().isoformat()
+                    "last_audit": datetime.now(timezone.utc).isoformat()
                 },
-                "generated_at": datetime.now().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
 
             return dashboard_data

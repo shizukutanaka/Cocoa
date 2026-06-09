@@ -6,7 +6,7 @@ import logging
 import logging.handlers
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -311,7 +311,7 @@ class LoggingManager:
     def clear_old_logs(self, days: int = 30) -> bool:
         """古いログファイルを削除"""
         try:
-            cutoff_date = datetime.now().timestamp() - (days * 24 * 60 * 60)
+            cutoff_date = datetime.now(timezone.utc).timestamp() - (days * 24 * 60 * 60)
 
             for log_file in self.log_dir.glob("*.log.*"):
                 if log_file.stat().st_mtime < cutoff_date:

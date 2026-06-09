@@ -1,7 +1,7 @@
 import psutil
 import time
 from typing import Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from logging_manager import Logger
 
 
@@ -47,7 +47,7 @@ class PerformanceAnalyzer:
     def _collect_metrics(self) -> None:
         """Collect system metrics"""
         try:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             
             # CPU metrics
             cpu_percent = psutil.cpu_percent(interval=1)

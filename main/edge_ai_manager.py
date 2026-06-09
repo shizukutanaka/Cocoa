@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 import torch
 import torch.nn as nn
@@ -49,7 +49,7 @@ class EdgeDeviceInfo:
 
     def __post_init__(self):
         if self.last_seen is None:
-            self.last_seen = datetime.now()
+            self.last_seen = datetime.now(timezone.utc)
 
 @dataclass
 class ModelCompressionConfig:
@@ -236,7 +236,7 @@ class EdgeAIManager:
         if not device_info:
             raise ValueError(f"Device not found: {target_device}")
 
-        model_id = f"edge_{target_device}_{int(datetime.now().timestamp())}"
+        model_id = f"edge_{target_device}_{int(datetime.now(timezone.utc).timestamp())}"
 
         try:
             # 元のモデルを読み込み
@@ -276,7 +276,7 @@ class EdgeAIManager:
                 compression_config=compression_config,
                 performance_metrics=performance_metrics,
                 deployment_targets=[target_device],
-                created_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
                 version="1.0.0"
             )
 
@@ -705,7 +705,7 @@ class EdgeAIManager:
         metadata = {
             "model_id": model_id,
             "deployment_type": "offline",
-            "deployed_at": datetime.now().isoformat(),
+            "deployed_at": datetime.now(timezone.utc).isoformat(),
             "device_id": device_id
         }
 

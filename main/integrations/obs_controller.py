@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Optional
 
 import aiohttp
@@ -36,7 +36,7 @@ class OBSController(StreamingController):
             await self._perform_identify(hello)
             self._status.connected = True
             self._status.last_error = None
-            self._status.last_heartbeat = datetime.utcnow()
+            self._status.last_heartbeat = datetime.now(timezone.utc)
             self._listener = asyncio.create_task(self._reader())
         except Exception:
             await self.disconnect()
@@ -155,7 +155,7 @@ class OBSController(StreamingController):
                     if op == 7:
                         await self._handle_response(data.get("d", {}))
                     elif op == 8:
-                        self._status.last_heartbeat = datetime.utcnow()
+                        self._status.last_heartbeat = datetime.now(timezone.utc)
                         metrics = data.get("d", {}).get("measurements", {})
                         duration = metrics.get("wsOpTime")
                         if duration is not None:

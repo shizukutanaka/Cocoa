@@ -21,7 +21,7 @@ Shared Services for Microservices Architecture
 
 import logging
 from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import aiohttp
 
 logger = logging.getLogger(__name__)
@@ -38,11 +38,11 @@ class ServiceRegistry:
     def register_service(self, service_name: str, service_info: Dict[str, Any]) -> bool:
         """サービスを登録"""
         try:
-            service_info['registered_at'] = datetime.utcnow().isoformat()
-            service_info['last_heartbeat'] = datetime.utcnow().isoformat()
+            service_info['registered_at'] = datetime.now(timezone.utc).isoformat()
+            service_info['last_heartbeat'] = datetime.now(timezone.utc).isoformat()
 
             self.services[service_name] = service_info
-            self.heartbeats[service_name] = datetime.utcnow()
+            self.heartbeats[service_name] = datetime.now(timezone.utc)
 
             logger.info(f"サービス登録: {service_name}")
             return True
@@ -63,8 +63,8 @@ class ServiceRegistry:
     def heartbeat(self, service_name: str) -> bool:
         """サービスからのハートビートを記録"""
         if service_name in self.services:
-            self.heartbeats[service_name] = datetime.utcnow()
-            self.services[service_name]['last_heartbeat'] = datetime.utcnow().isoformat()
+            self.heartbeats[service_name] = datetime.now(timezone.utc)
+            self.services[service_name]['last_heartbeat'] = datetime.now(timezone.utc).isoformat()
             return True
         return False
 
@@ -74,7 +74,7 @@ class ServiceRegistry:
             return None
 
         # タイムアウトチェック
-        if datetime.utcnow() - self.heartbeats[service_name] > timedelta(seconds=self.service_timeout):
+        if datetime.now(timezone.utc) - self.heartbeats[service_name] > timedelta(seconds=self.service_timeout):
             logger.warning(f"サービスタイムアウト: {service_name}")
             self.unregister_service(service_name)
             return None
@@ -84,7 +84,7 @@ class ServiceRegistry:
     def get_all_services(self) -> Dict[str, Dict[str, Any]]:
         """全サービス情報を取得"""
         # タイムアウトチェック
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         timeout_services = [
             name for name, heartbeat in self.heartbeats.items()
             if current_time - heartbeat > timedelta(seconds=self.service_timeout)
@@ -100,7 +100,7 @@ class ServiceRegistry:
         total_services = len(self.services)
         healthy_services = len([
             name for name, heartbeat in self.heartbeats.items()
-            if datetime.utcnow() - heartbeat <= timedelta(seconds=self.service_timeout)
+            if datetime.now(timezone.utc) - heartbeat <= timedelta(seconds=self.service_timeout)
         ])
 
         return {

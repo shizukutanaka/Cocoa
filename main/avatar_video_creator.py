@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 import cv2
@@ -154,7 +154,7 @@ class AvatarVideoCreator:
                 "style": request.video_style,
                 "language": request.voice_language,
                 "duration": len(frames) / request.fps,
-                "created_at": datetime.now().isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat()
             }
 
             # 生成時間を計算
@@ -406,7 +406,7 @@ class AvatarVideoCreator:
                 frame_paths.append(str(frame_path))
 
             # 動画ファイル名を生成
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             video_filename = f"avatar_video_{timestamp}_{language}.mp4"
             video_path = self.assets_dir / "videos" / video_filename
 
@@ -444,7 +444,7 @@ class AvatarVideoCreator:
             thumbnail = cv2.resize(first_frame, (480, 270))
 
         # サムネイルのパス
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         thumbnail_filename = f"thumbnail_{timestamp}.jpg"
         thumbnail_path = self.assets_dir / "thumbnails" / thumbnail_filename
 

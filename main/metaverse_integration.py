@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 from quantum_safe_manager import get_quantum_safe_manager
@@ -278,7 +278,7 @@ class MetaverseIntegration:
                     "ar_cloud_enhanced": True,
                     "bci_integrated": True,
                     "global_edge_optimized": True,
-                    "integration_timestamp": datetime.now().isoformat()
+                    "integration_timestamp": datetime.now(timezone.utc).isoformat()
                 },
                 platform_specific_files=platform_files,
                 processing_time=processing_time
@@ -709,8 +709,8 @@ const metaverseAI = new MetaverseAgenticAI(avatar, '{request.environment}');
         if self.blockchain_audit_manager:
             # 監査イベントを作成
             audit_event = BlockchainAuditEvent(
-                event_id=f"audit_{request.avatar_id}_{int(datetime.now().timestamp())}",
-                timestamp=datetime.now(),
+                event_id=f"audit_{request.avatar_id}_{int(datetime.now(timezone.utc).timestamp())}",
+                timestamp=datetime.now(timezone.utc),
                 event_type="metaverse_integration",
                 user_id=request.user_id,
                 details={
@@ -1024,7 +1024,7 @@ class ARCloudAvatar {
             "metadata": {
                 "created_for": request.platform,
                 "environment": request.environment,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
         }
 
@@ -1070,7 +1070,7 @@ class ARCloudAvatar {
         files = {}
 
         # Unityパッケージファイルの生成（シミュレーション）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "unity" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1095,7 +1095,7 @@ class ARCloudAvatar {
         files = {}
 
         # Unreal Engineアセットファイルの生成（シミュレーション）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "unreal" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1120,7 +1120,7 @@ class ARCloudAvatar {
         files = {}
 
         # WebXR対応ファイルの生成（シミュレーション）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "webxr" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1149,7 +1149,7 @@ class ARCloudAvatar {
         files = {}
 
         # Oculus対応ファイルの生成（シミュレーション）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "oculus" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1174,7 +1174,7 @@ class ARCloudAvatar {
         files = {}
 
         # SteamVR対応ファイルの生成（シミュレーション）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "steamvr" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 

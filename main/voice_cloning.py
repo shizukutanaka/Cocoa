@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import numpy as np
 import torch
@@ -37,7 +37,7 @@ class VoiceSample:
 
     def __post_init__(self):
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class VoiceCloneRequest:
@@ -135,7 +135,7 @@ class VoiceCloningEngine:
         quality_score = self._assess_audio_quality(audio_path)
 
         # サンプルID生成
-        sample_id = f"sample_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        sample_id = f"sample_{user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
         # 保存先パス
         user_dir = self.voice_samples_dir / user_id
@@ -186,7 +186,7 @@ class VoiceCloningEngine:
                 raise ValueError("At least 3 voice samples required for cloning")
 
             # 音声ID生成
-            voice_id = f"voice_{request.user_id}_{request.voice_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            voice_id = f"voice_{request.user_id}_{request.voice_name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
             # トレーニングデータ準備
             training_data = await self._prepare_training_data(voice_samples, request)
@@ -221,7 +221,7 @@ class VoiceCloningEngine:
 
             return VoiceCloneResult(
                 success=False,
-                voice_id=f"failed_{datetime.now().timestamp()}",
+                voice_id=f"failed_{datetime.now(timezone.utc).timestamp()}",
                 voice_name=request.voice_name,
                 error_message=str(e),
                 training_time=end_time - start_time
@@ -247,7 +247,7 @@ class VoiceCloningEngine:
                 raise ValueError(f"Voice model not found: {voice_id}")
 
             # 出力ファイルパス
-            output_filename = f"speech_{voice_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+            output_filename = f"speech_{voice_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.wav"
             output_path = self.temp_dir / output_filename
 
             if self.tts:
@@ -456,7 +456,7 @@ class VoiceCloningEngine:
         # 基本的な統計情報を保存
         model_data = {
             "training_data": training_data,
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "model_type": "basic_fallback"
         }
 

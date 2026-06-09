@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Any
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import deque
 import statistics
 
@@ -59,7 +59,7 @@ class PerformanceStats:
 
     def __post_init__(self):
         if self.last_updated is None:
-            self.last_updated = datetime.now()
+            self.last_updated = datetime.now(timezone.utc)
 
 @dataclass
 class PerformanceAlert:
@@ -207,7 +207,7 @@ class AvatarPerformanceMonitor:
 
     def _check_operation_timeouts(self):
         """アクティブな操作のタイムアウトをチェック"""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         timeout_operations = []
 
         for operation_id, metrics in self.active_operations.items():
@@ -244,7 +244,7 @@ class AvatarPerformanceMonitor:
     async def _update_performance_stats(self):
         """パフォーマンス統計を更新"""
         # 最近24時間のデータを集計
-        cutoff_time = datetime.now() - timedelta(hours=24)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
 
         with sqlite3.connect(str(self.db_path)) as conn:
             cursor = conn.cursor()
@@ -274,7 +274,7 @@ class AvatarPerformanceMonitor:
                     min_duration=min_duration or 0.0,
                     max_duration=max_duration or 0.0,
                     success_rate=success_rate,
-                    last_updated=datetime.now()
+                    last_updated=datetime.now(timezone.utc)
                 )
 
                 self.stats_cache[operation_type] = stats
@@ -288,14 +288,14 @@ class AvatarPerformanceMonitor:
                 ''', (
                     operation_type, total, successful, failed,
                     avg_duration, min_duration, max_duration, success_rate,
-                    datetime.now().isoformat()
+                    datetime.now(timezone.utc).isoformat()
                 ))
 
             conn.commit()
 
     async def _check_alert_conditions(self):
         """アラート条件をチェック"""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
 
         for operation_type, stats in self.stats_cache.items():
             # 成功率チェック
@@ -353,7 +353,7 @@ class AvatarPerformanceMonitor:
 
     def _cleanup_old_data(self):
         """古いデータをクリーンアップ"""
-        cutoff_time = datetime.now() - timedelta(days=30)  # 30日以上前のデータ
+        cutoff_time = datetime.now(timezone.utc) - timedelta(days=30)  # 30日以上前のデータ
 
         with sqlite3.connect(str(self.db_path)) as conn:
             cursor = conn.cursor()
@@ -389,7 +389,7 @@ class AvatarPerformanceMonitor:
         metrics = AvatarPerformanceMetrics(
             operation_type=operation_type,
             user_id=user_id,
-            start_time=datetime.now(),
+            start_time=datetime.now(timezone.utc),
             metadata=metadata or {}
         )
 
@@ -430,7 +430,7 @@ class AvatarPerformanceMonitor:
             return False
 
         metrics = self.active_operations.pop(operation_id)
-        metrics.end_time = datetime.now()
+        metrics.end_time = datetime.now(timezone.utc)
         metrics.duration = (metrics.end_time - metrics.start_time).total_seconds()
         metrics.success = success
         metrics.error_message = error_message
@@ -486,7 +486,7 @@ class AvatarPerformanceMonitor:
         Returns:
             パフォーマンス統計
         """
-        cutoff_time = datetime.now() - timedelta(hours=hours)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
 
         with sqlite3.connect(str(self.db_path)) as conn:
             cursor = conn.cursor()
@@ -635,7 +635,7 @@ class AvatarPerformanceMonitor:
         alerts = await self.get_recent_alerts(20)
 
         report = {
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "period_hours": hours,
             "operation_type": operation_type or "all",
             "statistics": stats,
@@ -703,7 +703,7 @@ class AvatarPerformanceMonitor:
         operations = await self.get_operation_history(operation_type, limit=1000)
 
         export_data = {
-            "exported_at": datetime.now().isoformat(),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
             "period_hours": hours,
             "operation_type": operation_type or "all",
             "statistics": stats,
@@ -715,7 +715,7 @@ class AvatarPerformanceMonitor:
         export_dir = Path("data/performance_exports")
         export_dir.mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"performance_export_{operation_type or 'all'}_{timestamp}.{format}"
         export_path = export_dir / filename
 

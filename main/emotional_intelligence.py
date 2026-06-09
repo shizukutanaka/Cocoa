@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 from transformers import pipeline
@@ -298,7 +298,7 @@ class EmotionalIntelligence:
                     "input_type": request.input_type,
                     "primary_emotion": primary_emotion,
                     "confidence": confidence,
-                    "analysis_timestamp": datetime.now().isoformat(),
+                    "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
                     "processing_time": processing_time
                 }
             )
@@ -471,7 +471,7 @@ class EmotionalIntelligence:
                 ),
                 "response_style": "empathetic" if emotion_result.primary_emotion in ["sadness", "fear"] else "engaging",
                 "engagement_level": "high" if emotion_result.confidence > 0.7 else "normal",
-                "adaptation_timestamp": datetime.now().isoformat()
+                "adaptation_timestamp": datetime.now(timezone.utc).isoformat()
             }
 
             return adaptation

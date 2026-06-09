@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import hmac
 
@@ -44,7 +44,7 @@ class IntegrationConfig:
         if self.api_keys is None:
             self.api_keys = {}
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class WorkflowTrigger:
@@ -73,7 +73,7 @@ class WorkflowExecution:
         if self.results is None:
             self.results = {}
         if self.started_at is None:
-            self.started_at = datetime.now()
+            self.started_at = datetime.now(timezone.utc)
 
 class APIIntegrationService:
     """
@@ -396,16 +396,16 @@ class APIIntegrationService:
 
             execution.status = "completed"
             execution.results = results
-            execution.completed_at = datetime.now()
+            execution.completed_at = datetime.now(timezone.utc)
 
         except Exception as e:
             execution.status = "failed"
             execution.error_message = str(e)
-            execution.completed_at = datetime.now()
+            execution.completed_at = datetime.now(timezone.utc)
             logger.error(f"Workflow execution failed: {e}")
 
         # トリガーの最終実行時間を更新
-        trigger.last_triggered = datetime.now()
+        trigger.last_triggered = datetime.now(timezone.utc)
 
         return execution
 

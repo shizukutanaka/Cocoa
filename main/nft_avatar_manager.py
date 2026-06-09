@@ -8,7 +8,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 import hashlib
 
@@ -155,7 +155,7 @@ class NFTAvatarManager:
                 image_hash=avatar_hash,
                 avatar_hash=avatar_hash,
                 creator_id=user_id,
-                creation_date=datetime.now().isoformat(),
+                creation_date=datetime.now(timezone.utc).isoformat(),
                 attributes=metadata,
                 ipfs_cid=ipfs_cid,
                 contract_address=self.contract_address
@@ -314,7 +314,7 @@ class NFTAvatarManager:
             "tx_hash": tx_hash,
             "ipfs_cid": nft_metadata.ipfs_cid,
             "metadata": asdict(nft_metadata),
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
 
         # JSONファイルとして保存
@@ -465,7 +465,7 @@ class NFTAvatarManager:
                 nft_record["transfer_history"].append({
                     "to_address": to_address,
                     "tx_hash": tx_hash,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 })
 
                 nft_record["owner_address"] = to_address

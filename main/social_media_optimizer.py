@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from video_encoding import get_video_encoder, EncodingPreset
 from integrated_security import get_security_manager
@@ -427,7 +427,7 @@ class SocialMediaOptimizer:
             preset = self._create_platform_preset(spec, priority, custom_settings)
 
             # 出力パス
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             filename = f"optimized_{platform_id}_{timestamp}.mp4"
             output_path = self.output_dir / filename
 

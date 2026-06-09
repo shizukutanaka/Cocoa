@@ -12,7 +12,7 @@ import hashlib
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import queue
 
 from web3 import Web3
@@ -129,7 +129,7 @@ class BlockchainAuditManager:
         """ジェネシスブロックを作成"""
         genesis_block = AuditBlock(
             block_index=0,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             previous_hash="0000000000000000000000000000000000000000000000000000000000000000",
             current_hash="",
             transactions=[],
@@ -201,7 +201,7 @@ class BlockchainAuditManager:
         # ブロックを作成
         new_block = AuditBlock(
             block_index=self.total_blocks,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             previous_hash=previous_block.current_hash if previous_block else "",
             current_hash="",
             transactions=transactions,
@@ -384,7 +384,7 @@ class BlockchainAuditManager:
             "total_blocks": end_block - start_block + 1,
             "invalid_blocks": [],
             "tampering_detected": False,
-            "verification_time": datetime.now().isoformat()
+            "verification_time": datetime.now(timezone.utc).isoformat()
         }
 
         try:
@@ -509,12 +509,12 @@ class BlockchainAuditManager:
         Returns:
             スナップショットID
         """
-        snapshot_id = f"snapshot_{int(datetime.now().timestamp())}"
+        snapshot_id = f"snapshot_{int(datetime.now(timezone.utc).timestamp())}"
 
         snapshot = {
             "snapshot_id": snapshot_id,
             "description": description,
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "block_count": len(self.blocks),
             "total_events": self.total_events,
             "blockchain_hash": self.blocks[-1].current_hash if self.blocks else "",

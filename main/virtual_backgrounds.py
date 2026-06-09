@@ -17,7 +17,7 @@ except ImportError:
     AIOFILES_AVAILABLE = False
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from PIL import Image, ImageEnhance, ImageFilter
 
 from integrated_security import get_security_manager
@@ -46,7 +46,7 @@ class BackgroundTemplate:
         if self.settings is None:
             self.settings = {}
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class BackgroundConfig:
@@ -67,7 +67,7 @@ class BackgroundConfig:
         if self.branding is None:
             self.branding = {}
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 class BackgroundProcessor:
     """
@@ -802,7 +802,7 @@ class VirtualBackgroundsService:
 
             # 出力パス設定
             if not output_path:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
                 output_path = f"data/backgrounds/output/background_applied_{timestamp}.png"
 
             # ディレクトリ作成
@@ -841,7 +841,7 @@ class VirtualBackgroundsService:
                 raise FileNotFoundError(f"Background image not found: {image_path}")
 
             # テンプレートID生成
-            template_id = f"custom_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            template_id = f"custom_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
             # 画像をコピー
             template_image_path = self.custom_dir / f"{template_id}.png"

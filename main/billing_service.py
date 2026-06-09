@@ -227,7 +227,7 @@ class BillingEventLog:
         if not data:
             return
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         threshold = now - timedelta(days=self._retention_days) if self._retention_days else None
 
         if threshold:
@@ -536,7 +536,7 @@ class StripeBillingService:
             "user_id": user_id,
             "mode": self._config.mode,
             "status": "customer_created",
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "last_event": "customer.created",
         }
         self._storage.upsert_subscription(customer_id, record)
@@ -564,7 +564,7 @@ class StripeBillingService:
                 "customer_id": customer_id,
                 "status": "not_found",
                 "mode": self._config.mode,
-                "updated_at": datetime.utcnow().isoformat() + "Z",
+                "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
                 "last_event": "sync.subscription.missing",
             }
             self._storage.upsert_subscription(customer_id, record)
@@ -706,7 +706,7 @@ class StripeBillingService:
                 trial_will_end.append(customer_id)
 
         report = {
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "currency": self._config.currency,
             "counts": {
                 "customers": len(records),
@@ -766,7 +766,7 @@ class StripeBillingService:
             "mode": self._config.mode,
             "amount_due": invoice.get("amount_due"),
             "attempt_count": invoice.get("attempt_count"),
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "last_event": event_type,
         }
         if customer_id:
@@ -782,7 +782,7 @@ class StripeBillingService:
             "status": "action_required",
             "mode": self._config.mode,
             "amount_due": invoice.get("amount_due") or existing.get("amount_due"),
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "last_event": event_type,
         }
         if customer_id:
@@ -807,7 +807,7 @@ class StripeBillingService:
             else session_obj.get("line_items", [{}])[0].get("price", {}).get("id"),
             "user_id": user_id,
             "mode": mode,
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "last_event": event_type,
             "subscription_item_id": None,
         }
@@ -838,7 +838,7 @@ class StripeBillingService:
             "user_id": user_id or existing.get("user_id"),
             "mode": self._config.mode,
             "amount_paid": amount_paid,
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "last_event": event_type,
         }
         if customer_id:

@@ -6,7 +6,7 @@ Collaboration Service
 import json
 import logging
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
 import uvicorn
 from contextlib import asynccontextmanager
@@ -182,7 +182,7 @@ class ConnectionManager:
                 "user_id": "user_1",
                 "username": "user1",
                 "content": "こんにちは！",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "type": "text"
             }
         ]
@@ -294,7 +294,7 @@ async def handle_chat_message(session_id: str, message_data: Dict[str, Any], web
         user_id=message_data.get("user_id", "anonymous"),
         message_type="text",
         content=message_data.get("content", ""),
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
 
     db.add(message)
@@ -325,7 +325,7 @@ async def handle_avatar_edit_message(session_id: str, message_data: Dict[str, An
     edit_data = {
         "type": "avatar_edit",
         "edit": message_data,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
     # セッション内の全ユーザーにブロードキャスト（編集者以外）
@@ -342,7 +342,7 @@ async def handle_cursor_move_message(session_id: str, message_data: Dict[str, An
     cursor_data = {
         "type": "cursor_move",
         "cursor": message_data,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
     await manager.broadcast_to_session(

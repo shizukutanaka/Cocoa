@@ -10,7 +10,7 @@ import asyncio
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
@@ -201,7 +201,7 @@ async def health_check():
 
         return HealthCheck(
             status=health_status,
-            timestamp=datetime.now().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             version="2.0.0",
             uptime=0.0  # 実際の起動時間を取得する場合は適切な実装が必要
         )
@@ -228,7 +228,7 @@ async def get_metrics(current_user: dict = Depends(get_current_user)):
                         disk_io=sample.get("disk_io", 0),
                         network_io=sample.get("network_io", 0),
                         process_memory=sample.get("process_memory", 0),
-                        timestamp=sample.get("timestamp", datetime.now().isoformat())
+                        timestamp=sample.get("timestamp", datetime.now(timezone.utc).isoformat())
                     ))
 
             return PerformanceReport(
@@ -288,7 +288,7 @@ async def get_security_report(current_user: dict = Depends(get_current_user)):
                 total_events_24h=report.get("statistics", {}).get("total_events_24h", 0),
                 active_lockouts=report.get("statistics", {}).get("active_lockouts", 0),
                 suspicious_activities=report.get("statistics", {}).get("suspicious_activities", 0),
-                last_scan=report.get("last_scan", datetime.now().isoformat())
+                last_scan=report.get("last_scan", datetime.now(timezone.utc).isoformat())
             )
         else:
             return SecurityReport(
@@ -296,7 +296,7 @@ async def get_security_report(current_user: dict = Depends(get_current_user)):
                 total_events_24h=0,
                 active_lockouts=0,
                 suspicious_activities=0,
-                last_scan=datetime.now().isoformat()
+                last_scan=datetime.now(timezone.utc).isoformat()
             )
     except Exception as e:
         logger.error(f"セキュリティレポート取得エラー: {e}")
@@ -318,7 +318,7 @@ async def websocket_monitoring(websocket: WebSocket):
 
                     data = {
                         "type": "metrics",
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                         "data": metrics
                     }
 
