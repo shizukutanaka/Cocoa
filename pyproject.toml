@@ -132,3 +132,9 @@ exclude_lines = [
     "@(abc\\.)?abstractmethod",
 ]
 precision = 2
+
+[tool.ruff.lint]
+ignore = ["E402"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["E402"]

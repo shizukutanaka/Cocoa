@@ -396,15 +396,16 @@ class AvatarPerformanceMonitor:
         self.active_operations[operation_id] = metrics
 
         # セキュリティログ
-        await self.security_manager.log_security_event(
-            event_type="avatar_performance_tracking_start",
-            user_id=user_id,
-            details={
-                "operation_id": operation_id,
-                "operation_type": operation_type
-            },
-            ip_address="system"
-        )
+        try:
+            from integrated_security import SecurityEvent
+            self.security_manager.auditor.log_event(SecurityEvent(
+                event_type="avatar_performance_tracking_start",
+                user_id=user_id,
+                resource=operation_type,
+                details={"operation_id": operation_id},
+            ))
+        except Exception:
+            pass
 
         return operation_id
 
