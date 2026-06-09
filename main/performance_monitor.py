@@ -880,7 +880,7 @@ class PerformanceMonitor:
                 slope = 0.0
                 trend_strength = 0.0
 
-            for i, sample in enumerate(samples[-5:]):
+            for _i, sample in enumerate(samples[-5:]):
                 z_score = abs(sample["value"] - avg) / deviation if deviation > 0 else 0
 
                 # 異常検知の閾値を動的に調整（トレンド考慮）
@@ -1342,7 +1342,7 @@ class HybridSystemManager:
         best_score = -1
 
         # 各クラウドリソースに対して最適化
-        for resource_key, cloud_resource in self.cloud_resources.items():
+        for _resource_key, cloud_resource in self.cloud_resources.items():
             allocation = await self._calculate_allocation_for_resource(
                 cloud_resource, workload, budget
             )

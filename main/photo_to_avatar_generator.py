@@ -443,7 +443,7 @@ class PhotoToAvatarGenerator:
             # スタイルに基づいてベース画像を作成（シミュレーション）
             generated_images = []
 
-            for i in range(len(request.output_formats)):
+            for _i in range(len(request.output_formats)):
                 # シミュレートされた画像生成
                 base_color = {
                     "realistic": "#F5DEB3",

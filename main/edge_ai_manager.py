@@ -339,7 +339,7 @@ class EdgeAIManager:
         """モデルプルーニング"""
         # 簡易的なプルーニング実装
         parameters_to_prune = []
-        for name, module in model.named_modules():
+        for _name, module in model.named_modules():
             if isinstance(module, nn.Linear):
                 parameters_to_prune.append((module, 'weight'))
 
@@ -615,7 +615,7 @@ class EdgeAIManager:
         first_model = next(iter(local_updates.values()))
         aggregated_state = first_model.state_dict()
 
-        for key in aggregated_state.keys():
+        for key in aggregated_state:
             param_sum = torch.zeros_like(aggregated_state[key])
             for local_model in local_updates.values():
                 param_sum += local_model.state_dict()[key]

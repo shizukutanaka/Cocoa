@@ -686,7 +686,7 @@ class MultiAvatarManager:
                     pass
 
             # シーン要素配置
-            for element in scene.elements:
+            for _element in scene.elements:
                 # 要素配置（テキスト、プロップなど）
                 pass
 

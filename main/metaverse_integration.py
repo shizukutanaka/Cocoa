@@ -987,7 +987,7 @@ class ARCloudAvatar {
                 "enabled": self.ar_cloud_manager is not None,
                 "total_maps": self.ar_cloud_manager.total_maps if self.ar_cloud_manager else 0,
                 "total_anchors": self.ar_cloud_manager.total_anchors if self.ar_cloud_manager else 0,
-                "spatial_mapping": True if self.ar_cloud_manager else False
+                "spatial_mapping": bool(self.ar_cloud_manager)
             },
             "bci_integration": {
                 "enabled": self.bci_manager is not None,

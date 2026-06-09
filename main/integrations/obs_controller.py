@@ -10,6 +10,7 @@ import aiohttp
 
 from .interfaces import StreamingController
 from .models import ConnectionParams, ControllerStatus, SceneInfo, SourceInfo
+import contextlib
 
 
 class OBSController(StreamingController):
@@ -45,10 +46,8 @@ class OBSController(StreamingController):
     async def disconnect(self) -> None:
         if self._listener:
             self._listener.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._listener
-            except asyncio.CancelledError:
-                pass
             self._listener = None
         if self._ws:
             await self._ws.close()

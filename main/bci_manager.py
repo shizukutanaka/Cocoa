@@ -145,7 +145,7 @@ class EEGProcessor:
                 'gamma': (30, 40)
             }
 
-            for band_name, (low, high) in bands.items():
+            for _band_name, (low, high) in bands.items():
                 band_power = np.mean(power[(freqs >= low) & (freqs <= high)])
                 features.append(band_power)
 
@@ -340,7 +340,7 @@ class BCIManager:
         commands = []
 
         # 各訓練済みパターンに対して推論
-        for pattern_id, pattern in self.thought_patterns.items():
+        for _pattern_id, pattern in self.thought_patterns.items():
             if pattern.pattern_id in self.models:
                 model = self.models[pattern.pattern_id]
 
@@ -539,7 +539,7 @@ class BCIManager:
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
             model.train()
-            for epoch in range(100):
+            for _epoch in range(100):
                 optimizer.zero_grad()
                 outputs = model(X)
                 loss = criterion(outputs, y)

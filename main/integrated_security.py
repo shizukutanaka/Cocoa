@@ -642,10 +642,9 @@ class SecurityValidator:
                 self.failed_attempts[user_id] = []
 
         # IP制限チェック
-        if ip_address:
-            if not self._check_ip_access(ip_address):
-                logger.warning(f"ブロックされたIPからのアクセス試行: {ip_address}")
-                return False, "アクセスが拒否されました"
+        if ip_address and not self._check_ip_access(ip_address):
+            logger.warning(f"ブロックされたIPからのアクセス試行: {ip_address}")
+            return False, "アクセスが拒否されました"
 
         # ユーザー権限チェック
         if self.allowed_users and user_id not in self.allowed_users:
@@ -1143,10 +1142,7 @@ class ZeroTrustSecurity:
             return False
 
         # 非アクティブタイムアウトチェック（デフォルト1時間）
-        if time.time() - session['last_activity'] > 3600:
-            return False
-
-        return True
+        return not time.time() - session['last_activity'] > 3600
 
     def _check_resource_policy(self, user_id: str, resource: str, action: str) -> bool:
         """リソースポリシーをチェック"""

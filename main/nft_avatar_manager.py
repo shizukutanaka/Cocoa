@@ -352,10 +352,7 @@ class NFTAvatarManager:
             # ブロックチェーンで所有権を確認（実際の実装では）
             # ここでは記録ファイルの情報で簡易検証
             recorded_address = nft_record.get("owner_address")
-            if recorded_address and recorded_address.lower() == user_address.lower():
-                return True
-
-            return False
+            return bool(recorded_address and recorded_address.lower() == user_address.lower())
 
         except Exception as e:
             logger.error(f"Avatar ownership verification failed: {e}")

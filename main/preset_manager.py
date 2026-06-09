@@ -60,7 +60,7 @@ class PresetManager:
     def _update_index(self, preset_name: str, preset_data: Dict[str, Any]) -> None:
         """プリセットのインデックスを更新"""
         # パラメータ名によるインデックス
-        for param_name in preset_data.get('parameters', {}).keys():
+        for param_name in preset_data.get('parameters', {}):
             self._index[param_name].add(preset_name)
 
         # タグによるインデックス
@@ -161,7 +161,7 @@ class PresetManager:
     def _remove_from_index(self, preset_name: str, preset_data: Dict[str, Any]) -> None:
         """プリセットをインデックスから削除"""
         # パラメータ名によるインデックスから削除
-        for param_name in preset_data.get('parameters', {}).keys():
+        for param_name in preset_data.get('parameters', {}):
             if preset_name in self._index[param_name]:
                 self._index[param_name].remove(preset_name)
                 if not self._index[param_name]:

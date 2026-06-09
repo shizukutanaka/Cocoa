@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, Callable
 from pathlib import Path
 import threading
 import logging
+import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +81,8 @@ class MemoryCache:
         """キャッシュからキーを削除"""
         with self.lock:
             self.cache.pop(key, None)
-            try:
+            with contextlib.suppress(ValueError):
                 self.access_order.remove(key)
-            except ValueError:
-                pass
 
     def clear(self) -> None:
         """キャッシュをクリア"""

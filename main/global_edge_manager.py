@@ -631,7 +631,7 @@ class GlobalEdgeManager:
             }
 
             # 地域別パフォーマンス
-            for region_name, region_nodes in self.regions.items():
+            for region_name, _region_nodes in self.regions.items():
                 region_analytics = []
                 for node_id in node_ids:
                     if node_id in self.analytics_data:
@@ -691,7 +691,7 @@ class GlobalEdgeManager:
                     "nodes": len([n for n in self.edge_nodes.values() if n.region == region]),
                     "active_nodes": len([n for n in self.edge_nodes.values() if n.region == region and n.status == "active"])
                 }
-                for region in self.regions.keys()
+                for region in self.regions
             },
             "cdn_domains": self.cdn_domains,
             "supported_services": list({
