@@ -1,11 +1,17 @@
 # avatar_parameter_editor.py
 # アバターパラメータ編集パネル（カテゴリ・サブカテゴリ選択式/10万パラメータ対応）
 
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QComboBox, QColorDialog, QPushButton, QLineEdit, QScrollArea, QMessageBox
-)
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor
+try:
+    from PyQt5.QtWidgets import (
+        QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QComboBox,
+        QColorDialog, QPushButton, QLineEdit, QScrollArea, QMessageBox,
+    )
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtGui import QColor
+    PYQT5_AVAILABLE = True
+except ImportError:
+    PYQT5_AVAILABLE = False
+    QWidget = object
 
 from parameters import CATEGORIES, SUBCATEGORIES, AVATAR_PARAMETERS
 import json

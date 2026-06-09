@@ -14,8 +14,17 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import uuid
 
-import openai
-from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
+try:
+    from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
 try:
     import torch
     TORCH_AVAILABLE = True

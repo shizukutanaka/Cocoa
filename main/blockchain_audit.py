@@ -15,8 +15,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import queue
 
-from web3 import Web3
-from web3.contract import Contract
+try:
+    from web3 import Web3
+    from web3.contract import Contract
+    WEB3_AVAILABLE = True
+except ImportError:
+    WEB3_AVAILABLE = False
 
 # Configure logging
 logger = logging.getLogger(__name__)

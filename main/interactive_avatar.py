@@ -7,7 +7,11 @@ Interactive Avatar Module for Cocoa
 import asyncio
 import logging
 import json
-import websockets
+try:
+    import websockets
+    WEBSOCKETS_AVAILABLE = True
+except ImportError:
+    WEBSOCKETS_AVAILABLE = False
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime, timezone

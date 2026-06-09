@@ -14,7 +14,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import uuid
 
-import cv2
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+
 try:
     import numpy as np
     NUMPY_AVAILABLE = True
@@ -26,7 +31,12 @@ try:
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
-import moviepy.editor as mp
+try:
+    import moviepy.editor as mp
+    MOVIEPY_AVAILABLE = True
+except ImportError:
+    mp = None
+    MOVIEPY_AVAILABLE = False
 
 from integrated_security import get_security_manager
 
