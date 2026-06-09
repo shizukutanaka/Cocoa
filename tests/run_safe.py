@@ -64,6 +64,7 @@ SAFE_MODULES = [
     "tests.test_notification_system",
     "tests.test_logging_manager",
     "tests.test_i18n_manager",
+    "tests.test_billing_service",
 ]
 
 

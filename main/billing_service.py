@@ -18,7 +18,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import stripe
+try:
+    import stripe
+    STRIPE_AVAILABLE = True
+except ImportError:
+    stripe = None
+    STRIPE_AVAILABLE = False
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR.parent / "config" / "config.json"
@@ -129,6 +134,9 @@ class BillingStorage:
         except FileNotFoundError:
             return {}
         except json.JSONDecodeError as exc:
+            # Empty or corrupt file — treat as empty storage rather than crashing
+            if self._path.stat().st_size == 0:
+                return {}
             raise BillingError(f"ストレージファイルの読み込みに失敗しました: {exc}") from exc
 
         if not isinstance(payload, dict):
@@ -215,6 +223,8 @@ class BillingEventLog:
         except FileNotFoundError:
             return {}
         except json.JSONDecodeError as exc:
+            if self._path.stat().st_size == 0:
+                return {}
             raise BillingError(f"イベントログの読み込みに失敗しました: {exc}") from exc
 
     def _write(self, payload: Dict[str, Any]) -> None:
@@ -268,6 +278,8 @@ class StripeBillingService:
         if not self._config.enabled:
             raise BillingError("billing.enabled が false のため Stripe サービスを初期化できません")
 
+        if not STRIPE_AVAILABLE:
+            raise BillingError("stripe ライブラリがインストールされていません: pip install stripe")
         api_key = os.getenv("STRIPE_API_KEY")
         if not api_key:
             raise BillingError("環境変数 STRIPE_API_KEY が設定されていません")
