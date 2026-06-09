@@ -287,7 +287,7 @@ class LoggingManager:
         except Exception as e:
             return {"error": str(e), "raw": line.strip()}
 
-    def get_log_stats(self) -> Dict[str, any]:
+    def get_log_stats(self) -> Dict[str, Any]:
         """ログ統計を取得"""
         try:
             log_file = self.log_dir / "otedama.log"

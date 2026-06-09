@@ -645,7 +645,7 @@ class ConfigValidator:
                         if normalized_key:
                             ssl_validated["key_path"] = normalized_key
 
-                elif ssl_enabled is False:
+                elif not ssl_enabled:
                     if ssl_config.get("cert_path") or ssl_config.get("key_path"):
                         warnings.append(
                             "web_admin.ssl.enabled が false の状態で cert_path または key_path が設定されています。不要な機密情報を削除してください。"

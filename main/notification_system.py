@@ -1,6 +1,6 @@
 import json
 import platform
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
 
@@ -34,7 +34,7 @@ class NotificationSystem:
                 'title': title,
                 'message': message,
                 'level': level,
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                'timestamp': datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             }
             
             # Add to history

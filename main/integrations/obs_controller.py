@@ -4,7 +4,7 @@ import asyncio
 import base64
 import hashlib
 from datetime import datetime
-from typing import Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional
 
 import aiohttp
 
@@ -118,8 +118,8 @@ class OBSController(StreamingController):
             sceneItemEnabled=enabled,
         )
 
-    async def _perform_identify(self, hello: Dict[str, any]) -> None:
-        identify: Dict[str, any] = {
+    async def _perform_identify(self, hello: Dict[str, Any]) -> None:
+        identify: Dict[str, Any] = {
             "op": 1,
             "d": {
                 "rpcVersion": 1,
@@ -175,7 +175,7 @@ class OBSController(StreamingController):
                     fut.set_exception(RuntimeError("Connection closed"))
             self._pending.clear()
 
-    async def _handle_response(self, payload: Dict[str, any]) -> None:
+    async def _handle_response(self, payload: Dict[str, Any]) -> None:
         request_id = payload.get("requestId")
         if request_id is None:
             return
@@ -188,7 +188,7 @@ class OBSController(StreamingController):
         else:
             future.set_exception(RuntimeError(status.get("comment", "OBS request failed")))
 
-    async def _send_request(self, request_type: str, **request_data: any) -> Dict[str, any]:
+    async def _send_request(self, request_type: str, **request_data: Any) -> Dict[str, Any]:
         if not self._ws:
             raise RuntimeError("OBS controller is not connected")
         async with self._lock:
