@@ -5,7 +5,7 @@ import json
 import logging
 import webbrowser
 import difflib
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -123,7 +123,7 @@ def generate_html_diff(
         "</head>\n"
         "<body>\n"
         f"    <h2>プリセット差分: {name1} vs {name2}</h2>\n"
-        f"    <p>比較日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>\n"
+        f"    <p>比較日時: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC</p>\n"
         f"    {html_table}\n"
         "</body>\n"
         "</html>\n"

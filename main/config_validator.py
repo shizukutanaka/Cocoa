@@ -1175,9 +1175,9 @@ class ConfigValidator:
         }
 
     def _get_current_time(self) -> str:
-        """現在の時刻を取得"""
-        from datetime import datetime
-        return datetime.now().isoformat()
+        """現在の時刻を UTC で取得"""
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat()
 
     def export_rules(self, filename: str) -> bool:
         """検証ルールをエクスポート"""
