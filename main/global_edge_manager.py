@@ -694,10 +694,10 @@ class GlobalEdgeManager:
                 for region in self.regions.keys()
             },
             "cdn_domains": self.cdn_domains,
-            "supported_services": list(set(
+            "supported_services": list({
                 service for node in self.edge_nodes.values()
                 for service in node.services
-            )),
+            }),
             "analytics_data_points": sum(len(data) for data in self.analytics_data.values())
         }
 

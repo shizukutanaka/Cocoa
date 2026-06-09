@@ -232,8 +232,8 @@ class PersonalityAnalyzer:
                     analysis['consistency_score'] = 0.5
 
         # 適応性スコア（多様な感情表現）
-        unique_emotions = len(set(sample.analysis_results.get('primary_emotion', 'neutral')
-                                for sample in samples))
+        unique_emotions = len({sample.analysis_results.get('primary_emotion', 'neutral')
+                                for sample in samples})
         analysis['adaptability_score'] = min(1.0, unique_emotions / 7.0)  # 7つの基本感情
 
         # コミュニケーションスタイル分析

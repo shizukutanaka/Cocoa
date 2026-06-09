@@ -920,7 +920,7 @@ class IntegratedSecurityManager:
             'threat_level': threat_level.value,
             'statistics': {
                 'total_events_24h': len(recent_events),
-                'unique_users': len(set(e['user_id'] for e in recent_events)),
+                'unique_users': len({e['user_id'] for e in recent_events}),
                 'operation_types': self._count_operation_types(recent_events),
                 'incidents': len(self.security_incidents),
                 'active_lockouts': len(self.validator.lockouts),

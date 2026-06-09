@@ -26,11 +26,11 @@ def _make_analyzer(platform=Platform.PC):
 
 
 def _stats(**kwargs):
-    defaults = dict(
-        polygons=7500, materials=1, bones=75, skinned_meshes=1,
-        mesh_count=2, physbones_components=4, lights=0,
-        particle_systems=1, texture_memory_mb=10.0
-    )
+    defaults = {
+        "polygons": 7500, "materials": 1, "bones": 75, "skinned_meshes": 1,
+        "mesh_count": 2, "physbones_components": 4, "lights": 0,
+        "particle_systems": 1, "texture_memory_mb": 10.0
+    }
     defaults.update(kwargs)
     return AvatarStats(**defaults)
 

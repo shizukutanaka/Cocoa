@@ -19,7 +19,7 @@ from joint_range_report import generate_joint_range_report, report_as_records  #
 
 class TestAvatarParametersValidation(unittest.TestCase):
     def _make(self, **kwargs):
-        defaults = dict(height=170.0, weight=65.0, muscle_mass=0.5, flexibility=0.5)
+        defaults = {"height": 170.0, "weight": 65.0, "muscle_mass": 0.5, "flexibility": 0.5}
         defaults.update(kwargs)
         return AvatarParameters(**defaults)
 
@@ -62,7 +62,7 @@ class TestAvatarParametersValidation(unittest.TestCase):
 
 class TestEstimateJointRange(unittest.TestCase):
     def _make(self, **kwargs):
-        defaults = dict(height=170.0, weight=65.0, muscle_mass=0.5, flexibility=0.5)
+        defaults = {"height": 170.0, "weight": 65.0, "muscle_mass": 0.5, "flexibility": 0.5}
         defaults.update(kwargs)
         return AvatarParameters(**defaults)
 

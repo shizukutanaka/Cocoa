@@ -705,7 +705,7 @@ class TestRollbackManager:
 
         try:
             backup_files = sorted(
-                [f for f in self.backup_dir.glob("test_backup_*.json")],
+                list(self.backup_dir.glob("test_backup_*.json")),
                 key=lambda x: x.stat().st_mtime,
                 reverse=True
             )
