@@ -483,7 +483,7 @@ class AdvancedSecurityManager:
                 old_key_backup = self.post_quantum_keys[algorithm]
                 backup_file = self.security_data_dir / f"key_backup_{algorithm}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
 
-                with open(backup_file, 'w') as f:
+                with open(backup_file, 'w', encoding='utf-8') as f:
                     json.dump({
                         "algorithm": algorithm,
                         "public_key": old_key_backup.public_key.hex(),
