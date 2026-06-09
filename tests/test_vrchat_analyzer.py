@@ -355,5 +355,81 @@ class TestOptimizationReduction(unittest.TestCase):
         self.assertEqual(s.reduction, 0)
 
 
+class TestPresetExtraction(unittest.TestCase):
+    """REQ-VP-09..11: analyze_preset extracts all 22 dimensions from JSON."""
+
+    def _analyze(self, avatar_dict):
+        import json
+        import tempfile
+        analyzer = _make_analyzer()
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "preset.json"
+            p.write_text(json.dumps({"avatar": avatar_dict}), encoding="utf-8")
+            return analyzer.analyze_preset(p)
+
+    def test_backward_compatible_old_keys(self):
+        result = self._analyze({
+            "polygon_count": 9000,
+            "material_count": 3,
+            "physbones_count": 4,
+        })
+        self.assertEqual(result.avatar_stats.polygons, 9000)
+        self.assertEqual(result.avatar_stats.materials, 3)
+        self.assertEqual(result.avatar_stats.physbones_components, 4)
+
+    def test_new_dimension_keys_extracted(self):
+        result = self._analyze({
+            "physbones_transform_count": 64,
+            "audio_source_count": 3,
+            "physics_collider_count": 5,
+            "cloth_vertex_count": 150,
+        })
+        self.assertEqual(result.avatar_stats.physbones_transforms, 64)
+        self.assertEqual(result.avatar_stats.audio_sources, 3)
+        self.assertEqual(result.avatar_stats.physics_colliders, 5)
+        self.assertEqual(result.avatar_stats.cloth_vertices, 150)
+
+    def test_missing_dims_default_zero(self):
+        result = self._analyze({"polygon_count": 5000})
+        self.assertEqual(result.avatar_stats.audio_sources, 0)
+        self.assertEqual(result.avatar_stats.trail_renderers, 0)
+        self.assertEqual(result.avatar_stats.cloths, 0)
+
+    def test_new_dimension_affects_rank(self):
+        # physbones_transforms=256 alone is POOR-tier on PC
+        result = self._analyze({
+            "polygon_count": 7500,
+            "physbones_transform_count": 256,
+        })
+        self.assertEqual(result.rank, PerformanceRank.POOR)
+
+    def test_full_preset_with_textures(self):
+        result = self._analyze({
+            "polygon_count": 9000,
+            "material_count": 3,
+            "bone_count": 100,
+            "skinned_mesh_count": 2,
+            "mesh_count": 3,
+            "animator_count": 2,
+            "trail_renderer_count": 1,
+            "textures": [
+                {"width": 2048, "height": 2048, "format": "BC7"},
+                {"width": 1024, "height": 1024, "format": "DXT5"},
+            ],
+        })
+        self.assertEqual(result.avatar_stats.animators, 2)
+        self.assertEqual(result.avatar_stats.trail_renderers, 1)
+        self.assertGreater(result.avatar_stats.texture_memory_mb, 0)
+
+    def test_alternate_key_names(self):
+        # Non-_count alias forms should also work
+        result = self._analyze({
+            "polygons": 8000,
+            "audio_sources": 2,
+        })
+        self.assertEqual(result.avatar_stats.polygons, 8000)
+        self.assertEqual(result.avatar_stats.audio_sources, 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

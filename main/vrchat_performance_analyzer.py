@@ -339,22 +339,45 @@ class VRChatPerformanceAnalyzer:
             logger.error(f"Failed to analyze preset: {e}")
             raise
 
+    # AvatarStats フィールド -> プリセットで受理するキー候補（先頭優先）。
+    # 旧来の `*_count` キーを後方互換のため先頭に置く。
+    STAT_KEY_ALIASES: Dict[str, tuple] = {
+        'polygons': ('polygon_count', 'polygons'),
+        'materials': ('material_count', 'materials'),
+        'bones': ('bone_count', 'bones'),
+        'skinned_meshes': ('skinned_mesh_count', 'skinned_meshes'),
+        'mesh_count': ('mesh_count',),
+        'material_slots': ('material_slot_count', 'material_slots'),
+        'physbones_components': ('physbones_count', 'physbones_component_count', 'physbones_components'),
+        'physbones_transforms': ('physbones_transform_count', 'physbones_transforms'),
+        'physbones_colliders': ('physbones_collider_count', 'physbones_colliders'),
+        'physbones_collision_checks': ('physbones_collision_check_count', 'physbones_collision_checks'),
+        'animators': ('animator_count', 'animators'),
+        'lights': ('light_count', 'lights'),
+        'particle_systems': ('particle_system_count', 'particle_systems'),
+        'particle_max_particles': ('particle_max_particles', 'max_particles'),
+        'trail_renderers': ('trail_renderer_count', 'trail_renderers'),
+        'line_renderers': ('line_renderer_count', 'line_renderers'),
+        'cloths': ('cloth_count', 'cloths'),
+        'cloth_vertices': ('cloth_vertex_count', 'cloth_vertices'),
+        'physics_colliders': ('physics_collider_count', 'physics_colliders'),
+        'physics_rigidbodies': ('physics_rigidbody_count', 'physics_rigidbodies'),
+        'audio_sources': ('audio_source_count', 'audio_sources'),
+    }
+
     def _extract_avatar_stats(self, preset_data: dict) -> AvatarStats:
-        """プリセットデータからアバター統計を抽出"""
+        """プリセットデータからアバター統計を抽出（全 22 次元）。"""
         stats = AvatarStats()
 
         # アバターデータから統計を抽出
         # 実際のプリセットフォーマットに応じて調整が必要
         avatar_data = preset_data.get('avatar', {})
 
-        stats.polygons = avatar_data.get('polygon_count', 0)
-        stats.materials = avatar_data.get('material_count', 0)
-        stats.bones = avatar_data.get('bone_count', 0)
-        stats.skinned_meshes = avatar_data.get('skinned_mesh_count', 0)
-        stats.mesh_count = avatar_data.get('mesh_count', 0)
-        stats.lights = avatar_data.get('light_count', 0)
-        stats.particle_systems = avatar_data.get('particle_system_count', 0)
-        stats.physbones_components = avatar_data.get('physbones_count', 0)
+        for field, aliases in self.STAT_KEY_ALIASES.items():
+            for key in aliases:
+                if key in avatar_data:
+                    setattr(stats, field, avatar_data[key])
+                    break  # 先頭で見つかったキーを採用、欠落時は既定値(0)
 
         # テクスチャメモリ推定
         textures = avatar_data.get('textures', [])
