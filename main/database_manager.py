@@ -11,18 +11,33 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Type, TypeVar, Generic
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, Float, ForeignKey, JSON, BigInteger
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
-from sqlalchemy.pool import QueuePool
-from alembic.config import Config
-from alembic import command
+try:
+    from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, Float, ForeignKey, JSON, BigInteger
+    from sqlalchemy.ext.declarative import declarative_base
+    from sqlalchemy.orm import sessionmaker, Session, relationship
+    from sqlalchemy.pool import QueuePool
+    SQLALCHEMY_AVAILABLE = True
+    Base = declarative_base()
+except ImportError:
+    SQLALCHEMY_AVAILABLE = False
+    Base = object
+    # Stub column/type constructors so model classes can be defined without crashing
+    def _stub(*a, **kw): return None
+    Column = Integer = String = Text = DateTime = Boolean = Float = BigInteger = JSON = _stub
+    ForeignKey = relationship = _stub
+    Session = object
+
+try:
+    from alembic.config import Config
+    from alembic import command
+    ALEMBIC_AVAILABLE = True
+except ImportError:
+    ALEMBIC_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
 # 型定義
 T = TypeVar('T')
-Base = declarative_base()
 
 # データベース設定のデフォルト値
 DEFAULT_DB_CONFIG = {
