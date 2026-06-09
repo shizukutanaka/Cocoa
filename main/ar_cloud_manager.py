@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import math
 
 import numpy as np
@@ -258,8 +258,8 @@ class ARCloudManager:
             anchors=[],
             content=[],
             mesh_data=None,
-            created_at=datetime.now(),
-            last_updated=datetime.now(),
+            created_at=datetime.now(timezone.utc),
+            last_updated=datetime.now(timezone.utc),
             version="1.0.0"
         )
 
@@ -350,7 +350,7 @@ class ARCloudManager:
             raise ValueError(f"Map not found: {map_id}")
 
         anchor_id = f"anchor_{uuid.uuid4().hex[:16]}"
-        created_at = datetime.now()
+        created_at = datetime.now(timezone.utc)
         expires_at = created_at + timedelta(hours=self.anchor_expiry_hours)
 
         anchor = SpatialAnchor(
@@ -378,7 +378,7 @@ class ARCloudManager:
     async def _update_spatial_map(self, map_id: str):
         """空間マップを更新"""
         if map_id in self.spatial_maps:
-            self.spatial_maps[map_id].last_updated = datetime.now()
+            self.spatial_maps[map_id].last_updated = datetime.now(timezone.utc)
             await self._save_spatial_map(self.spatial_maps[map_id])
 
     async def add_ar_content(self, map_id: str, content_type: str, position: Tuple[float, float, float],
@@ -402,7 +402,7 @@ class ARCloudManager:
             raise ValueError(f"Map not found: {map_id}")
 
         content_id = f"content_{uuid.uuid4().hex[:16]}"
-        created_at = datetime.now()
+        created_at = datetime.now(timezone.utc)
 
         content = ARContent(
             content_id=content_id,
@@ -446,7 +446,7 @@ class ARCloudManager:
         try:
             # マップIDが指定されていない場合は作成
             if map_id is None or map_id not in self.spatial_maps:
-                map_name = f"auto_map_{device_id}_{int(datetime.now().timestamp())}"
+                map_name = f"auto_map_{device_id}_{int(datetime.now(timezone.utc).timestamp())}"
                 map_id = await self.create_spatial_map(map_name, "local")
 
             # 既存のポイントクラウドと統合
@@ -509,7 +509,7 @@ class ARCloudManager:
         return PointCloudData(
             points=combined_points,
             colors=combined_colors,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             device_id=f"combined_{cloud1.device_id}_{cloud2.device_id}",
             location=cloud1.location  # 最初のクラウドの位置を使用
         )
@@ -545,7 +545,7 @@ class ARCloudManager:
                 "vertices": vertices.tolist(),
                 "triangles": triangles.tolist(),
                 "vertex_colors": vertex_colors.tolist() if vertex_colors is not None else None,
-                "generated_at": datetime.now().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
 
         except Exception as e:
@@ -587,7 +587,7 @@ class ARCloudManager:
                     "map_id": best_map_id,
                     "pose": best_pose,
                     "confidence": best_confidence,
-                    "timestamp": datetime.now()
+                    "timestamp": datetime.now(timezone.utc)
                 }
 
                 result = {
@@ -670,7 +670,7 @@ class ARCloudManager:
 
             if distance <= radius:
                 # コンテンツを更新
-                content.last_accessed = datetime.now()
+                content.last_accessed = datetime.now(timezone.utc)
                 content.access_count += 1
 
                 nearby_content.append({
@@ -696,7 +696,7 @@ class ARCloudManager:
 
     async def _cleanup_expired_anchors(self):
         """期限切れアンカーをクリーンアップ"""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         expired_anchors = []
 
         for anchor_id, anchor in list(self.spatial_anchors.items()):
@@ -716,7 +716,7 @@ class ARCloudManager:
 
     async def _cleanup_old_content(self):
         """古いコンテンツをクリーンアップ"""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         retention_period = timedelta(days=self.content_retention_days)
 
         old_content = []

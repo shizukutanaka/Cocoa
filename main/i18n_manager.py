@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import aiohttp
 
@@ -498,7 +498,7 @@ class I18NManager:
             # キャッシュ保存
             self.translation_cache[cache_key] = {
                 "translated_text": result.translated_text,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
             # 定期的にキャッシュをクリーンアップ
@@ -517,13 +517,15 @@ class I18NManager:
 
     async def _cleanup_cache(self):
         """古いキャッシュをクリーンアップ"""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         to_remove = []
 
         for key, data in self.translation_cache.items():
             timestamp = data.get("timestamp")
             if timestamp:
                 cache_time = datetime.fromisoformat(timestamp)
+                if cache_time.tzinfo is None:
+                    cache_time = cache_time.replace(tzinfo=timezone.utc)
                 if (current_time - cache_time).days > 7:  # 7日以上経過
                     to_remove.append(key)
 

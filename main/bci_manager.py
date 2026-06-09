@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import queue
 import numpy as np
 
@@ -278,7 +278,7 @@ class BCIManager:
                 "device_id": device_id,
                 "device_type": device_type,
                 "capabilities": capabilities,
-                "registered_at": datetime.now(),
+                "registered_at": datetime.now(timezone.utc),
                 "status": "active",
                 "calibration_status": "none"
             }
@@ -367,7 +367,7 @@ class BCIManager:
 
         command.command_id = command_id
         command.confidence = confidence
-        command.timestamp = datetime.now()
+        command.timestamp = datetime.now(timezone.utc)
 
         return command
 
@@ -382,7 +382,7 @@ class BCIManager:
             command_type="move",
             parameters={"direction": direction, "speed": speed, "duration": 1.0},
             confidence=confidence,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
     def _generate_speech_command(self, pattern: ThoughtPattern, confidence: float) -> BCICommand:
@@ -395,7 +395,7 @@ class BCIManager:
             command_type="speech",
             parameters={"text": text, "language": language},
             confidence=confidence,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
     def _generate_selection_command(self, pattern: ThoughtPattern, confidence: float) -> BCICommand:
@@ -408,7 +408,7 @@ class BCIManager:
             command_type="select",
             parameters={"target": target, "action": action},
             confidence=confidence,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
     def _generate_generic_command(self, pattern: ThoughtPattern, confidence: float) -> BCICommand:
@@ -418,7 +418,7 @@ class BCIManager:
             command_type="generic",
             parameters=pattern.action_mapping,
             confidence=confidence,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
     async def _execute_bci_command(self, command: BCICommand):
@@ -498,7 +498,7 @@ class BCIManager:
             パターンID
         """
         try:
-            pattern_id = f"pattern_{user_id}_{pattern_type}_{int(datetime.now().timestamp())}"
+            pattern_id = f"pattern_{user_id}_{pattern_type}_{int(datetime.now(timezone.utc).timestamp())}"
 
             # 特徴を抽出
             all_features = []
@@ -546,7 +546,7 @@ class BCIManager:
                 "hidden_size": hidden_size,
                 "output_size": output_size,
                 "state_dict": model.state_dict(),
-                "training_date": datetime.now().isoformat()
+                "training_date": datetime.now(timezone.utc).isoformat()
             }, model_path)
 
             # パターンを登録
@@ -558,8 +558,8 @@ class BCIManager:
                 action_mapping=target_action,
                 training_data=training_signals,
                 accuracy=0.95,  # 訓練時の精度
-                created_at=datetime.now(),
-                last_updated=datetime.now()
+                created_at=datetime.now(timezone.utc),
+                last_updated=datetime.now(timezone.utc)
             )
 
             self.thought_patterns[pattern_id] = pattern
@@ -574,12 +574,12 @@ class BCIManager:
                     calibration_data={},
                     preferences={},
                     skill_level="beginner",
-                    created_at=datetime.now(),
-                    last_calibration=datetime.now()
+                    created_at=datetime.now(timezone.utc),
+                    last_calibration=datetime.now(timezone.utc)
                 )
 
             self.user_profiles[user_id].trained_patterns.append(pattern_id)
-            self.user_profiles[user_id].last_calibration = datetime.now()
+            self.user_profiles[user_id].last_calibration = datetime.now(timezone.utc)
             self.user_profiles[user_id].skill_level = self._update_skill_level(user_id)
 
             self.training_sessions += 1
@@ -665,14 +665,14 @@ class BCIManager:
                 trained_patterns=[],
                 calibration_data={
                     "device_id": device_id,
-                    "calibration_date": datetime.now().isoformat(),
+                    "calibration_date": datetime.now(timezone.utc).isoformat(),
                     "signal_count": len(calibration_signals),
                     "quality_scores": [s.quality_score for s in calibration_signals]
                 },
                 preferences={"sensitivity": "medium", "feedback": "visual"},
                 skill_level="beginner",
-                created_at=datetime.now(),
-                last_calibration=datetime.now()
+                created_at=datetime.now(timezone.utc),
+                last_calibration=datetime.now(timezone.utc)
             )
 
             self.user_profiles[user_id] = profile
@@ -681,7 +681,7 @@ class BCIManager:
             # デバイスステータスを更新
             if device_id in self.connected_devices:
                 self.connected_devices[device_id]["calibration_status"] = "completed"
-                self.connected_devices[device_id]["calibration_date"] = datetime.now()
+                self.connected_devices[device_id]["calibration_date"] = datetime.now(timezone.utc)
 
             result = {
                 "calibration_completed": True,

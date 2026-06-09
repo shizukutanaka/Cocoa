@@ -14,7 +14,7 @@ import threading
 import time
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -197,7 +197,7 @@ class BillingEventLog:
             data = self._read()
             data[event_id] = {
                 "event_type": event_type,
-                "processed_at": datetime.utcnow().isoformat() + "Z",
+                "processed_at": datetime.now(timezone.utc).isoformat(),
             }
             self._prune(data)
             self._write(data)
@@ -333,6 +333,8 @@ class StripeBillingService:
         else:
             raise BillingError(f"未対応の billing.mode です: {mode}")
 
+        return session_kwargs
+
     def _check_rate_limit(self) -> None:
         """レート制限チェック"""
         now = time.time()
@@ -362,10 +364,6 @@ class StripeBillingService:
 
         # リトライ機能付きAPI呼び出しを使用
         session = self._api_call_with_retry(stripe.billing_portal.Session.create, customer=customer_id, return_url=return_url)
-        return {
-            "id": session.get("id"),
-            "url": session.get("url"),
-        }
 
         existing = self._storage.get_by_customer(customer_id) or {}
         record = {
@@ -373,10 +371,15 @@ class StripeBillingService:
             "customer_id": customer_id,
             "user_id": user_id or existing.get("user_id"),
             "mode": self._config.mode,
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "last_event": "billing_portal.session.created",
         }
         self._storage.upsert_subscription(customer_id, record)
+
+        return {
+            "id": session.get("id"),
+            "url": session.get("url"),
+        }
 
     def _api_call_with_retry(self, api_func, *args, max_retries: int = 3, **kwargs) -> Any:
         """リトライ機能付きAPI呼び出し"""
