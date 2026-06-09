@@ -203,7 +203,7 @@ class CustomAssertions:
         try:
             uuid.UUID(uuid_str)
         except ValueError:
-            raise AssertionError(f"{uuid_str} is not a valid UUID")
+            raise AssertionError(f"{uuid_str} is not a valid UUID") from None
 
     @staticmethod
     def assert_is_json(data: str) -> None:
@@ -213,7 +213,7 @@ class CustomAssertions:
         try:
             json.loads(data)
         except json.JSONDecodeError:
-            raise AssertionError(f"{data} is not valid JSON")
+            raise AssertionError(f"{data} is not valid JSON") from None
 
     @staticmethod
     def assert_log_called(mock_logger, level: str, count: int = 1) -> None:

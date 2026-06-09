@@ -248,7 +248,7 @@ class AIAvatarGenerator:
                     raise ValueError("Image too small (minimum 256x256)")
 
         except Exception as e:
-            raise ValueError(f"Invalid image file: {e}")
+            raise ValueError(f"Invalid image file: {e}") from e
 
     def _build_prompt(self, request: AvatarGenerationRequest) -> str:
         """生成プロンプトを構築"""

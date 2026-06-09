@@ -109,7 +109,7 @@ async def create_avatar(
 
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"アバター作成エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"アバター作成エラー: {str(e)}") from e
 
 
 @app.get("/api/v1/avatars")
@@ -156,7 +156,7 @@ async def list_avatars(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"アバター一覧取得エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"アバター一覧取得エラー: {str(e)}") from e
 
 
 @app.get("/api/v1/avatars/{avatar_id}")
@@ -182,7 +182,7 @@ async def get_avatar(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"アバター取得エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"アバター取得エラー: {str(e)}") from e
 
 
 @app.put("/api/v1/avatars/{avatar_id}")
@@ -221,7 +221,7 @@ async def update_avatar(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"アバター更新エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"アバター更新エラー: {str(e)}") from e
 
 
 @app.delete("/api/v1/avatars/{avatar_id}")
@@ -254,7 +254,7 @@ async def delete_avatar(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"アバター削除エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"アバター削除エラー: {str(e)}") from e
 
 
 # プリセット関連エンドポイント
@@ -306,7 +306,7 @@ async def create_preset(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"プリセット作成エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"プリセット作成エラー: {str(e)}") from e
 
 
 @app.get("/api/v1/presets/{preset_id}")
@@ -332,7 +332,7 @@ async def get_preset(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"プリセット取得エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"プリセット取得エラー: {str(e)}") from e
 
 
 # AI生成エンドポイント
@@ -370,7 +370,7 @@ async def generate_avatar_with_ai(
 
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"AIアバター生成エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AIアバター生成エラー: {str(e)}") from e
 
 
 # ヘルスチェック

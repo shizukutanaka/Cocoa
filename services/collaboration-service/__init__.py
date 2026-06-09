@@ -393,7 +393,7 @@ async def create_collaboration_session(
 
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"セッション作成エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"セッション作成エラー: {str(e)}") from e
 
 
 @app.get("/api/v1/collaboration/sessions")
@@ -424,7 +424,7 @@ async def list_collaboration_sessions(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"セッション一覧取得エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"セッション一覧取得エラー: {str(e)}") from e
 
 
 @app.post("/api/v1/collaboration/sessions/{session_id}/join")
@@ -481,7 +481,7 @@ async def join_collaboration_session(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"セッション参加エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"セッション参加エラー: {str(e)}") from e
 
 
 @app.post("/api/v1/collaboration/sessions/{session_id}/leave")
@@ -521,7 +521,7 @@ async def leave_collaboration_session(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"セッション退出エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"セッション退出エラー: {str(e)}") from e
 
 
 # WebRTC関連関数
@@ -632,7 +632,7 @@ async def webrtc_offer(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"WebRTCオファー処理エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"WebRTCオファー処理エラー: {str(e)}") from e
 
 
 @app.post("/api/v1/collaboration/webrtc/ice-candidate")
@@ -655,7 +655,7 @@ async def webrtc_ice_candidate(
         return {"success": True}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"ICE候補処理エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"ICE候補処理エラー: {str(e)}") from e
 
 
 # ヘルスチェック

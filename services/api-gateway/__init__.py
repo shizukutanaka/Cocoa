@@ -150,11 +150,11 @@ async def proxy_to_service(service_name: str, path: str, method: str = "GET", **
         }
 
     except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail=f"{service_name}へのリクエストがタイムアウトしました")
+        raise HTTPException(status_code=504, detail=f"{service_name}へのリクエストがタイムアウトしました") from None
     except httpx.ConnectError:
-        raise HTTPException(status_code=503, detail=f"{service_name}に接続できません")
+        raise HTTPException(status_code=503, detail=f"{service_name}に接続できません") from None
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{service_name}へのリクエストでエラーが発生しました: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"{service_name}へのリクエストでエラーが発生しました: {str(e)}") from e
 
 
 # アバターサービスプロキシ

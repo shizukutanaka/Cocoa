@@ -211,7 +211,7 @@ async def health_check():
         )
     except Exception as e:
         logger.error(f"ヘルスチェックエラー: {e}")
-        raise HTTPException(status_code=500, detail="ヘルスチェックに失敗しました")
+        raise HTTPException(status_code=500, detail="ヘルスチェックに失敗しました") from e
 
 # システムメトリクスエンドポイント
 @app.get("/metrics", response_model=PerformanceReport)
@@ -249,7 +249,7 @@ async def get_metrics(current_user: dict = Depends(get_current_user)):
             )
     except Exception as e:
         logger.error(f"メトリクス取得エラー: {e}")
-        raise HTTPException(status_code=500, detail="メトリクス取得に失敗しました")
+        raise HTTPException(status_code=500, detail="メトリクス取得に失敗しました") from e
 
 # バックアップ管理エンドポイント
 @app.get("/backups", response_model=List[BackupInfo])
@@ -275,7 +275,7 @@ async def list_backups(current_user: dict = Depends(get_current_user)):
             return []
     except Exception as e:
         logger.error(f"バックアップ一覧取得エラー: {e}")
-        raise HTTPException(status_code=500, detail="バックアップ一覧取得に失敗しました")
+        raise HTTPException(status_code=500, detail="バックアップ一覧取得に失敗しました") from e
 
 # セキュリティレポートエンドポイント
 @app.get("/security/report", response_model=SecurityReport)
@@ -304,7 +304,7 @@ async def get_security_report(current_user: dict = Depends(get_current_user)):
             )
     except Exception as e:
         logger.error(f"セキュリティレポート取得エラー: {e}")
-        raise HTTPException(status_code=500, detail="セキュリティレポート取得に失敗しました")
+        raise HTTPException(status_code=500, detail="セキュリティレポート取得に失敗しました") from e
 
 # WebSocketエンドポイント（リアルタイム監視）
 @app.websocket("/ws/monitoring")
@@ -369,7 +369,7 @@ async def get_avatars(current_user: dict = Depends(get_current_user)):
             }
     except Exception as e:
         logger.error(f"アバター一覧取得エラー: {e}")
-        raise HTTPException(status_code=500, detail="アバター一覧取得に失敗しました")
+        raise HTTPException(status_code=500, detail="アバター一覧取得に失敗しました") from e
 
 
 @app.post("/api/avatars")
@@ -399,7 +399,7 @@ async def create_avatar(avatar_data: Dict[str, Any], current_user: dict = Depend
             }
     except Exception as e:
         logger.error(f"アバター作成エラー: {e}")
-        raise HTTPException(status_code=500, detail="アバター作成に失敗しました")
+        raise HTTPException(status_code=500, detail="アバター作成に失敗しました") from e
 
 
 @app.get("/api/avatars/{avatar_id}")
@@ -435,7 +435,7 @@ async def get_avatar(avatar_id: str, current_user: dict = Depends(get_current_us
         raise
     except Exception as e:
         logger.error(f"アバター取得エラー: {e}")
-        raise HTTPException(status_code=500, detail="アバター取得に失敗しました")
+        raise HTTPException(status_code=500, detail="アバター取得に失敗しました") from e
 
 # 2要素認証エンドポイント
 @app.post("/api/2fa/setup")
@@ -464,7 +464,7 @@ async def setup_two_factor_auth(username: str, current_user: dict = Depends(get_
             raise HTTPException(status_code=404, detail="2FA機能が利用できません")
     except Exception as e:
         logger.error(f"2FAセットアップエラー: {e}")
-        raise HTTPException(status_code=500, detail="2FAセットアップに失敗しました")
+        raise HTTPException(status_code=500, detail="2FAセットアップに失敗しました") from e
 
 
 @app.post("/api/2fa/enable")
@@ -491,7 +491,7 @@ async def enable_two_factor_auth(username: str, token: str, current_user: dict =
         raise
     except Exception as e:
         logger.error(f"2FA有効化エラー: {e}")
-        raise HTTPException(status_code=500, detail="2FA有効化に失敗しました")
+        raise HTTPException(status_code=500, detail="2FA有効化に失敗しました") from e
 
 
 @app.post("/api/2fa/verify")
@@ -511,7 +511,7 @@ async def verify_two_factor_token(username: str, token: str, current_user: dict 
             raise HTTPException(status_code=404, detail="2FA機能が利用できません")
     except Exception as e:
         logger.error(f"2FAトークン検証エラー: {e}")
-        raise HTTPException(status_code=500, detail="トークン検証に失敗しました")
+        raise HTTPException(status_code=500, detail="トークン検証に失敗しました") from e
 
 
 @app.post("/api/2fa/verify-backup")
@@ -530,7 +530,7 @@ async def verify_backup_code(username: str, backup_code: str, current_user: dict
             raise HTTPException(status_code=404, detail="2FA機能が利用できません")
     except Exception as e:
         logger.error(f"バックアップコード検証エラー: {e}")
-        raise HTTPException(status_code=500, detail="バックアップコード検証に失敗しました")
+        raise HTTPException(status_code=500, detail="バックアップコード検証に失敗しました") from e
 
 
 @app.post("/api/2fa/disable")
@@ -554,7 +554,7 @@ async def disable_two_factor_auth(password: str, current_user: dict = Depends(ge
         raise
     except Exception as e:
         logger.error(f"2FA無効化エラー: {e}")
-        raise HTTPException(status_code=500, detail="2FA無効化に失敗しました")
+        raise HTTPException(status_code=500, detail="2FA無効化に失敗しました") from e
 
 
 @app.get("/api/2fa/status")
@@ -573,7 +573,7 @@ async def get_two_factor_status(current_user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail="2FA機能が利用できません")
     except Exception as e:
         logger.error(f"2FAステータス取得エラー: {e}")
-        raise HTTPException(status_code=500, detail="ステータス取得に失敗しました")
+        raise HTTPException(status_code=500, detail="ステータス取得に失敗しました") from e
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """HTTP例外ハンドラー"""

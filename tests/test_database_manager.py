@@ -6,8 +6,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 import database_manager as _dm_module
 from database_manager import (
-    DatabaseManager, User, Avatar, Preset, AuditLog,
-    UserRepository, AvatarRepository, AuditLogRepository,
+    DatabaseManager, User, Avatar, UserRepository,
 )
 
 SQLALCHEMY_AVAILABLE = _dm_module.SQLALCHEMY_AVAILABLE

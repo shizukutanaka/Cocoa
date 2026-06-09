@@ -1336,7 +1336,7 @@ def create_config_template(_: argparse.Namespace, context: CommandContext) -> in
         print("このファイルを config/test_runner.json にコピーしてカスタマイズしてください。")
         return 0
     except OSError as e:
-        raise TestRunnerError(f"テンプレートの作成に失敗しました: {e}")
+        raise TestRunnerError(f"テンプレートの作成に失敗しました: {e}") from e
 
 
 def run_selected_tests(args: argparse.Namespace, context: CommandContext) -> int:
