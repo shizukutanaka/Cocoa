@@ -22,7 +22,11 @@ try:
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
-from moviepy.editor import AudioFileClip, CompositeVideoClip, TextClip
+try:
+    from moviepy.editor import AudioFileClip, CompositeVideoClip, TextClip
+    MOVIEPY_AVAILABLE = True
+except ImportError:
+    MOVIEPY_AVAILABLE = False
 
 from ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
 from integrated_security import get_security_manager

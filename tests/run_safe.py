@@ -68,6 +68,7 @@ SAFE_MODULES = [
     "tests.test_database_manager",
     "tests.test_avatar_performance_monitor",
     "tests.test_template_library_manager",
+    "tests.test_multi_avatar_manager",
 ]
 
 

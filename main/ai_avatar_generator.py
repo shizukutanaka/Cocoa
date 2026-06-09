@@ -23,8 +23,17 @@ try:
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
-from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
-from transformers import CLIPProcessor, CLIPModel
+try:
+    from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
+    DIFFUSERS_AVAILABLE = True
+except ImportError:
+    DIFFUSERS_AVAILABLE = False
+
+try:
+    from transformers import CLIPProcessor, CLIPModel
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
 
 from integrated_security import get_security_manager
 
