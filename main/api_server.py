@@ -8,6 +8,8 @@ Production-grade APIサーバー実装
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import logging
 import os
 import uuid
@@ -20,12 +22,15 @@ try:
         Depends,
         FastAPI,
         HTTPException,
+        Query,
+        Request,
+        Response,
         WebSocket,
         WebSocketDisconnect,
         status,
     )
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import JSONResponse, StreamingResponse
     from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
     from pydantic import BaseModel
     FASTAPI_AVAILABLE = True
@@ -41,6 +46,10 @@ except ImportError:
     JSONResponse = None
     HTTPAuthorizationCredentials = None
     uvicorn = None
+    Response = None
+    Request = None
+    def Query(default=None, **_kw):
+        return default
 
     def Depends(x=None):
         return x
@@ -104,6 +113,22 @@ except ImportError:
     disable_2fa = None
     get_2fa_status = None
 
+# New modules (always available — pure stdlib)
+try:
+    from .auth_manager import AuthError, get_auth_manager
+    from .avatar_marketplace import get_marketplace
+    from .rate_limiter import get_client_ip, get_rate_limiter
+    from .search_engine import get_search_index
+    _NEW_MODULES_AVAILABLE = True
+except ImportError:
+    _NEW_MODULES_AVAILABLE = False
+    get_auth_manager = None
+    get_marketplace = None
+    get_rate_limiter = None
+    get_search_index = None
+    get_client_ip = None
+    AuthError = Exception
+
 # ロギング設定
 logging.basicConfig(
     level=logging.INFO,
@@ -136,12 +161,32 @@ else:
     app = _NullApp()
     security = None
 
-# セキュリティミドルウェア
+# セキュリティ・レート制限ミドルウェア
 if FASTAPI_AVAILABLE:
     @app.middleware("http")  # type: ignore[union-attr]
-    async def security_middleware(request, call_next):
-        """セキュリティミドルウェア"""
-        logger.info(f"API Request: {request.method} {request.url}")
+    async def security_middleware(request: Request, call_next):
+        """Rate limiting + security middleware."""
+        path = request.url.path
+        logger.info(f"API Request: {request.method} {path}")
+
+        if get_rate_limiter and get_client_ip:
+            limiter = get_rate_limiter()
+            client_ip = get_client_ip(request)
+            allowed, rl_headers = limiter.check(client_ip, path)
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "detail": "リクエスト制限を超えました。しばらく後に再試行してください。",
+                        "error_code": 429,
+                    },
+                    headers=rl_headers,
+                )
+            response = await call_next(request)
+            for k, v in rl_headers.items():
+                response.headers[k] = v
+            return response
+
         return await call_next(request)
 
 # Pydanticモデル定義
@@ -211,25 +256,38 @@ manager = ConnectionManager()
 
 # 依存関係関数
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """認証チェック"""
+    """JWT認証チェック"""
     if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="認証が必要です"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="認証が必要です")
 
-    # 実際の認証ロジックはここに実装
-    # 例: JWTトークンの検証など
     token = credentials.credentials
 
-    # 簡易的な認証チェック（実際の運用では適切な認証システムを使用）
-    if token != os.getenv("API_SECRET_TOKEN", "default-secret"):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="無効なトークンです"
-        )
+    # Use real JWT auth when available
+    if get_auth_manager:
+        try:
+            auth = get_auth_manager()
+            payload = auth.verify_access_token(token)
+            return {
+                "user_id": payload["sub"],
+                "username": payload.get("username", ""),
+                "role": payload.get("role", "user"),
+            }
+        except AuthError as e:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=e.message) from e
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="無効なトークンです") from e
 
-    return {"user_id": "system", "role": "admin"}
+    # Fallback: legacy API secret
+    if token != os.getenv("API_SECRET_TOKEN", "default-secret"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="無効なトークンです")
+    return {"user_id": "system", "username": "system", "role": "admin"}
+
+
+async def get_current_admin(current_user: dict = Depends(get_current_user)):
+    """Admin-only dependency."""
+    if current_user.get("role") not in ("admin", "moderator"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="管理者権限が必要です")
+    return current_user
 
 # ルートエンドポイント
 @app.get("/")
@@ -614,6 +672,469 @@ async def get_two_factor_status(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"2FAステータス取得エラー: {e}")
         raise HTTPException(status_code=500, detail="ステータス取得に失敗しました") from e
+# ===========================================================================
+# AUTH ENDPOINTS
+# ===========================================================================
+
+class RegisterRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+    role: str = "user"
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class PasswordResetRequest(BaseModel):
+    email: str
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+
+@app.post("/api/auth/register", tags=["auth"])
+async def register(body: RegisterRequest):
+    """新規ユーザー登録"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        auth = get_auth_manager()
+        user = auth.register(body.username, body.email, body.password, body.role)
+        return {"user_id": user.user_id, "username": user.username, "role": user.role, "status": "created"}
+    except (ValueError, AuthError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/auth/login", tags=["auth"])
+async def login(body: LoginRequest):
+    """ログイン（JWT トークンペアを返す）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        auth = get_auth_manager()
+        tokens = auth.login(body.username, body.password)
+        return {
+            "access_token": tokens.access_token,
+            "refresh_token": tokens.refresh_token,
+            "token_type": tokens.token_type,
+            "expires_in": tokens.expires_in,
+        }
+    except AuthError as e:
+        code = 429 if e.code == "account_locked" else 401
+        raise HTTPException(status_code=code, detail=e.message) from e
+
+
+@app.post("/api/auth/refresh", tags=["auth"])
+async def refresh_token(body: RefreshRequest):
+    """アクセストークンをリフレッシュ"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        auth = get_auth_manager()
+        tokens = auth.refresh(body.refresh_token)
+        return {
+            "access_token": tokens.access_token,
+            "refresh_token": tokens.refresh_token,
+            "token_type": tokens.token_type,
+            "expires_in": tokens.expires_in,
+        }
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=e.message) from e
+
+
+@app.post("/api/auth/logout", tags=["auth"])
+async def logout(body: RefreshRequest, current_user: dict = Depends(get_current_user),
+                 credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """ログアウト（トークンを無効化）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    auth.logout(credentials.credentials, body.refresh_token)
+    return {"status": "logged_out"}
+
+
+@app.get("/api/auth/me", tags=["auth"])
+async def get_me(current_user: dict = Depends(get_current_user)):
+    """現在のユーザー情報を取得"""
+    return current_user
+
+
+@app.post("/api/auth/password-reset", tags=["auth"])
+async def request_password_reset(body: PasswordResetRequest):
+    """パスワードリセットトークンを送信"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    reset_token = auth.request_password_reset(body.email)
+    # In production: send email with token. Here we return it for dev convenience.
+    if reset_token:
+        return {"status": "sent", "dev_token": reset_token}
+    return {"status": "sent"}  # Don't leak whether email exists
+
+
+@app.post("/api/auth/password-reset/confirm", tags=["auth"])
+async def confirm_password_reset(body: PasswordResetConfirm):
+    """パスワードをリセット"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    ok = auth.reset_password(body.token, body.new_password)
+    if not ok:
+        raise HTTPException(status_code=400, detail="無効または期限切れのトークンです")
+    return {"status": "password_reset"}
+
+
+# ===========================================================================
+# AVATAR SEARCH ENDPOINTS
+# ===========================================================================
+
+@app.get("/api/search/avatars", tags=["search"])
+async def search_avatars(
+    q: str = Query("", description="検索クエリ"),
+    tags: Optional[str] = Query(None, description="カンマ区切りのタグ"),
+    category: Optional[str] = Query(None),
+    platform: Optional[str] = Query(None),
+    sort_by: str = Query("relevance", description="relevance | name | newest | oldest"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """アバターの全文検索"""
+    if not get_search_index:
+        return {"total": 0, "items": [], "facets": {}}
+    idx = get_search_index()
+    tag_list = [t.strip() for t in tags.split(",")] if tags else None
+    results = idx.search(
+        query=q,
+        owner_id=current_user["user_id"],
+        public_only=False,
+        tags=tag_list,
+        category=category,
+        platform=platform,
+        sort_by=sort_by,
+        limit=limit,
+        offset=offset,
+    )
+    return results
+
+
+@app.get("/api/search/suggest", tags=["search"])
+async def search_suggest(
+    prefix: str = Query(..., min_length=2),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """オートコンプリート候補を取得"""
+    if not get_search_index:
+        return {"suggestions": []}
+    idx = get_search_index()
+    return {"suggestions": idx.suggest(prefix, limit)}
+
+
+# ===========================================================================
+# MARKETPLACE ENDPOINTS
+# ===========================================================================
+
+class PublishRequest(BaseModel):
+    avatar_id: str
+    name: str
+    description: str = ""
+    tags: List[str] = []
+    category: str = ""
+    platform: str = ""
+    parameters: Dict[str, Any] = {}
+    thumbnail_url: str = ""
+    is_free: bool = True
+    price_credits: int = 0
+
+
+class RatingRequest(BaseModel):
+    stars: int  # 1-5
+
+
+@app.post("/api/marketplace/publish", tags=["marketplace"])
+async def publish_avatar(body: PublishRequest, current_user: dict = Depends(get_current_user)):
+    """アバターをマーケットプレイスに公開"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        mp = get_marketplace()
+        listing = mp.publish(
+            avatar_id=body.avatar_id,
+            owner_id=current_user["user_id"],
+            owner_username=current_user.get("username", ""),
+            name=body.name,
+            description=body.description,
+            tags=body.tags,
+            category=body.category,
+            parameters=body.parameters,
+            thumbnail_url=body.thumbnail_url,
+            is_free=body.is_free,
+            price_credits=body.price_credits,
+        )
+        # Also index for search
+        if get_search_index:
+            idx = get_search_index()
+            idx.index_from_dict({
+                "doc_id": listing.listing_id,
+                "owner_id": current_user["user_id"],
+                "name": listing.name,
+                "description": listing.description,
+                "tags": listing.tags,
+                "category": listing.category,
+                "platform": body.platform,
+                "parameters": listing.parameters,
+                "is_public": True,
+            })
+        return listing.to_dict()
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/marketplace", tags=["marketplace"])
+async def browse_marketplace(
+    q: str = Query("", description="検索クエリ"),
+    tags: Optional[str] = Query(None, description="カンマ区切りのタグ"),
+    category: Optional[str] = Query(None),
+    sort_by: str = Query("newest", description="newest | downloads | rating"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """マーケットプレイスを閲覧（認証不要）"""
+    if not get_marketplace:
+        return {"total": 0, "items": []}
+    mp = get_marketplace()
+    tag_list = [t.strip() for t in tags.split(",")] if tags else None
+    return mp.search(query=q, tags=tag_list, category=category, sort_by=sort_by, limit=limit, offset=offset)
+
+
+@app.get("/api/marketplace/trending", tags=["marketplace"])
+async def trending_avatars(limit: int = Query(10, ge=1, le=50)):
+    """トレンドアバターを取得"""
+    if not get_marketplace:
+        return {"items": []}
+    return {"items": get_marketplace().get_trending(limit)}
+
+
+@app.get("/api/marketplace/{listing_id}", tags=["marketplace"])
+async def get_listing(listing_id: str):
+    """マーケットプレイスのリスティング詳細を取得"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    listing = get_marketplace().get_listing(listing_id)
+    if not listing or not listing.is_active:
+        raise HTTPException(status_code=404, detail="リスティングが見つかりません")
+    return listing.to_dict()
+
+
+@app.post("/api/marketplace/{listing_id}/download", tags=["marketplace"])
+async def download_avatar(listing_id: str, current_user: dict = Depends(get_current_user)):
+    """マーケットプレイスからアバターをダウンロード（クローン）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    data = get_marketplace().download(listing_id, current_user["user_id"])
+    if not data:
+        raise HTTPException(status_code=404, detail="リスティングが見つかりません")
+    return {"status": "downloaded", "avatar_data": data}
+
+
+@app.post("/api/marketplace/{listing_id}/rate", tags=["marketplace"])
+async def rate_avatar(listing_id: str, body: RatingRequest, current_user: dict = Depends(get_current_user)):
+    """アバターを評価（1-5星）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        avg = get_marketplace().rate(listing_id, current_user["user_id"], body.stars)
+        return {"listing_id": listing_id, "average_rating": avg, "your_rating": body.stars}
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/marketplace/{listing_id}", tags=["marketplace"])
+async def unpublish_avatar(listing_id: str, current_user: dict = Depends(get_current_user)):
+    """マーケットプレイスからアバターを取り下げ"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        ok = get_marketplace().unpublish(listing_id, current_user["user_id"])
+        if not ok:
+            raise HTTPException(status_code=404, detail="リスティングが見つかりません")
+        return {"status": "unpublished"}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+# ===========================================================================
+# ADMIN ENDPOINTS
+# ===========================================================================
+
+@app.get("/api/admin/users", tags=["admin"])
+async def list_users(admin: dict = Depends(get_current_admin)):
+    """全ユーザー一覧（管理者専用）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    users = auth.store.list_users()
+    return {
+        "users": [
+            {
+                "user_id": u.user_id,
+                "username": u.username,
+                "email": u.email,
+                "role": u.role,
+                "is_active": u.is_active,
+                "created_at": u.created_at.isoformat(),
+                "last_login": u.last_login.isoformat() if u.last_login else None,
+                "failed_attempts": u.failed_attempts,
+                "locked": u.is_locked(),
+            }
+            for u in users
+        ],
+        "total": len(users),
+    }
+
+
+class RoleChangeRequest(BaseModel):
+    new_role: str
+
+
+@app.put("/api/admin/users/{user_id}/role", tags=["admin"])
+async def change_user_role(user_id: str, body: RoleChangeRequest, admin: dict = Depends(get_current_admin)):
+    """ユーザーロールを変更（管理者専用）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        auth = get_auth_manager()
+        auth.change_role(admin, user_id, body.new_role)
+        return {"user_id": user_id, "new_role": body.new_role, "status": "updated"}
+    except (AuthError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/admin/users/{user_id}", tags=["admin"])
+async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
+    """ユーザーを削除（管理者専用）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    ok = auth.store.delete_user(user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
+    return {"user_id": user_id, "status": "deleted"}
+
+
+@app.get("/api/admin/stats", tags=["admin"])
+async def admin_stats(admin: dict = Depends(get_current_admin)):
+    """システム統計（管理者専用）"""
+    stats: Dict[str, Any] = {}
+
+    if get_auth_manager:
+        auth = get_auth_manager()
+        users = auth.store.list_users()
+        stats["users"] = {
+            "total": len(users),
+            "by_role": {r: sum(1 for u in users if u.role == r) for r in ("user", "moderator", "admin")},
+            "active": sum(1 for u in users if u.is_active),
+            "locked": sum(1 for u in users if u.is_locked()),
+        }
+
+    if get_marketplace:
+        stats["marketplace"] = get_marketplace().get_stats()
+
+    if get_search_index:
+        stats["search"] = get_search_index().stats()
+
+    if get_rate_limiter:
+        stats["rate_limiter"] = get_rate_limiter().get_stats()
+
+    return stats
+
+
+# ===========================================================================
+# AUDIT TRAIL EXPORT
+# ===========================================================================
+
+@app.get("/api/admin/audit/export", tags=["admin"])
+async def export_audit_log(
+    fmt: str = Query("json", description="json または csv"),
+    limit: int = Query(1000, ge=1, le=10000),
+    admin: dict = Depends(get_current_admin),
+):
+    """監査ログをエクスポート（JSON/CSV）"""
+    # Gather available security events
+    events: List[Dict[str, Any]] = []
+
+    if get_security_manager:
+        try:
+            sm = get_security_manager()
+            sm.initialize()
+            report = sm.get_security_report()
+            raw_events = report.get("recent_events", [])
+            events = raw_events[:limit]
+        except Exception as e:
+            logger.warning("Security manager unavailable for audit export: %s", e)
+
+    # Fallback: synthetic audit event list
+    if not events:
+        events = [
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event_type": "audit_export",
+                "actor": admin.get("username", "admin"),
+                "details": "Audit log export requested (no events recorded yet)",
+            }
+        ]
+
+    if fmt == "csv":
+        fieldnames = list(events[0].keys()) if events else ["timestamp", "event_type", "actor", "details"]
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(events)
+        buf.seek(0)
+        filename = f"audit_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    return {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "total": len(events),
+        "events": events,
+    }
+
+
+# ===========================================================================
+# RATE LIMITER ADMIN
+# ===========================================================================
+
+@app.get("/api/admin/rate-limiter/stats", tags=["admin"])
+async def rate_limiter_stats(admin: dict = Depends(get_current_admin)):
+    """レートリミッター統計"""
+    if not get_rate_limiter:
+        return {"available": False}
+    return get_rate_limiter().get_stats()
+
+
+@app.delete("/api/admin/rate-limiter/{client_key}", tags=["admin"])
+async def reset_rate_limit(client_key: str, admin: dict = Depends(get_current_admin)):
+    """特定クライアントのレート制限をリセット（管理者専用）"""
+    if not get_rate_limiter:
+        raise HTTPException(status_code=503, detail="レートリミッターが利用できません")
+    get_rate_limiter().reset_client(client_key)
+    return {"client_key": client_key, "status": "reset"}
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """HTTP例外ハンドラー"""

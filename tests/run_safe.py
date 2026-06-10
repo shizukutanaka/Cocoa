@@ -113,6 +113,10 @@ SAFE_MODULES = [
     "tests.test_preset_history_dashboard",
     "tests.test_api_server",
     "tests.test_services_shared",
+    "tests.test_auth_manager",
+    "tests.test_rate_limiter",
+    "tests.test_avatar_marketplace",
+    "tests.test_search_engine",
 ]
 
 
