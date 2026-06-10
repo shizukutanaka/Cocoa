@@ -302,5 +302,56 @@ class TestBookmarks(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "not_found")
 
 
+class TestFollowing(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.auth.register("alice", "alice@x.com", "Alice1234!")
+        self.auth.register("bob", "bob@x.com", "Bob12345!")
+        self.alice = self.auth.store.get_by_username("alice").user_id
+        self.bob = self.auth.store.get_by_username("bob").user_id
+
+    def test_follow_creator(self):
+        following = self.auth.follow(self.alice, self.bob)
+        self.assertIn(self.bob, following)
+
+    def test_follow_idempotent(self):
+        self.auth.follow(self.alice, self.bob)
+        following = self.auth.follow(self.alice, self.bob)
+        self.assertEqual(following.count(self.bob), 1)
+
+    def test_cannot_follow_self(self):
+        with self.assertRaises(ValueError):
+            self.auth.follow(self.alice, self.alice)
+
+    def test_unfollow(self):
+        self.auth.follow(self.alice, self.bob)
+        following = self.auth.unfollow(self.alice, self.bob)
+        self.assertNotIn(self.bob, following)
+
+    def test_unfollow_not_following_is_noop(self):
+        following = self.auth.unfollow(self.alice, self.bob)
+        self.assertEqual(following, [])
+
+    def test_get_following_returns_profiles(self):
+        self.auth.follow(self.alice, self.bob)
+        profiles = self.auth.get_following(self.alice)
+        self.assertEqual(len(profiles), 1)
+        self.assertEqual(profiles[0]["username"], "bob")
+
+    def test_get_following_empty(self):
+        profiles = self.auth.get_following(self.alice)
+        self.assertEqual(profiles, [])
+
+    def test_followers_count(self):
+        self.auth.follow(self.alice, self.bob)
+        count = self.auth.get_followers_count(self.bob)
+        self.assertEqual(count, 1)
+
+    def test_follow_nonexistent_creator_raises(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.follow(self.alice, "no-such-id")
+        self.assertEqual(ctx.exception.code, "not_found")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

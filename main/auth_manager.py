@@ -72,6 +72,7 @@ class UserRecord:
     bio: str = ""
     avatar_url: str = ""
     bookmarks: List[str] = field(default_factory=list)  # list of doc_ids / listing_ids
+    following: List[str] = field(default_factory=list)   # list of user_ids this user follows
 
     def is_locked(self) -> bool:
         return bool(self.locked_until and datetime.now(timezone.utc) < self.locked_until)
@@ -462,6 +463,43 @@ class AuthManager:
         if not user:
             raise AuthError("not_found", "ユーザーが見つかりません")
         return list(user.bookmarks)
+
+    # --- Following ---
+
+    def follow(self, follower_id: str, creator_id: str) -> List[str]:
+        follower = self.store.get_by_id(follower_id)
+        if not follower:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        if follower_id == creator_id:
+            raise ValueError("自分自身をフォローすることはできません")
+        creator = self.store.get_by_id(creator_id)
+        if not creator:
+            raise AuthError("not_found", "フォロー先ユーザーが見つかりません")
+        if creator_id not in follower.following:
+            follower.following.append(creator_id)
+        return list(follower.following)
+
+    def unfollow(self, follower_id: str, creator_id: str) -> List[str]:
+        follower = self.store.get_by_id(follower_id)
+        if not follower:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        with contextlib.suppress(ValueError):
+            follower.following.remove(creator_id)
+        return list(follower.following)
+
+    def get_following(self, user_id: str) -> List[Dict[str, Any]]:
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        profiles = []
+        for uid in user.following:
+            creator = self.store.get_by_id(uid)
+            if creator:
+                profiles.append(creator.public_profile())
+        return profiles
+
+    def get_followers_count(self, user_id: str) -> int:
+        return sum(1 for u in self.store.list_users() if user_id in u.following)
 
     # --- Helpers ---
 

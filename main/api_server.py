@@ -842,6 +842,75 @@ async def remove_bookmark(item_id: str, current_user: dict = Depends(get_current
         raise HTTPException(status_code=404, detail=e.message) from e
 
 
+@app.get("/api/auth/following", tags=["auth"])
+async def list_following(current_user: dict = Depends(get_current_user)):
+    """フォロー中クリエイター一覧"""
+    if not get_auth_manager:
+        return {"following": []}
+    try:
+        return {"following": get_auth_manager().get_following(current_user["user_id"])}
+    except AuthError as e:
+        raise HTTPException(status_code=404, detail=e.message) from e
+
+
+@app.post("/api/auth/following/{creator_id}", tags=["auth"])
+async def follow_creator(creator_id: str, current_user: dict = Depends(get_current_user)):
+    """クリエイターをフォロー"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        following = get_auth_manager().follow(current_user["user_id"], creator_id)
+        return {"following_count": len(following), "followed": creator_id}
+    except (AuthError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/auth/following/{creator_id}", tags=["auth"])
+async def unfollow_creator(creator_id: str, current_user: dict = Depends(get_current_user)):
+    """クリエイターのフォローを解除"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        following = get_auth_manager().unfollow(current_user["user_id"], creator_id)
+        return {"following_count": len(following), "unfollowed": creator_id}
+    except AuthError as e:
+        raise HTTPException(status_code=404, detail=e.message) from e
+
+
+@app.get("/api/auth/feed", tags=["auth"])
+async def creator_feed(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """フォロー中クリエイターの最新公開アバター一覧"""
+    if not get_auth_manager or not get_marketplace:
+        return {"total": 0, "items": []}
+    try:
+        following_ids = {p["user_id"] for p in get_auth_manager().get_following(current_user["user_id"])}
+    except AuthError:
+        following_ids = set()
+    if not following_ids:
+        return {"total": 0, "items": []}
+    mp = get_marketplace()
+    all_listings = mp.search("", sort_by="newest", limit=1000)["items"]
+    feed = [lst for lst in all_listings if lst["owner_id"] in following_ids]
+    return {"total": len(feed), "items": feed[offset: offset + limit]}
+
+
+@app.get("/api/users/{user_id}/profile", tags=["auth"])
+async def get_user_profile(user_id: str):
+    """公開プロフィール取得"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    user = get_auth_manager().store.get_by_id(user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
+    profile = user.public_profile()
+    profile["followers_count"] = get_auth_manager().get_followers_count(user_id)
+    return profile
+
+
 @app.post("/api/auth/password-reset", tags=["auth"])
 async def request_password_reset(body: PasswordResetRequest):
     """パスワードリセットトークンを送信"""
