@@ -335,8 +335,7 @@ class EdgeAIManager:
 
     def _quantize_model_fp16(self, model: "Any") -> "Any":
         """FP16量子化"""
-        model = model.half()
-        return model
+        return model.half()
 
     def _prune_model(self, model: "Any", pruning_ratio: float) -> "Any":
         """モデルプルーニング"""
@@ -581,8 +580,7 @@ class EdgeAIManager:
         # 実際の実装ではデバイスとの通信
         # ここではグローバルモデルを微調整したものを返す
         global_model = self.global_models[model_id]
-        local_model = self._add_local_noise(global_model, device_id)
-        return local_model
+        return self._add_local_noise(global_model, device_id)
 
     def _add_local_noise(self, model: Any, device_id: str) -> Any:
         """ローカルノイズを追加（差分プライバシー）"""

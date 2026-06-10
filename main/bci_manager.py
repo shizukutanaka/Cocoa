@@ -106,9 +106,7 @@ class EEGProcessor:
         filtered = self._apply_filters(signal)
 
         # 特徴抽出
-        features = self._extract_features(filtered, signal.sampling_rate)
-
-        return features
+        return self._extract_features(filtered, signal.sampling_rate)
 
     def _apply_filters(self, signal: BCISignal) -> "Any":
         """フィルタ適用"""
@@ -169,8 +167,7 @@ class NeuralNetwork(nn.Module if TORCH_AVAILABLE and nn else object):
         x = self.dropout(x)
         x = F.relu(self.fc2(x))
         x = self.dropout(x)
-        x = self.fc3(x)
-        return x
+        return self.fc3(x)
 
 class BCIManager:
     """

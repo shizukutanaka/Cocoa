@@ -59,7 +59,7 @@ class TestEnhancedDataEncryptor(unittest.TestCase):
         enc = EnhancedDataEncryptor()
         data = b"secret"
         encrypted = enc.encrypt(data, "correct_password")
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017
             enc.decrypt(encrypted, "wrong_password")
 
 

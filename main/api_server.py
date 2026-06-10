@@ -91,8 +91,7 @@ async def security_middleware(request, call_next):
     # レート制限のチェック（簡易版）
     # 実際の運用ではRedisなどの外部ストアを使用することを推奨
 
-    response = await call_next(request)
-    return response
+    return await call_next(request)
 
 # Pydanticモデル定義
 class HealthCheck(BaseModel):
@@ -539,8 +538,7 @@ async def disable_two_factor_auth(password: str, current_user: dict = Depends(ge
                     "message": "2要素認証が無効になりました"
                 }
             raise HTTPException(status_code=400, detail=result.get("error", "無効化に失敗しました"))
-        else:
-            raise HTTPException(status_code=404, detail="2FA機能が利用できません")
+        raise HTTPException(status_code=404, detail="2FA機能が利用できません")
     except HTTPException:
         raise
     except Exception as e:

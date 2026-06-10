@@ -252,8 +252,7 @@ class AvatarVideoCreator:
 
         if not avatar_path.exists():
             # シンプルなデフォルトアバターを生成
-            avatar_image = await self._create_default_avatar()
-            return avatar_image
+            return await self._create_default_avatar()
 
         return Image.open(avatar_path)
 

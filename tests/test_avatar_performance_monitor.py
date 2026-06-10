@@ -68,7 +68,7 @@ class TestAvatarPerformanceMonitorTracking(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         import tempfile
-        self.tmpfile = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmpfile = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # noqa: SIM115
         self.tmpfile.close()
         self.monitor = AvatarPerformanceMonitor()
         self.monitor.db_path = self.tmpfile.name
@@ -76,10 +76,9 @@ class TestAvatarPerformanceMonitorTracking(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         import os
-        try:
+        import contextlib
+        with contextlib.suppress(OSError):
             os.unlink(self.tmpfile.name)
-        except OSError:
-            pass
 
     async def test_start_operation_returns_id(self):
         op_id = await self.monitor.start_operation_tracking("render", "user1", "avatar1")

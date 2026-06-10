@@ -101,6 +101,8 @@ SAFE_MODULES = [
     "tests.test_vrchat_sdk_integration",
     "tests.test_api_integration",
     "tests.test_avatar_video_creator",
+    "tests.test_vrchat_parameter_budget",
+    "tests.test_preset_diff_core",
 ]
 
 

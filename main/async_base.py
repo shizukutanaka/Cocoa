@@ -107,8 +107,6 @@ class AsyncPool:
         tasks: List[Callable[[], Coroutine[Any, Any, Any]]]
     ) -> List[Any]:
         """複数のタスクを制限された並行性で実行"""
-        results = []
-
         async def run_with_limit(task):
             async with self.connection():
                 try:
@@ -117,12 +115,10 @@ class AsyncPool:
                     logger.error(f"Task timeout after {self.timeout}s")
                     raise
 
-        results = await asyncio.gather(
+        return await asyncio.gather(
             *[run_with_limit(task) for task in tasks],
             return_exceptions=True
         )
-
-        return results
 
 
 def async_timeout(seconds: float):
@@ -221,11 +217,10 @@ async def fetch_multiple_sources(urls: List[str]) -> List[str]:
 
     try:
         # 全URLを並行処理
-        results = await asyncio.wait_for(
+        return await asyncio.wait_for(
             asyncio.gather(*[fetch(url) for url in urls], return_exceptions=True),
             timeout=30.0
         )
-        return results
     except asyncio.TimeoutError:
         logger.error("Fetching multiple sources exceeded timeout")
         raise

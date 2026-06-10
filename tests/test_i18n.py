@@ -53,8 +53,7 @@ class TestLoadTranslationFallback(unittest.TestCase):
 
     def _make_i18n(self, lang, locales_dir):
         with patch.object(i18n_mod, "LOCALES_DIR", locales_dir):
-            obj = I18N(lang=lang)
-        return obj
+            return I18N(lang=lang)
 
     def test_exact_match(self):
         with tempfile.TemporaryDirectory() as d:
@@ -131,8 +130,7 @@ class TestGetFont(unittest.TestCase):
 
     def _make_i18n(self, lang, locales_dir):
         with patch.object(i18n_mod, "LOCALES_DIR", locales_dir):
-            obj = I18N(lang=lang)
-        return obj
+            return I18N(lang=lang)
 
     def test_exact_font_lookup(self):
         with tempfile.TemporaryDirectory() as d:

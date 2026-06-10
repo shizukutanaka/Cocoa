@@ -13,7 +13,7 @@ from preset_change_history import PresetChangeHistory
 class TestPrintHistory(unittest.TestCase):
 
     def setUp(self):
-        self.tmpfile = tempfile.NamedTemporaryFile(suffix='.jsonl', delete=False)
+        self.tmpfile = tempfile.NamedTemporaryFile(suffix='.jsonl', delete=False)  # noqa: SIM115
         self.tmpfile.close()
         self.hist = PresetChangeHistory(self.tmpfile.name)
 
@@ -78,7 +78,7 @@ class TestPrintHistory(unittest.TestCase):
 class TestRollback(unittest.TestCase):
 
     def setUp(self):
-        self.tmpfile = tempfile.NamedTemporaryFile(suffix='.jsonl', delete=False)
+        self.tmpfile = tempfile.NamedTemporaryFile(suffix='.jsonl', delete=False)  # noqa: SIM115
         self.tmpfile.close()
         self.hist = PresetChangeHistory(self.tmpfile.name)
 
@@ -112,7 +112,7 @@ class TestRollback(unittest.TestCase):
 class TestTimezoneAwareness(unittest.TestCase):
 
     def setUp(self):
-        self.tmpfile = tempfile.NamedTemporaryFile(suffix='.jsonl', delete=False)
+        self.tmpfile = tempfile.NamedTemporaryFile(suffix='.jsonl', delete=False)  # noqa: SIM115
         self.tmpfile.close()
         self.hist = PresetChangeHistory(self.tmpfile.name)
 

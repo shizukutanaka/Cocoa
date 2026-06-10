@@ -81,7 +81,7 @@ class TestJSONFormatterTimestamp(unittest.TestCase):
         ts = data["timestamp"]
         # ISO-8601 with UTC offset: ends in +00:00 or Z
         self.assertTrue(
-            ts.endswith("+00:00") or ts.endswith("Z"),
+            ts.endswith(("+00:00", "Z")),
             f"Timestamp {ts!r} does not indicate UTC"
         )
 

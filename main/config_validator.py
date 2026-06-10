@@ -658,7 +658,7 @@ class ConfigValidator:
                 warnings.append(
                     "web_admin.host が '0.0.0.0' もしくは空です。公開環境では安全なアドレスを指定してください。"
                 )
-            if isinstance(host, str) and (host.startswith("http://") or host.startswith("https://")):
+            if isinstance(host, str) and host.startswith(("http://", "https://")):
                 errors.append("web_admin.host にはURLではなくホスト名のみを指定してください。")
 
             if web_admin_config.get("enabled") and not isinstance(host, str):

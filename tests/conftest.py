@@ -29,8 +29,7 @@ def test_config():
     """テスト用の設定オブジェクト"""
     from main.config import Config
 
-    config = Config(env="test")
-    return config
+    return Config(env="test")
 
 
 # ==================== Function Fixtures ====================
@@ -64,8 +63,6 @@ def temp_dir(tmp_path):
 def cleanup():
     """テスト後のクリーンアップ"""
     yield
-    # クリーンアップ処理
-    pass
 
 
 # ==================== Database Fixtures ====================

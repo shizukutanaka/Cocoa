@@ -542,9 +542,7 @@ class MultiAvatarManager:
             avatar_videos = await self._generate_avatar_videos(scene, timeline)
 
             # シーン合成
-            final_video = await self._composite_scene_elements(scene, avatar_videos, timeline, output_path)
-
-            return final_video
+            return await self._composite_scene_elements(scene, avatar_videos, timeline, output_path)
 
         except Exception as e:
             logger.error(f"Scene composition failed: {e}")
@@ -610,11 +608,9 @@ class MultiAvatarManager:
             background_path = await self._create_scene_background(scene)
 
             # アバター配置
-            composite_path = await self._arrange_avatars_in_scene(
+            return await self._arrange_avatars_in_scene(
                 scene, avatar_videos, background_path, timeline, output_path
             )
-
-            return composite_path
 
         except Exception as e:
             logger.error(f"Scene element composition failed: {e}")

@@ -222,7 +222,7 @@ class AdvancedBehaviorAnalyzer:
 
     def _save_models(self) -> None:
         """学習済みモデルの永続化フック（環境依存のため既定では何もしない）。"""
-        return None
+        return
 
     def record_behavior(self, user_id: str, behavior_type: str, value: float, timestamp: Optional[float] = None, context: Dict[str, Any] = None):
         """行動データを記録し、機械学習モデルを更新"""
@@ -1447,7 +1447,7 @@ class AISecurityManager:
             risk_factors.append(0.2)
 
         # 時間帯によるリスク
-        if context and context.get('time_of_day') in ['night']:
+        if context and context.get('time_of_day') == 'night':
             risk_factors.append(0.1)
 
         # 過去の違反履歴
@@ -1775,9 +1775,8 @@ class QuantumSafeManager:
         """Kyber復号化"""
         if OQS_AVAILABLE:
             kem = oqs.KeyEncapsulation(sender_key.algorithm)
-            shared_secret = kem.decap_secret(ciphertext, sender_key.private_key)
             # 共有鍵を使用してデータを復号化
-            return shared_secret  # 簡易実装
+            return kem.decap_secret(ciphertext, sender_key.private_key)  # 簡易実装
         return self._fallback_decrypt(ciphertext, sender_key)
 
     async def _fallback_decrypt(self, ciphertext: bytes, sender_key: QuantumKeyPair) -> bytes:
@@ -1832,6 +1831,7 @@ class QuantumSafeManager:
         else:
             # フォールバック: ECDSAを使用
             return hashlib.sha256(message).digest()
+        return None
 
     async def _fallback_sign(self, message: bytes, signer_key: QuantumKeyPair) -> bytes:
         """フォールバック署名"""
@@ -1874,6 +1874,7 @@ class QuantumSafeManager:
             # フォールバック検証
             expected_signature = await self._fallback_sign(message, signer_key)
             return signature.signature == expected_signature
+        return None
 
     async def _fallback_verify(self, message: bytes, signature: QuantumSignature, signer_key: QuantumKeyPair) -> bool:
         """フォールバック検証"""

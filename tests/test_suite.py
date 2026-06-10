@@ -284,11 +284,11 @@ class TestErrorRecoverySystem(TestBase):
 
         # 連続失敗でサーキットブレーカーが作動
         for _i in range(3):
-            with self.assertRaises(Exception):
+            with self.assertRaises(Exception):  # noqa: B017
                 failing_function()
 
         # 4回目はサーキットブレーカーが作動
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017
             failing_function()
 
         # サーキットブレーカーの状態確認
@@ -346,10 +346,9 @@ class TestDatabaseManager(TestBase):
 
     def tearDown(self):
         super().tearDown()
-        try:
+        import contextlib
+        with contextlib.suppress(Exception):
             self.db_manager.close()
-        except Exception:
-            pass
 
     def test_database_connection(self):
         """データベース接続テスト"""
@@ -450,10 +449,9 @@ class TestAdvancedLogger(TestBase):
 
     def tearDown(self):
         super().tearDown()
-        try:
+        import contextlib
+        with contextlib.suppress(Exception):
             self.logger.shutdown()
-        except Exception:
-            pass
 
     def test_structured_logging(self):
         """構造化ログテスト"""

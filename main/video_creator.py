@@ -126,8 +126,7 @@ class VoiceGenerator:
             with wave.open(audio_path, 'rb') as wav_file:
                 frames = wav_file.getnframes()
                 rate = wav_file.getframerate()
-                duration = frames / float(rate)
-                return duration
+                return frames / float(rate)
         except (OSError, IOError, wave.Error) as e:
             # フォールバック: 文字数ベースの推定
             logger.warning(f"Failed to read audio duration from {audio_path}: {e}")
@@ -439,9 +438,7 @@ class VideoCreator:
                 return frame
 
             clip = ColorClip(size=(width, height), color=(0,0,0), duration=duration)
-            clip = clip.fl(make_frame)
-
-            return clip
+            return clip.fl(make_frame)
 
         except Exception as e:
             logger.error(f"Avatar clip creation failed: {e}")

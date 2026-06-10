@@ -476,9 +476,7 @@ class InteractiveAIAgent:
 
         # 過度な繰り返しの除去
         import re
-        cleaned = re.sub(r'(.)\1{3,}', r'\1\1', cleaned)
-
-        return cleaned
+        return re.sub(r'(.)\1{3,}', r'\1\1', cleaned)
 
     def _analyze_emotion(self, response: str) -> str:
         """応答から感情を分析（簡易版）"""

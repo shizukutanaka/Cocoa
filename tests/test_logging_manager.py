@@ -16,11 +16,10 @@ class TestJsonLogFormatter(unittest.TestCase):
         self.formatter = JsonLogFormatter()
 
     def _make_record(self, msg="hello", level=logging.INFO):
-        record = logging.LogRecord(
+        return logging.LogRecord(
             name="test", level=level, pathname="", lineno=0,
             msg=msg, args=(), exc_info=None,
         )
-        return record
 
     def test_output_is_valid_json(self):
         record = self._make_record()
@@ -44,7 +43,7 @@ class TestJsonLogFormatter(unittest.TestCase):
         record = self._make_record()
         data = json.loads(self.formatter.format(record))
         ts = data["timestamp"]
-        self.assertTrue(ts.endswith("+00:00") or ts.endswith("Z") or "+" in ts or "-" in ts[-6:])
+        self.assertTrue(ts.endswith(("+00:00", "Z")) or "+" in ts or "-" in ts[-6:])
 
     def test_message_content(self):
         record = self._make_record("test message")

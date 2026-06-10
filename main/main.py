@@ -70,9 +70,7 @@ class CocoaLauncher:
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
         validator = ConfigValidator()
-        result = validator.validate(str(config_path))
-
-        return result
+        return validator.validate(str(config_path))
 
     def run(self):
         """メインGUIを実行"""

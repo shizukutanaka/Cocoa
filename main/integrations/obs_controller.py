@@ -207,8 +207,7 @@ class OBSController(StreamingController):
             },
         }
         await self._ws.send_json(payload)
-        result = await asyncio.wait_for(future, timeout=self.params.request_timeout)
-        return result
+        return await asyncio.wait_for(future, timeout=self.params.request_timeout)
 
     async def _resolve_scene_item(self, scene_name: str, source_name: str) -> Optional[int]:
         response = await self._send_request("GetSceneItemList", sceneName=scene_name)
