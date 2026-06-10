@@ -99,41 +99,13 @@ class DisasterRecoveryManager:
             self._assert_writable(backup_path, 'backup destination')
 
             # バックアップ対象のパス
-            source_paths = []
-
-            if include_config:
-                if self.config_dir.exists():
-                    source_paths.append(str(self.config_dir))
-                else:
-                    logger.warning("設定ディレクトリが見つかりません: %s", self.config_dir)
-
-            if include_data:
-                if self.data_dir.exists():
-                    source_paths.append(str(self.data_dir))
-                else:
-                    logger.warning("データディレクトリが見つかりません: %s", self.data_dir)
+            source_paths = self._collect_backup_sources(include_config, include_data)
 
             if not source_paths:
                 return False, "バックアップ対象が存在しません", None
 
             # ファイルのコピーとチェックサム計算
-            total_size = 0
-            checksums = []
-
-            for source_path in source_paths:
-                source = Path(source_path)
-                dest = backup_path / source.name
-
-                if source.is_file():
-                    shutil.copy2(source, dest)
-                    total_size += source.stat().st_size
-                    checksums.append(self._calculate_file_checksum(source))
-                elif source.is_dir():
-                    shutil.copytree(source, dest, dirs_exist_ok=True)
-                    for file_path in dest.rglob('*'):
-                        if file_path.is_file():
-                            total_size += file_path.stat().st_size
-                            checksums.append(self._calculate_file_checksum(file_path))
+            total_size, checksums = self._copy_backup_sources(source_paths, backup_path)
 
             # 総合チェックサムの計算
             combined_checksum = hashlib.sha256(
@@ -173,6 +145,48 @@ class DisasterRecoveryManager:
             error_msg = f"バックアップ失敗: {str(e)}"
             logger.error(error_msg, exc_info=True)
             return False, error_msg, None
+
+    def _collect_backup_sources(self, include_config: bool, include_data: bool) -> List[str]:
+        """バックアップ対象ディレクトリのパス一覧を収集する。"""
+        source_paths: List[str] = []
+
+        if include_config:
+            if self.config_dir.exists():
+                source_paths.append(str(self.config_dir))
+            else:
+                logger.warning("設定ディレクトリが見つかりません: %s", self.config_dir)
+
+        if include_data:
+            if self.data_dir.exists():
+                source_paths.append(str(self.data_dir))
+            else:
+                logger.warning("データディレクトリが見つかりません: %s", self.data_dir)
+
+        return source_paths
+
+    def _copy_backup_sources(
+        self, source_paths: List[str], backup_path: Path
+    ) -> Tuple[int, List[str]]:
+        """対象パスをバックアップ先へコピーし、総サイズとチェックサム一覧を返す。"""
+        total_size = 0
+        checksums: List[str] = []
+
+        for source_path in source_paths:
+            source = Path(source_path)
+            dest = backup_path / source.name
+
+            if source.is_file():
+                shutil.copy2(source, dest)
+                total_size += source.stat().st_size
+                checksums.append(self._calculate_file_checksum(source))
+            elif source.is_dir():
+                shutil.copytree(source, dest, dirs_exist_ok=True)
+                for file_path in dest.rglob('*'):
+                    if file_path.is_file():
+                        total_size += file_path.stat().st_size
+                        checksums.append(self._calculate_file_checksum(file_path))
+
+        return total_size, checksums
 
     def verify_backup(self, backup_id: str) -> Tuple[bool, str]:
         """バックアップの検証"""
@@ -249,31 +263,9 @@ class DisasterRecoveryManager:
             logger.info(f"復元開始: {backup_id} (戦略: {strategy.value})")
 
             if strategy == RecoveryStrategy.FULL_RESTORE:
-                # 完全復元: バックアップディレクトリ全体を上書き
-                for item in backup_path.iterdir():
-                    dest = Path(item.name)
-
-                    if dest.exists():
-                        if dest.is_dir():
-                            shutil.rmtree(dest)
-                        else:
-                            dest.unlink()
-
-                    if item.is_dir():
-                        shutil.copytree(item, dest)
-                    else:
-                        shutil.copy2(item, dest)
-
+                self._restore_full(backup_path)
             elif strategy == RecoveryStrategy.PARTIAL_RESTORE:
-                # 部分復元: 欠損ファイルのみ復元
-                for item in backup_path.rglob('*'):
-                    if item.is_file():
-                        relative_path = item.relative_to(backup_path)
-                        dest = Path(relative_path)
-
-                        if not dest.exists():
-                            dest.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(item, dest)
+                self._restore_partial(backup_path)
 
             logger.info(f"復元完了: {backup_id}")
             return True, f"復元成功: {backup_id}"
@@ -282,6 +274,33 @@ class DisasterRecoveryManager:
             error_msg = f"復元エラー: {str(e)}"
             logger.error(error_msg, exc_info=True)
             return False, error_msg
+
+    def _restore_full(self, backup_path: Path) -> None:
+        """完全復元: バックアップディレクトリ全体を上書きする。"""
+        for item in backup_path.iterdir():
+            dest = Path(item.name)
+
+            if dest.exists():
+                if dest.is_dir():
+                    shutil.rmtree(dest)
+                else:
+                    dest.unlink()
+
+            if item.is_dir():
+                shutil.copytree(item, dest)
+            else:
+                shutil.copy2(item, dest)
+
+    def _restore_partial(self, backup_path: Path) -> None:
+        """部分復元: 欠損しているファイルのみを復元する。"""
+        for item in backup_path.rglob('*'):
+            if item.is_file():
+                relative_path = item.relative_to(backup_path)
+                dest = Path(relative_path)
+
+                if not dest.exists():
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(item, dest)
 
     def list_backups(
         self,
