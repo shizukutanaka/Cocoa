@@ -78,6 +78,8 @@ SAFE_MODULES = [
     "tests.test_integrated_security",
     "tests.test_vr_ar_avatar_system",
     "tests.test_metaverse_integration",
+    "tests.test_emotional_intelligence",
+    "tests.test_config_encryptor",
 ]
 
 
