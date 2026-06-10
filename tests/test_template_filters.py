@@ -12,7 +12,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import template_filters as tf  # noqa: E402
+import template_filters as tf
 
 
 class TestSanitizeTemplateId(unittest.TestCase):

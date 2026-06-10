@@ -13,7 +13,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "scripts")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from health_checker import CocoaHealthChecker  # noqa: E402
+from health_checker import CocoaHealthChecker
 
 
 def _msgs(entries):

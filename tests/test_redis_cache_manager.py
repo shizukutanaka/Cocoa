@@ -16,8 +16,8 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import redis_cache_manager as rcm  # noqa: E402
-from redis_cache_manager import FallbackCacheManager, get_cache_manager  # noqa: E402
+import redis_cache_manager as rcm
+from redis_cache_manager import FallbackCacheManager, get_cache_manager
 
 
 def _run(coro):

@@ -62,7 +62,7 @@ class TestConsoleNotificationHandler(unittest.TestCase):
 class TestFileNotificationHandler(unittest.TestCase):
 
     def setUp(self):
-        self.tmpfile = tempfile.NamedTemporaryFile(suffix=".log", delete=False)  # noqa: SIM115
+        self.tmpfile = tempfile.NamedTemporaryFile(suffix=".log", delete=False)
         self.tmpfile.close()
         self.logger = logging.getLogger("test_fnh")
         self.handler = FileNotificationHandler(self.logger, self.tmpfile.name)

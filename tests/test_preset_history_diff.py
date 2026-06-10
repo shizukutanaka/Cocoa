@@ -13,7 +13,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import preset_history_diff_and_rollback as ph  # noqa: E402
+import preset_history_diff_and_rollback as ph
 
 
 def _ts(s):

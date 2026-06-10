@@ -14,8 +14,8 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "scripts")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from consolidate_languages import consolidate_language_files  # noqa: E402
-from move_languages import move_remaining_languages  # noqa: E402
+from consolidate_languages import consolidate_language_files
+from move_languages import move_remaining_languages
 
 
 def _make_project(td, main_files=None, locales_files=None):

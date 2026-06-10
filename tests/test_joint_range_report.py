@@ -13,7 +13,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from joint_range_report import (  # noqa: E402
+from joint_range_report import (
     generate_joint_range_report,
     print_report_table,
     report_as_records,

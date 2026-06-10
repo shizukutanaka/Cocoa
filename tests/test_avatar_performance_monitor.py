@@ -70,7 +70,7 @@ class TestAvatarPerformanceMonitorTracking(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         import tempfile
-        self.tmpfile = tempfile.NamedTemporaryFile(suffix=".db", delete=False)  # noqa: SIM115
+        self.tmpfile = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.tmpfile.close()
         self.monitor = AvatarPerformanceMonitor()
         self.monitor.db_path = self.tmpfile.name

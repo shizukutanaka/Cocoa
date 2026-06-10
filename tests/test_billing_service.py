@@ -51,7 +51,7 @@ class TestBillingConfig(unittest.TestCase):
 class TestBillingStorage(unittest.TestCase):
 
     def setUp(self):
-        self.tmpfile = tempfile.NamedTemporaryFile(suffix=".json", delete=False)  # noqa: SIM115
+        self.tmpfile = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
         self.tmpfile.close()
         self.storage = BillingStorage(storage_path=Path(self.tmpfile.name))
 
@@ -85,7 +85,7 @@ class TestBillingStorage(unittest.TestCase):
 class TestBillingEventLog(unittest.TestCase):
 
     def setUp(self):
-        self.tmpfile = tempfile.NamedTemporaryFile(suffix=".json", delete=False)  # noqa: SIM115
+        self.tmpfile = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
         self.tmpfile.close()
         self.log = BillingEventLog(path=Path(self.tmpfile.name))
 

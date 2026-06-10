@@ -14,7 +14,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "scripts")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from generate_languages import LanguageFileGenerator  # noqa: E402
+from generate_languages import LanguageFileGenerator
 
 
 class TestInit(unittest.TestCase):

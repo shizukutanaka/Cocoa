@@ -56,7 +56,7 @@ def load_preset(path: str) -> Dict:
     except PermissionError as exc:
         logging.error("[ERROR] ファイルアクセス権限エラー %s: %s", path, exc)
         raise
-    except Exception as exc:  # noqa: BLE001 - surface unknown I/O issues
+    except Exception as exc:
         logging.error("[ERROR] ファイル読み込みエラー %s: %s", path, exc)
         raise
 
@@ -156,7 +156,7 @@ def save_diff_html(
     if open_in_browser:
         try:
             webbrowser.open(f"file://{destination.resolve()}")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logging.warning("ブラウザで開けませんでした: %s", exc)
 
     return str(destination)

@@ -420,7 +420,7 @@ class DisasterRecoveryManager:
         for label, directory in critical_directories.items():
             try:
                 directory.mkdir(parents=True, exist_ok=True)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 raise RuntimeError(f"{label} ディレクトリを作成できません: {directory} ({exc})") from exc
 
             if not os.access(directory, os.R_OK | os.X_OK):

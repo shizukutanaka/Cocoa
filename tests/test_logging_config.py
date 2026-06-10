@@ -14,8 +14,8 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import logging_config as lc  # noqa: E402
-from logging_config import (  # noqa: E402
+import logging_config as lc
+from logging_config import (
     CorrelationIdFilter,
     JSONFormatter,
     LogContext,

@@ -382,7 +382,7 @@ class ConfigValidator:
             self._validate_streaming(streaming_config, errors, warnings)
         except json.JSONDecodeError as s_exc:
             errors.append(f"streaming.json のJSON解析に失敗しました: {s_exc}")
-        except Exception as s_exc:  # noqa: BLE001
+        except Exception as s_exc:
             warnings.append(f"streaming.json の読み込みで問題が発生しました: {s_exc}")
 
     def _validate_streaming(self, streaming_config: Any, errors: List[str], warnings: List[str]) -> None:

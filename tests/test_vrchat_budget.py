@@ -12,7 +12,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import vrchat_parameter_budget as vpb  # noqa: E402
+import vrchat_parameter_budget as vpb
 
 
 class TestParameterCost(unittest.TestCase):

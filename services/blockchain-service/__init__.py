@@ -9,12 +9,12 @@
 """
 
 import logging
-from typing import Dict, Any, Optional
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 try:
-    from web3 import Web3
     import ipfshttpclient
+    from web3 import Web3
     WEB3_AVAILABLE = True
 except ImportError:
     WEB3_AVAILABLE = False

@@ -12,7 +12,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from performance_monitor import PerformanceMonitor  # noqa: E402
+from performance_monitor import PerformanceMonitor
 
 
 class TestPerformanceMonitorCreation(unittest.TestCase):

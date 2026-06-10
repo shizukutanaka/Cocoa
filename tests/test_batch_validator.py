@@ -14,7 +14,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import parameters_batch_validator as bv  # noqa: E402
+import parameters_batch_validator as bv
 
 
 class TestValidateParameterTypes(unittest.TestCase):

@@ -14,7 +14,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from config_validator import ConfigValidator  # noqa: E402
+from config_validator import ConfigValidator
 
 
 def _minimal_valid_config(**overrides):

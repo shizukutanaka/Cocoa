@@ -1,9 +1,11 @@
 import asyncio
 import os
 import sys
+
 sys.path.append('main')
 
 from i18n_manager import get_i18n_manager
+
 
 async def expand_languages():
     """言語ファイルを拡張"""
@@ -31,7 +33,7 @@ async def expand_languages():
 
         # 作成されたファイルを確認
         locales_dir = 'locales'
-        if os.path.exists(locales_dir):
+        if os.path.exists(locales_dir):  # noqa: ASYNC240
             files = [f for f in os.listdir(locales_dir) if f.endswith('.json')]
             print(f"Total language files: {len(files)}")
             print(f"Files: {sorted(files)}")

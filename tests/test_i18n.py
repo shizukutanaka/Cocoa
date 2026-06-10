@@ -16,8 +16,8 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import i18n as i18n_mod  # noqa: E402
-from i18n import I18N, _normalize_lang  # noqa: E402
+import i18n as i18n_mod
+from i18n import I18N, _normalize_lang
 
 
 class TestNormalizeLang(unittest.TestCase):

@@ -14,7 +14,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from global_edge_manager import (  # noqa: E402
+from global_edge_manager import (
     EdgeNode,
     GlobalEdgeManager,
     TrafficRoute,

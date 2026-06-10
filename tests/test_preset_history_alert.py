@@ -15,7 +15,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from preset_history_alert import (  # noqa: E402
+from preset_history_alert import (
     _format_timestamp,
     evaluate_entry,
     send_slack_alert,

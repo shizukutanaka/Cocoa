@@ -3,7 +3,7 @@ REST API Server for Cocoa Avatar Management System
 
 Production-grade APIサーバー実装
 """
-# ruff: noqa: B008  FastAPI Depends() in default args is the standard pattern
+
 
 from __future__ import annotations
 

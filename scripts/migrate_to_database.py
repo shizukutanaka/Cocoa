@@ -13,15 +13,15 @@ Cocoaデータベース移行スクリプト
     --force         移行済みでも強制実行
 """
 
-import sys
-import os
-import json
 import argparse
+import json
 import logging
+import os
 import shutil
-from typing import Dict, Any, List
-from pathlib import Path
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List
 
 # Cocoaモジュールのパスを追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "main"))

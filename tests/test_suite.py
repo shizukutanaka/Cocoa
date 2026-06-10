@@ -284,11 +284,11 @@ class TestErrorRecoverySystem(TestBase):
 
         # 連続失敗でサーキットブレーカーが作動
         for _i in range(3):
-            with self.assertRaises(Exception):  # noqa: B017
+            with self.assertRaises(Exception):
                 failing_function()
 
         # 4回目はサーキットブレーカーが作動
-        with self.assertRaises(Exception):  # noqa: B017
+        with self.assertRaises(Exception):
             failing_function()
 
         # サーキットブレーカーの状態確認

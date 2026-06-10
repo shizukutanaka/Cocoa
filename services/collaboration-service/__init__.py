@@ -5,26 +5,43 @@ Collaboration Service
 
 import json
 import logging
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
-import uvicorn
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+import uvicorn
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 
 # WebRTC関連インポート
 try:
-    from aiortc import RTCPeerConnection, RTCSessionDescription, RTCDataChannel, RTCConfiguration, RTCIceServer
+    from aiortc import (
+        RTCConfiguration,
+        RTCDataChannel,
+        RTCIceServer,
+        RTCPeerConnection,
+        RTCSessionDescription,
+    )
     WEBRTC_AVAILABLE = True
 except ImportError:
     WEBRTC_AVAILABLE = False
 
 from services.shared.config import get_config
-from services.shared.models import CollaborationSession, CollaborationParticipant, CollaborationMessage
 from services.shared.database import DatabaseManager
+from services.shared.models import (
+    CollaborationMessage,
+    CollaborationParticipant,
+    CollaborationSession,
+)
 
 logger = logging.getLogger(__name__)
 from services.shared.logger import setup_logging
-
 
 # グローバル変数
 app: Optional[FastAPI] = None

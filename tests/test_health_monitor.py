@@ -13,7 +13,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from health_monitor import (  # noqa: E402
+from health_monitor import (
     HealthCheckResult,
     HealthMonitor,
     HealthStatus,

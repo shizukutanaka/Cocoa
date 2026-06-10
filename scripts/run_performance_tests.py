@@ -14,19 +14,19 @@ Cocoaパフォーマンステスト統合実行スクリプト
     --format FORMAT  レポート形式 (json, markdown, both)
 """
 
-import sys
 import argparse
-import logging
 import json
-from pathlib import Path
+import logging
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 # Cocoaモジュールのパスを追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "main"))
 
 try:
-    from performance_tester import CocoaPerformanceTester
     from performance_optimizer import PerformanceOptimizer
+    from performance_tester import CocoaPerformanceTester
 except ImportError as e:
     print(f"エラー: Cocoaパフォーマンスモジュールをインポートできません: {e}")
     sys.exit(1)

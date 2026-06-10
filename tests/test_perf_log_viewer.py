@@ -14,7 +14,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "scripts")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from perf_log_viewer import (  # noqa: E402
+from perf_log_viewer import (
     collect_snapshots,
     extract_metric,
     format_value,

@@ -4,17 +4,17 @@ API Gateway Service
 """
 
 import logging
-from typing import Dict, Any, Optional
-from fastapi import FastAPI, Request, HTTPException, Depends, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+from typing import Any, Dict, Optional
+
 import httpx
 import uvicorn
-from contextlib import asynccontextmanager
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from services.shared.config import get_config
 from services.shared.logger import setup_logging
-
 
 # グローバル変数
 app: Optional[FastAPI] = None

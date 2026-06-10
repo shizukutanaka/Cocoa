@@ -12,7 +12,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from secret_manager import (  # noqa: E402
+from secret_manager import (
     EnvironmentSecretManager,
     SecretManagerFactory,
     SecretProvider,

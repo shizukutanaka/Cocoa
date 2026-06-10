@@ -13,7 +13,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "scripts")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from security_scanner import SecurityScanner  # noqa: E402
+from security_scanner import SecurityScanner
 
 
 class TestParseVersion(unittest.TestCase):

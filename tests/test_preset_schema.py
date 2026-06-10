@@ -12,7 +12,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import preset_schema as ps  # noqa: E402
+import preset_schema as ps
 
 
 def _params(n_float):

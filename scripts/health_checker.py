@@ -6,14 +6,14 @@ Project Health Checker for Cocoa
 このスクリプトはプロジェクト全体の健全性をチェックし、
 改善点を自動的に検出・報告します。
 """
-import sys
-import os
-import json
-import subprocess
-from pathlib import Path
-from typing import Dict, List, Any
 import hashlib
+import json
+import os
+import subprocess
+import sys
 import time
+from pathlib import Path
+from typing import Any, Dict, List
 
 
 class CocoaHealthChecker:

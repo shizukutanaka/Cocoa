@@ -13,7 +13,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from enhanced_disaster_recovery import (  # noqa: E402
+from enhanced_disaster_recovery import (
     BackupConfig,
     BackupLocation,
     BackupMetadata,

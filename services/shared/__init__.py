@@ -4,11 +4,11 @@ Cocoa Shared Libraries
 """
 
 from .config import ConfigManager, get_config
-from .logger import get_logger, setup_logging
 from .database import DatabaseManager, get_db
-from .models import BaseModel, Avatar, User, Preset
-from .exceptions import CocoaError, ValidationError, SecurityError
-from .utils import generate_id, validate_uuid, sanitize_input
+from .exceptions import CocoaError, SecurityError, ValidationError
+from .logger import get_logger, setup_logging
+from .models import Avatar, BaseModel, Preset, User
+from .utils import generate_id, sanitize_input, validate_uuid
 
 """
 Shared Services for Microservices Architecture
@@ -20,8 +20,9 @@ Shared Services for Microservices Architecture
 """
 
 import logging
-from typing import Dict, Any, Optional
 from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
+
 import aiohttp
 
 logger = logging.getLogger(__name__)

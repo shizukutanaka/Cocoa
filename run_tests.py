@@ -5,19 +5,19 @@ Cocoaテストランナー
 """
 from __future__ import annotations
 
-import sys
-import time
-import json
-import inspect
 import argparse
-import unittest
-import importlib
-import threading
-import traceback
 import concurrent.futures
-from pathlib import Path
+import importlib
+import inspect
+import json
+import sys
+import threading
+import time
+import traceback
+import unittest
 from dataclasses import dataclass, field
-from typing import Any, Optional, Iterable, Callable
+from pathlib import Path
+from typing import Any, Callable, Iterable, Optional
 
 try:
     import psutil

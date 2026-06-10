@@ -4,17 +4,17 @@ Avatar Service
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, Depends
-import uvicorn
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+import uvicorn
+from fastapi import Depends, FastAPI, HTTPException
 
 from services.shared.config import get_config
-from services.shared.models import Avatar, Preset, PresetHistory
 from services.shared.database import DatabaseManager
 from services.shared.logger import setup_logging
-
+from services.shared.models import Avatar, Preset, PresetHistory
 
 # グローバル変数
 app: Optional[FastAPI] = None

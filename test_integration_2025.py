@@ -9,15 +9,15 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))
 
-from main.rag_avatar_generator import get_rag_system
-from main.nft_avatar_manager import get_nft_manager
-from main.vr_ar_avatar_system import get_vr_system
 from main.advanced_security_2025 import get_advanced_security_manager
+from main.nft_avatar_manager import get_nft_manager
+from main.rag_avatar_generator import get_rag_system
+from main.vr_ar_avatar_system import get_vr_system
 
 # ロギング設定
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -296,7 +296,7 @@ async def main():
 
     # 結果をJSONファイルに保存
     results_file = Path("test_results_2025.json")
-    with open(results_file, 'w', encoding='utf-8') as f:
+    with open(results_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
         json.dump(results, f, indent=2, ensure_ascii=False)
 
     logger.info(f"Test results saved to {results_file}")

@@ -12,7 +12,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from vrchat_performance_analyzer import (  # noqa: E402
+from vrchat_performance_analyzer import (
     AvatarStats,
     PerformanceAnalysisResult,
     PerformanceRank,

@@ -14,7 +14,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
         sys.path.insert(0, p)
 
 import config as config_module
-from config import (  # noqa: E402
+from config import (
     APIConfig,
     BackupConfig,
     Config,

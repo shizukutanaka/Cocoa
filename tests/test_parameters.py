@@ -13,7 +13,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from parameters import AVATAR_PARAMETERS, CATEGORIES, SUBCATEGORIES  # noqa: E402
+from parameters import AVATAR_PARAMETERS, CATEGORIES, SUBCATEGORIES
 
 EXPECTED_TOTAL = len(CATEGORIES) * len(SUBCATEGORIES) * 1000  # 100 000
 

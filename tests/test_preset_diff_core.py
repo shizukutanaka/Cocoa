@@ -69,7 +69,7 @@ class TestJsonLines(unittest.TestCase):
 class TestLoadPreset(unittest.TestCase):
     def test_load_valid_json(self):
         data = {"name": "test", "version": 2}
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:  # noqa: SIM115
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(data, f)
             fname = f.name
         try:
@@ -83,7 +83,7 @@ class TestLoadPreset(unittest.TestCase):
             load_preset("/nonexistent/path/preset.json")
 
     def test_invalid_json_raises(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:  # noqa: SIM115
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             f.write("not valid json{{{")
             fname = f.name
         try:
@@ -130,7 +130,7 @@ class TestSaveDiffHtml(unittest.TestCase):
 class TestWriteDiffOutput(unittest.TestCase):
     def test_writes_to_file(self):
         lines = ["line1", "line2"]
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:  # noqa: SIM115
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             fname = f.name
         try:
             write_diff_output(lines, output_path=fname)

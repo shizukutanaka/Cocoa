@@ -15,7 +15,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from validate_and_repair_presets import (  # noqa: E402
+from validate_and_repair_presets import (
     PresetPerformanceMonitor,
     backup_file,
     repair_preset,

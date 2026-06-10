@@ -16,7 +16,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
 
 import tempfile
 
-from cache_manager import (  # noqa: E402
+from cache_manager import (
     CacheManager,
     FileCache,
     MemoryCache,

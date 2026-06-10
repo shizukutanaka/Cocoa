@@ -15,8 +15,8 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import grafana_integration as gi  # noqa: E402
-from grafana_integration import (  # noqa: E402
+import grafana_integration as gi
+from grafana_integration import (
     EnhancedPerformanceMonitor,
     get_enhanced_performance_monitor,
 )

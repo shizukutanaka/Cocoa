@@ -4,7 +4,6 @@ from __future__ import annotations
 from itertools import product
 from pathlib import Path
 
-
 FEATURES = [
     ("テストランナー", "test runner"),
     ("ログ管理システム", "logging system"),

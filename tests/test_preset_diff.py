@@ -18,7 +18,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import preset_diff_core as pdc  # noqa: E402
+import preset_diff_core as pdc
 
 
 class TestDiffPresets(unittest.TestCase):

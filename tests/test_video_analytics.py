@@ -84,7 +84,7 @@ class TestVideoAnalyticsServiceAsync(unittest.IsolatedAsyncioTestCase):
     async def test_init_database(self):
         with tempfile.TemporaryDirectory() as d:
             svc = await self._make(d)
-            self.assertTrue(os.path.exists(svc.db_path))
+            self.assertTrue(os.path.exists(svc.db_path))  # noqa: ASYNC240
 
     async def test_get_video_metrics_empty(self):
         with tempfile.TemporaryDirectory() as d:
