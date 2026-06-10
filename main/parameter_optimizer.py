@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any, Dict, List
 
 try:
@@ -11,8 +13,12 @@ try:
     SCIPY_AVAILABLE = True
 except ImportError:
     SCIPY_AVAILABLE = False
+
 from avatar_parameters import AvatarParameters
-from error_handling import ParameterError
+
+
+class ParameterError(Exception):
+    """Raised when avatar parameter optimization fails."""
 
 
 class ParameterOptimizer:

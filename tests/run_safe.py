@@ -106,6 +106,8 @@ SAFE_MODULES = [
     "tests.test_parameters_batch_validator",
     "tests.test_preset_history_diff",
     "tests.test_vrchat_performance_analyzer",
+    "tests.test_preset_history_diff_and_rollback",
+    "tests.test_parameter_optimizer",
 ]
 
 
