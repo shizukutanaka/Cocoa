@@ -112,6 +112,7 @@ SAFE_MODULES = [
     "tests.test_video_creator",
     "tests.test_preset_history_dashboard",
     "tests.test_api_server",
+    "tests.test_services_shared",
 ]
 
 

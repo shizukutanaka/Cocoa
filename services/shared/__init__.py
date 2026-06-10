@@ -4,11 +4,22 @@ Cocoa Shared Libraries
 """
 
 from .config import ConfigManager, get_config
-from .database import DatabaseManager, get_db
 from .exceptions import CocoaError, SecurityError, ValidationError
 from .logger import get_logger, setup_logging
-from .models import Avatar, BaseModel, Preset, User
 from .utils import generate_id, sanitize_input, validate_uuid
+
+try:
+    from .database import DatabaseManager, get_db
+    from .models import Avatar, BaseModel, Preset, User
+    _SQLALCHEMY_AVAILABLE = True
+except (ImportError, Exception):
+    _SQLALCHEMY_AVAILABLE = False
+    DatabaseManager = None
+    get_db = None
+    Avatar = None
+    BaseModel = None
+    Preset = None
+    User = None
 
 """
 Shared Services for Microservices Architecture
@@ -23,7 +34,12 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-import aiohttp
+try:
+    import aiohttp
+    _AIOHTTP_AVAILABLE = True
+except ImportError:
+    aiohttp = None
+    _AIOHTTP_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +133,11 @@ class ServiceCommunicator:
 
     def __init__(self, service_registry: ServiceRegistry):
         self.registry = service_registry
-        self.session: Optional[aiohttp.ClientSession] = None
+        self.session = None
 
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
+        if _AIOHTTP_AVAILABLE:
+            self.session = aiohttp.ClientSession()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
