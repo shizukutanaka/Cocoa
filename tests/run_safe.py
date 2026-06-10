@@ -103,6 +103,9 @@ SAFE_MODULES = [
     "tests.test_avatar_video_creator",
     "tests.test_vrchat_parameter_budget",
     "tests.test_preset_diff_core",
+    "tests.test_parameters_batch_validator",
+    "tests.test_preset_history_diff",
+    "tests.test_vrchat_performance_analyzer",
 ]
 
 
