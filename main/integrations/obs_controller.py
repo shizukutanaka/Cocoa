@@ -94,17 +94,15 @@ class OBSController(StreamingController):
     async def list_sources(self, scene_name: str) -> Iterable[SourceInfo]:
         response = await self._send_request("GetSceneItemList", sceneName=scene_name)
         items = response.get("responseData", {}).get("sceneItems", [])
-        results = []
-        for item in items:
-            results.append(
-                SourceInfo(
-                    name=item.get("sourceName", ""),
-                    enabled=item.get("sceneItemEnabled", False),
-                    kind=item.get("inputKind"),
-                    group=item.get("sourceType"),
-                )
+        return [
+            SourceInfo(
+                name=item.get("sourceName", ""),
+                enabled=item.get("sceneItemEnabled", False),
+                kind=item.get("inputKind"),
+                group=item.get("sourceType"),
             )
-        return results
+            for item in items
+        ]
 
     async def set_source_enabled(self, scene_name: str, source_name: str, enabled: bool) -> None:
         scene_item_id = await self._resolve_scene_item(scene_name, source_name)

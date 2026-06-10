@@ -276,15 +276,17 @@ async def get_metrics(current_user: dict = Depends(get_current_user)):
             # メトリクスの履歴を取得（簡易版）
             history = []
             if hasattr(monitor, 'history'):
-                for sample in monitor.history[-10:]:  # 最新10件
-                    history.append(SystemMetrics(
+                history.extend(
+                    SystemMetrics(
                         cpu=sample.get("cpu", 0),
                         memory=sample.get("memory", 0),
                         disk_io=sample.get("disk_io", 0),
                         network_io=sample.get("network_io", 0),
                         process_memory=sample.get("process_memory", 0),
                         timestamp=sample.get("timestamp", datetime.now(timezone.utc).isoformat())
-                    ))
+                    )
+                    for sample in monitor.history[-10:]  # 最新10件
+                )
 
             return PerformanceReport(
                 summary=report.get("summary", {}),
@@ -310,17 +312,16 @@ async def list_backups(current_user: dict = Depends(get_current_user)):
             recovery_manager = get_recovery_manager()
             backups = recovery_manager.list_backups()
 
-            backup_list = []
-            for backup in backups:
-                backup_list.append(BackupInfo(
+            return [
+                BackupInfo(
                     backup_id=backup.backup_id,
                     timestamp=backup.timestamp.isoformat(),
                     size_bytes=backup.size_bytes,
                     status=backup.status,
                     verified=backup.verified
-                ))
-
-            return backup_list
+                )
+                for backup in backups
+            ]
         return []
     except Exception as e:
         logger.error(f"バックアップ一覧取得エラー: {e}")

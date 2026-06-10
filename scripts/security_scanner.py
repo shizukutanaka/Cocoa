@@ -439,8 +439,7 @@ class SecurityScanner:
                 "🚨 重大な問題",
                 "=" * 80
             ])
-            for issue in self.issues:
-                report_lines.append(f"  ❌ {issue}")
+            report_lines.extend(f"  ❌ {issue}" for issue in self.issues)
             report_lines.append("")
 
         # 警告
@@ -450,8 +449,7 @@ class SecurityScanner:
                 "⚠️  警告",
                 "=" * 80
             ])
-            for warning in self.warnings:
-                report_lines.append(f"  ⚠️  {warning}")
+            report_lines.extend(f"  ⚠️  {warning}" for warning in self.warnings)
             report_lines.append("")
 
         # 推奨事項
@@ -466,8 +464,7 @@ class SecurityScanner:
                 "💡 推奨事項",
                 "=" * 80
             ])
-            for rec in recommendations:
-                report_lines.append(f"  💡 {rec}")
+            report_lines.extend(f"  💡 {rec}" for rec in recommendations)
             report_lines.append("")
 
         report_lines.append("=" * 80)

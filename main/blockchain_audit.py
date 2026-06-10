@@ -490,9 +490,7 @@ class BlockchainAuditManager:
         target_hash = hashlib.sha256(json.dumps(target_transaction, sort_keys=True).encode()).hexdigest()
 
         # 証明パスの生成（簡易実装）
-        for tx_hash in tx_hashes:
-            if tx_hash != target_hash:
-                proof.append(tx_hash)
+        proof = [tx_hash for tx_hash in tx_hashes if tx_hash != target_hash]
 
         return proof
 

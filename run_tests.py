@@ -485,9 +485,11 @@ class AutoTestGenerator:
                 # mainディレクトリのPythonファイルを検索
                 main_dir = PROJECT_ROOT / "main"
                 if main_dir.exists():
-                    for py_file in main_dir.glob("*.py"):
-                        if not py_file.name.startswith("__") and py_file.name != "main.py":
-                            modules.append(py_file.stem)
+                    modules.extend(
+                        py_file.stem
+                        for py_file in main_dir.glob("*.py")
+                        if not py_file.name.startswith("__") and py_file.name != "main.py"
+                    )
             else:
                 # 特定のモジュール
                 modules.append(module_name)

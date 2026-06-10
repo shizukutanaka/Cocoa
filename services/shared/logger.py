@@ -34,13 +34,14 @@ class JSONFormatter(logging.Formatter):
             log_entry["exception"] = self.formatException(record.exc_info)
 
         # 追加のフィールドがあれば追加
-        for key, value in record.__dict__.items():
-            if key not in ['name', 'msg', 'args', 'levelname', 'levelno', 'pathname',
-                          'filename', 'module', 'exc_info', 'exc_text', 'stack_info',
-                          'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
-                          'thread', 'threadName', 'processName', 'process', 'getMessage',
-                          'format', 'formatMessage', 'formatException']:
-                log_entry[key] = value
+        _exclude = {
+            'name', 'msg', 'args', 'levelname', 'levelno', 'pathname',
+            'filename', 'module', 'exc_info', 'exc_text', 'stack_info',
+            'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
+            'thread', 'threadName', 'processName', 'process', 'getMessage',
+            'format', 'formatMessage', 'formatException',
+        }
+        log_entry.update({k: v for k, v in record.__dict__.items() if k not in _exclude})
 
         return json.dumps(log_entry, ensure_ascii=False, default=str)
 

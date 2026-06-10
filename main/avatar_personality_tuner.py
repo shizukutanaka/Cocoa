@@ -217,10 +217,11 @@ class PersonalityAnalyzer:
         # 一貫性スコア計算
         if len(samples) > 1:
             # 感情の一貫性を分析
-            emotions = []
-            for sample in samples:
-                if 'emotion' in sample.analysis_results:
-                    emotions.append(sample.analysis_results['emotion'])
+            emotions = [
+                sample.analysis_results['emotion']
+                for sample in samples
+                if 'emotion' in sample.analysis_results
+            ]
 
             if emotions:
                 # 感情の標準偏差が小さいほど一貫性が高い
@@ -482,18 +483,17 @@ class AvatarPersonalityTuner:
                 LIMIT 100
             ''', (user_id,))
 
-            samples = []
-            for row in cursor.fetchall():
-                samples.append(BehaviorSample(
+            return [
+                BehaviorSample(
                     sample_id=row[0],
                     user_id=row[1],
                     content_type=row[2],
                     content=row[3],
                     analysis_results=json.loads(row[4]) if row[4] else {},
                     timestamp=datetime.fromisoformat(row[5])
-                ))
-
-            return samples
+                )
+                for row in cursor.fetchall()
+            ]
 
     async def _calculate_personality_profile(self, user_id: str,
                                           samples: List[BehaviorSample]) -> PersonalityProfile:

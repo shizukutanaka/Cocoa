@@ -107,10 +107,10 @@ def suggest_optimizations(parameters: List[Dict[str, Any]]) -> List[str]:
         and _normalize_type_safe(p.get("type")) == "float"
         and _looks_binary(p.get("default"))
     ]
-    for name in binary_floats:
-        suggestions.append(
-            f"パラメータ '{name}' は二値です。Float→Bool に変更すると 7 ビット削減できます。"
-        )
+    suggestions.extend(
+        f"パラメータ '{name}' は二値です。Float→Bool に変更すると 7 ビット削減できます。"
+        for name in binary_floats
+    )
 
     # 2) ローカル用途と思われる命名は未同期化
     local_like = [
@@ -118,10 +118,10 @@ def suggest_optimizations(parameters: List[Dict[str, Any]]) -> List[str]:
         for p in parameters
         if p.get("synced", True) and "local" in str(p.get("name", "")).lower()
     ]
-    for name in local_like:
-        suggestions.append(
-            f"パラメータ '{name}' はローカル用途の可能性があります。synced=False で予算から外せます。"
-        )
+    suggestions.extend(
+        f"パラメータ '{name}' はローカル用途の可能性があります。synced=False で予算から外せます。"
+        for name in local_like
+    )
 
     # 3) なお超過する場合の総括
     over_by = analysis["used_bits"] - SYNC_PARAMETER_BUDGET_BITS

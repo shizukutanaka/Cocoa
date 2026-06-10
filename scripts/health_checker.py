@@ -211,10 +211,11 @@ class CocoaHealthChecker:
             self.passed_checks.append(f"Pythonファイル{len(python_files)}個の構文チェックが完了しました")
 
         # 大きなファイルの警告
-        large_files = []
-        for py_file in python_files:
-            if py_file.stat().st_size > 100000:  # 100KB以上
-                large_files.append((str(py_file), py_file.stat().st_size))
+        large_files = [
+            (str(py_file), py_file.stat().st_size)
+            for py_file in python_files
+            if py_file.stat().st_size > 100000  # 100KB以上
+        ]
 
         if large_files:
             self.warnings.append({

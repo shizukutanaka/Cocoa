@@ -570,10 +570,11 @@ class MultiAvatarManager:
                 continue
 
             # スクリプト作成
-            script_parts = []
-            for event in avatar_events:
-                if event['action'] == 'speak':
-                    script_parts.append(event['content'])
+            script_parts = [
+                event['content']
+                for event in avatar_events
+                if event['action'] == 'speak'
+            ]
 
             script = ' '.join(script_parts)
 

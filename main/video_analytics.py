@@ -632,9 +632,8 @@ class VideoAnalyticsService:
             cursor.execute(query, params)
             rows = cursor.fetchall()
 
-            reports = []
-            for row in rows:
-                reports.append(AnalyticsReport(
+            return [
+                AnalyticsReport(
                     report_id=row[0],
                     video_id=row[1],
                     report_type=row[2],
@@ -643,9 +642,9 @@ class VideoAnalyticsService:
                     metrics=json.loads(row[5]),
                     insights=json.loads(row[6]),
                     generated_at=datetime.fromisoformat(row[7])
-                ))
-
-            return reports
+                )
+                for row in rows
+            ]
 
     async def export_analytics(self, video_id: str, format: str = 'json') -> Optional[str]:
         """

@@ -673,11 +673,11 @@ class VRChatPerformanceAnalyzer:
             report.append("\n" + "-" * 70)
             report.append(f"Limiting Factors (bottlenecks for {result.rank.value.upper()} rank)")
             report.append("-" * 70)
-            for factor in limiting_factors:
-                report.append(
-                    f"  • {factor['field']}: {factor['value']} "
-                    f"(this stat alone = {factor['rank'].upper()})"
-                )
+            report.extend(
+                f"  • {factor['field']}: {factor['value']} "
+                f"(this stat alone = {factor['rank'].upper()})"
+                for factor in limiting_factors
+            )
 
         if result.issues:
             report.append("\n" + "-" * 70)

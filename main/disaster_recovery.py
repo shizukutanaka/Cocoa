@@ -201,10 +201,11 @@ class DisasterRecoveryManager:
                 return False, f"バックアップディレクトリが存在しません: {backup_path}"
 
             # チェックサムの再計算
-            checksums = []
-            for file_path in backup_path.rglob('*'):
-                if file_path.is_file():
-                    checksums.append(self._calculate_file_checksum(file_path))
+            checksums = [
+                self._calculate_file_checksum(file_path)
+                for file_path in backup_path.rglob('*')
+                if file_path.is_file()
+            ]
 
             combined_checksum = hashlib.sha256(
                 ''.join(checksums).encode()

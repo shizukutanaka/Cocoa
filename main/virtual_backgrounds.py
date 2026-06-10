@@ -724,9 +724,8 @@ class VirtualBackgroundsService:
 
     async def _save_all_templates_metadata(self):
         """全テンプレートメタデータを保存"""
-        templates_data = []
-        for template in self.templates.values():
-            templates_data.append({
+        templates_data = [
+            {
                 "template_id": template.template_id,
                 "name": template.name,
                 "description": template.description,
@@ -738,7 +737,9 @@ class VirtualBackgroundsService:
                 "settings": template.settings,
                 "created_at": template.created_at.isoformat(),
                 "usage_count": template.usage_count
-            })
+            }
+            for template in self.templates.values()
+        ]
 
         metadata_file = Path("data/backgrounds/templates_metadata.json")
         async with aiofiles.open(metadata_file, 'w', encoding='utf-8') as f:

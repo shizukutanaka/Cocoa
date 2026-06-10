@@ -559,9 +559,8 @@ class AvatarPerformanceMonitor:
                 LIMIT ?
             ''', (limit,))
 
-            alerts = []
-            for row in cursor.fetchall():
-                alerts.append({
+            return [
+                {
                     "alert_id": row[0],
                     "alert_type": row[1],
                     "severity": row[2],
@@ -571,9 +570,9 @@ class AvatarPerformanceMonitor:
                     "current_value": row[6],
                     "timestamp": row[7],
                     "resolved": bool(row[8])
-                })
-
-            return alerts
+                }
+                for row in cursor.fetchall()
+            ]
 
     async def get_operation_history(self, operation_type: Optional[str] = None,
                                   user_id: Optional[str] = None,
@@ -603,9 +602,8 @@ class AvatarPerformanceMonitor:
 
             cursor.execute(query, params)
 
-            operations = []
-            for row in cursor.fetchall():
-                operations.append({
+            return [
+                {
                     "operation_id": row[0],
                     "operation_type": row[1],
                     "user_id": row[2],
@@ -614,9 +612,9 @@ class AvatarPerformanceMonitor:
                     "duration": row[5],
                     "success": bool(row[6]),
                     "error_message": row[7]
-                })
-
-            return operations
+                }
+                for row in cursor.fetchall()
+            ]
 
     async def generate_performance_report(self, operation_type: Optional[str] = None,
                                         hours: int = 24) -> Dict[str, Any]:
