@@ -713,6 +713,12 @@ class PasswordResetConfirm(BaseModel):
     new_password: str
 
 
+class UpdateProfileRequest(BaseModel):
+    display_name: Optional[str] = None
+    bio: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
 @app.post("/api/auth/register", tags=["auth"])
 async def register(body: RegisterRequest):
     """新規ユーザー登録"""
@@ -778,6 +784,62 @@ async def logout(body: RefreshRequest, current_user: dict = Depends(get_current_
 async def get_me(current_user: dict = Depends(get_current_user)):
     """現在のユーザー情報を取得"""
     return current_user
+
+
+@app.put("/api/auth/me", tags=["auth"])
+async def update_profile(body: UpdateProfileRequest, current_user: dict = Depends(get_current_user)):
+    """プロフィール更新（表示名、自己紹介、アバター画像URL）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        auth = get_auth_manager()
+        user = auth.update_profile(
+            current_user["user_id"],
+            display_name=body.display_name,
+            bio=body.bio,
+            avatar_url=body.avatar_url,
+        )
+        return user.public_profile()
+    except AuthError as e:
+        raise HTTPException(status_code=404, detail=e.message) from e
+
+
+@app.get("/api/auth/bookmarks", tags=["auth"])
+async def list_bookmarks(current_user: dict = Depends(get_current_user)):
+    """ブックマーク一覧取得"""
+    if not get_auth_manager:
+        return {"bookmarks": []}
+    auth = get_auth_manager()
+    try:
+        return {"bookmarks": auth.get_bookmarks(current_user["user_id"])}
+    except AuthError as e:
+        raise HTTPException(status_code=404, detail=e.message) from e
+
+
+@app.post("/api/auth/bookmarks/{item_id}", tags=["auth"])
+async def add_bookmark(item_id: str, current_user: dict = Depends(get_current_user)):
+    """ブックマーク追加"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    try:
+        bookmarks = auth.add_bookmark(current_user["user_id"], item_id)
+        return {"bookmarks": bookmarks, "added": item_id}
+    except AuthError as e:
+        raise HTTPException(status_code=404, detail=e.message) from e
+
+
+@app.delete("/api/auth/bookmarks/{item_id}", tags=["auth"])
+async def remove_bookmark(item_id: str, current_user: dict = Depends(get_current_user)):
+    """ブックマーク削除"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    try:
+        bookmarks = auth.remove_bookmark(current_user["user_id"], item_id)
+        return {"bookmarks": bookmarks, "removed": item_id}
+    except AuthError as e:
+        raise HTTPException(status_code=404, detail=e.message) from e
 
 
 @app.post("/api/auth/password-reset", tags=["auth"])

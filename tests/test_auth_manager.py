@@ -221,5 +221,86 @@ class TestAuthManager(unittest.TestCase):
         self.assertEqual(updated.role, "moderator")
 
 
+class TestUserProfile(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.auth.register("profileuser", "pu@x.com", "Profile1!")
+
+    def _user_id(self):
+        return self.auth.store.get_by_username("profileuser").user_id
+
+    def test_update_display_name(self):
+        user = self.auth.update_profile(self._user_id(), display_name="My Display Name")
+        self.assertEqual(user.display_name, "My Display Name")
+
+    def test_update_bio(self):
+        user = self.auth.update_profile(self._user_id(), bio="Hello world")
+        self.assertEqual(user.bio, "Hello world")
+
+    def test_bio_truncated_at_500(self):
+        user = self.auth.update_profile(self._user_id(), bio="x" * 600)
+        self.assertLessEqual(len(user.bio), 500)
+
+    def test_display_name_truncated_at_64(self):
+        user = self.auth.update_profile(self._user_id(), display_name="x" * 100)
+        self.assertLessEqual(len(user.display_name), 64)
+
+    def test_public_profile_fields(self):
+        user = self.auth.store.get_by_username("profileuser")
+        profile = user.public_profile()
+        for key in ("user_id", "username", "display_name", "bio", "avatar_url", "role", "created_at"):
+            self.assertIn(key, profile)
+
+    def test_public_profile_display_name_falls_back_to_username(self):
+        user = self.auth.store.get_by_username("profileuser")
+        profile = user.public_profile()
+        self.assertEqual(profile["display_name"], "profileuser")
+
+    def test_update_nonexistent_user_raises(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.update_profile("no-such-id", display_name="x")
+        self.assertEqual(ctx.exception.code, "not_found")
+
+
+class TestBookmarks(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.auth.register("bkuser", "bk@x.com", "Bookm1234!")
+        self.user_id = self.auth.store.get_by_username("bkuser").user_id
+
+    def test_add_bookmark(self):
+        bks = self.auth.add_bookmark(self.user_id, "listing-1")
+        self.assertIn("listing-1", bks)
+
+    def test_add_duplicate_is_idempotent(self):
+        self.auth.add_bookmark(self.user_id, "listing-1")
+        bks = self.auth.add_bookmark(self.user_id, "listing-1")
+        self.assertEqual(bks.count("listing-1"), 1)
+
+    def test_remove_bookmark(self):
+        self.auth.add_bookmark(self.user_id, "listing-1")
+        bks = self.auth.remove_bookmark(self.user_id, "listing-1")
+        self.assertNotIn("listing-1", bks)
+
+    def test_remove_nonexistent_bookmark_is_noop(self):
+        bks = self.auth.remove_bookmark(self.user_id, "never-added")
+        self.assertEqual(bks, [])
+
+    def test_get_bookmarks_empty_on_new_user(self):
+        bks = self.auth.get_bookmarks(self.user_id)
+        self.assertEqual(bks, [])
+
+    def test_bookmark_order_preserved(self):
+        for i in range(5):
+            self.auth.add_bookmark(self.user_id, f"item-{i}")
+        bks = self.auth.get_bookmarks(self.user_id)
+        self.assertEqual(bks, [f"item-{i}" for i in range(5)])
+
+    def test_get_bookmarks_nonexistent_user_raises(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.get_bookmarks("no-such-id")
+        self.assertEqual(ctx.exception.code, "not_found")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

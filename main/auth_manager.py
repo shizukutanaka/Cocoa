@@ -11,6 +11,7 @@ Features:
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import json
@@ -67,9 +68,24 @@ class UserRecord:
     last_login: Optional[datetime] = None
     failed_attempts: int = 0
     locked_until: Optional[datetime] = None
+    display_name: str = ""
+    bio: str = ""
+    avatar_url: str = ""
+    bookmarks: List[str] = field(default_factory=list)  # list of doc_ids / listing_ids
 
     def is_locked(self) -> bool:
         return bool(self.locked_until and datetime.now(timezone.utc) < self.locked_until)
+
+    def public_profile(self) -> Dict[str, Any]:
+        return {
+            "user_id": self.user_id,
+            "username": self.username,
+            "display_name": self.display_name or self.username,
+            "bio": self.bio,
+            "avatar_url": self.avatar_url,
+            "role": self.role,
+            "created_at": self.created_at.isoformat(),
+        }
 
 
 @dataclass
@@ -407,6 +423,45 @@ class AuthManager:
             raise AuthError("not_found", "ユーザーが見つかりません")
         user.role = new_role
         logger.info("Role changed for %s → %s (by admin %s)", target_user_id, new_role, admin_payload.get("username"))
+
+    # --- Profile management ---
+
+    def update_profile(self, user_id: str, display_name: Optional[str] = None, bio: Optional[str] = None, avatar_url: Optional[str] = None) -> UserRecord:
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        if display_name is not None:
+            user.display_name = display_name[:64].strip()
+        if bio is not None:
+            user.bio = bio[:500].strip()
+        if avatar_url is not None:
+            user.avatar_url = avatar_url[:512].strip()
+        logger.info("Profile updated for user_id: %s", user_id)
+        return user
+
+    # --- Bookmarks ---
+
+    def add_bookmark(self, user_id: str, item_id: str) -> List[str]:
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        if item_id not in user.bookmarks:
+            user.bookmarks.append(item_id)
+        return list(user.bookmarks)
+
+    def remove_bookmark(self, user_id: str, item_id: str) -> List[str]:
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        with contextlib.suppress(ValueError):
+            user.bookmarks.remove(item_id)
+        return list(user.bookmarks)
+
+    def get_bookmarks(self, user_id: str) -> List[str]:
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        return list(user.bookmarks)
 
     # --- Helpers ---
 
