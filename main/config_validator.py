@@ -596,7 +596,32 @@ class ConfigValidator:
         warnings: List[str],
     ) -> None:
         """構造間の整合性検証やパス検証などの後処理を行う"""
+        self._validate_web_admin_section(original_config, validated_config, errors, warnings)
 
+        language = original_config.get("language")
+        if isinstance(language, str) and language.lower() not in {"ja", "en"}:
+            warnings.append(
+                f"language '{language}' は未対応です。デフォルトにフォールバックされる可能性があります。"
+            )
+
+        self._validate_backup_section(original_config, warnings, errors)
+        self._validate_plugins_section(original_config, warnings)
+        self._validate_security_section(original_config, validated_config, errors, warnings)
+
+        # billing / notification / rate_limiting のクロスフィールド検証
+        security_cfg = original_config.get("security")
+        if not isinstance(security_cfg, dict):
+            security_cfg = {}
+        self._validate_password_policy(security_cfg, errors, warnings, original_config, validated_config)
+
+    def _validate_web_admin_section(
+        self,
+        original_config: Dict[str, Any],
+        validated_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """web_admin セクション（host / debug / ssl）の検証"""
         web_admin_config = original_config.get("web_admin")
         web_admin_validated = validated_config.get("web_admin") if isinstance(validated_config.get("web_admin"), dict) else None
         if isinstance(web_admin_config, dict):
@@ -651,12 +676,13 @@ class ConfigValidator:
                             "web_admin.ssl.enabled が false の状態で cert_path または key_path が設定されています。不要な機密情報を削除してください。"
                         )
 
-        language = original_config.get("language")
-        if isinstance(language, str) and language.lower() not in {"ja", "en"}:
-            warnings.append(
-                f"language '{language}' は未対応です。デフォルトにフォールバックされる可能性があります。"
-            )
-
+    def _validate_backup_section(
+        self,
+        original_config: Dict[str, Any],
+        warnings: List[str],
+        errors: List[str],
+    ) -> None:
+        """backup セクション（保存先パス）の検証"""
         backup_config = original_config.get("backup")
         if isinstance(backup_config, dict) and backup_config.get("enabled"):
             backup_path = backup_config.get("backup_path")
@@ -676,6 +702,12 @@ class ConfigValidator:
                     elif not resolved.is_dir():
                         errors.append("backup.backup_path にはディレクトリを指定してください。")
 
+    def _validate_plugins_section(
+        self,
+        original_config: Dict[str, Any],
+        warnings: List[str],
+    ) -> None:
+        """plugins セクション（重複・設定パス）の検証"""
         plugins_config = original_config.get("plugins")
         if isinstance(plugins_config, dict):
             enabled_plugins = plugins_config.get("enabled")
@@ -696,6 +728,14 @@ class ConfigValidator:
                         f"plugins.config_path '{config_candidate}' が存在しません。プラグイン設定を確認してください。"
                     )
 
+    def _validate_security_section(
+        self,
+        original_config: Dict[str, Any],
+        validated_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """security セクション（IPリスト・監査ログ・2FA）の検証"""
         security_config = original_config.get("security")
         security_validated = validated_config.get("security")
         if isinstance(security_config, dict) and isinstance(security_validated, dict):
@@ -732,12 +772,6 @@ class ConfigValidator:
             if security_config.get("max_login_attempts", 5) > 10:
                 warnings.append("security.max_login_attempts が高すぎます。10以下に調整してください。")
 
-        # billing / notification / rate_limiting のクロスフィールド検証
-        security_cfg = original_config.get("security")
-        if not isinstance(security_cfg, dict):
-            security_cfg = {}
-        self._validate_password_policy(security_cfg, errors, warnings, original_config, validated_config)
-
     def _validate_password_policy(
         self,
         security_config: Dict[str, Any],
@@ -749,6 +783,18 @@ class ConfigValidator:
         """パスワードポリシーおよび billing/notification/rate_limiting セクションの詳細な検証"""
         original_config = original_config or {}
         validated_config = validated_config or {}
+        self._validate_password_section(security_config, errors, warnings)
+        self._validate_billing_section(original_config, validated_config, errors, warnings)
+        self._validate_notification_section(original_config, validated_config, errors, warnings)
+        self._validate_rate_limiting_section(original_config, validated_config, errors, warnings)
+
+    def _validate_password_section(
+        self,
+        security_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """パスワードポリシー・ログイン試行・ロックアウト設定の検証"""
         password_config = security_config.get("password_policy", {})
         if not isinstance(password_config, dict):
             return
@@ -792,6 +838,14 @@ class ConfigValidator:
         elif lockout_minutes < 5:
             warnings.append("ロックアウト時間が短すぎます。ブルートフォース攻撃に対する防御が不十分です。")
 
+    def _validate_billing_section(
+        self,
+        original_config: Dict[str, Any],
+        validated_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """billing セクション（tiers / checkout / webhook）の検証"""
         billing_config = original_config.get("billing")
         billing_validated = (
             validated_config.get("billing")
@@ -887,6 +941,14 @@ class ConfigValidator:
             if isinstance(billing_validated, dict):
                 billing_validated["mode"] = mode or "subscription"
 
+    def _validate_notification_section(
+        self,
+        original_config: Dict[str, Any],
+        validated_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """notification セクション（email / webhook 送信先）の検証"""
         notification_config = original_config.get("notification")
         notification_validated = validated_config.get("notification")
         if (isinstance(notification_config, dict)
@@ -978,6 +1040,14 @@ class ConfigValidator:
                 if not (email_ready or webhook_ready):
                     errors.append("notification.enabled が true の場合は email または webhook の送信先を設定してください。")
 
+    def _validate_rate_limiting_section(
+        self,
+        original_config: Dict[str, Any],
+        validated_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """rate_limiting セクションの整合性検証"""
         rate_limit_config = original_config.get("rate_limiting")
         rate_limit_validated = validated_config.get("rate_limiting")
         if isinstance(rate_limit_config, dict) and isinstance(rate_limit_validated, dict) and rate_limit_config.get("enabled"):

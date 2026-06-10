@@ -122,7 +122,7 @@ class TestSecurityManager(TestBase):
         self.assertTrue(can_login)
 
         # 失敗試行を記録
-        for i in range(3):  # max_login_attempts = 3
+        for _i in range(3):  # max_login_attempts = 3
             self.security_manager.record_failed_attempt(username, ip_address)
 
         # ロックアウト後はログイン不可
@@ -283,7 +283,7 @@ class TestErrorRecoverySystem(TestBase):
             raise Exception("Test failure")
 
         # 連続失敗でサーキットブレーカーが作動
-        for i in range(3):
+        for _i in range(3):
             with self.assertRaises(Exception):
                 failing_function()
 
