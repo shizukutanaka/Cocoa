@@ -3,6 +3,7 @@
 Avatar Video Creator Module for Cocoa
 アバターを使用した動画生成機能を提供
 """
+from __future__ import annotations
 
 import asyncio
 import json
