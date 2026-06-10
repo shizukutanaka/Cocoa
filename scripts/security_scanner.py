@@ -377,7 +377,7 @@ class SecurityScanner:
             'security_score': 0
         }
 
-        for _check_name, check_result in checks.items():
+        for check_result in checks.values():
             status = check_result.get('status', 'unknown')
             if status == 'pass':
                 summary['passed'] += 1
@@ -456,7 +456,7 @@ class SecurityScanner:
 
         # 推奨事項
         recommendations = []
-        for _check_name, check_result in results['checks'].items():
+        for check_result in results['checks'].values():
             if 'recommendations' in check_result:
                 recommendations.extend(check_result['recommendations'])
 

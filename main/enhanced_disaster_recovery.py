@@ -643,7 +643,7 @@ class Enhanced321BackupManager:
                 backup_name = metadata['backup_name']
 
                 # 各ロケーションから削除
-                for _location, config in self.backup_locations.items():
+                for config in self.backup_locations.values():
                     backup_file = config.path / f"{backup_name}.tar.gz"
                     if backup_file.exists():
                         backup_file.unlink()

@@ -147,7 +147,7 @@ class EEGProcessor:
                 'gamma': (30, 40)
             }
 
-            for _band_name, (low, high) in bands.items():
+            for (low, high) in bands.values():
                 band_power = np.mean(power[(freqs >= low) & (freqs <= high)])
                 features.append(band_power)
 
@@ -341,7 +341,7 @@ class BCIManager:
         commands = []
 
         # 各訓練済みパターンに対して推論
-        for _pattern_id, pattern in self.thought_patterns.items():
+        for pattern in self.thought_patterns.values():
             if pattern.pattern_id in self.models:
                 model = self.models[pattern.pattern_id]
 

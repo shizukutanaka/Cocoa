@@ -631,7 +631,7 @@ class GlobalEdgeManager:
             }
 
             # 地域別パフォーマンス
-            for region_name, _region_nodes in self.regions.items():
+            for region_name in self.regions:
                 region_analytics = []
                 for node_id in node_ids:
                     if node_id in self.analytics_data:

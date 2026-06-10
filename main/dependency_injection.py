@@ -87,7 +87,7 @@ class Container:
         # 依存性を解析
         sig = inspect.signature(factory)
         dependencies = {}
-        for param_name, _param in sig.parameters.items():
+        for param_name in sig.parameters:
             if param_name in kwargs:
                 dependencies[param_name] = kwargs[param_name]
 

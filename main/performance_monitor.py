@@ -1368,7 +1368,7 @@ class HybridSystemManager:
         best_score = -1
 
         # 各クラウドリソースに対して最適化
-        for _resource_key, cloud_resource in self.cloud_resources.items():
+        for cloud_resource in self.cloud_resources.values():
             allocation = await self._calculate_allocation_for_resource(
                 cloud_resource, workload, budget
             )
