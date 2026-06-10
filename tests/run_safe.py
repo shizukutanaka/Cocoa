@@ -110,6 +110,8 @@ SAFE_MODULES = [
     "tests.test_parameter_optimizer",
     "tests.test_main",
     "tests.test_video_creator",
+    "tests.test_preset_history_dashboard",
+    "tests.test_api_server",
 ]
 
 

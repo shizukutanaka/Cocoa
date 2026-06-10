@@ -31,6 +31,37 @@ try:
     FASTAPI_AVAILABLE = True
 except ImportError:
     FASTAPI_AVAILABLE = False
+    # Minimal stubs so module-level code doesn't crash on import without FastAPI
+    FastAPI = None
+    HTTPException = None
+    WebSocket = None
+    WebSocketDisconnect = None
+    status = None
+    CORSMiddleware = None
+    JSONResponse = None
+    HTTPAuthorizationCredentials = None
+    uvicorn = None
+
+    def Depends(x=None):
+        return x
+
+    def HTTPBearer(**_kwargs):
+        return None
+
+    class BaseModel:
+        pass
+
+    class _NullApp:
+        """No-op stub for app when FastAPI is unavailable."""
+        def get(self, *a, **kw): return lambda f: f
+        def post(self, *a, **kw): return lambda f: f
+        def put(self, *a, **kw): return lambda f: f
+        def delete(self, *a, **kw): return lambda f: f
+        def websocket(self, *a, **kw): return lambda f: f
+        def middleware(self, *a, **kw): return lambda f: f
+        def add_middleware(self, *a, **kw): pass
+        def exception_handler(self, *a, **kw): return lambda f: f
+        def on_event(self, *a, **kw): return lambda f: f
 
 # カスタムモジュールインポート
 try:
@@ -81,37 +112,37 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # FastAPIアプリケーション作成
-app = FastAPI(
-    title="Cocoa Avatar Management API",
-    description="Production-grade REST API for avatar management system",
-    version="2.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
+if FASTAPI_AVAILABLE:
+    app = FastAPI(
+        title="Cocoa Avatar Management API",
+        description="Production-grade REST API for avatar management system",
+        version="2.0.0",
+        docs_url="/docs",
+        redoc_url="/redoc"
+    )
 
-# セキュリティ設定
-security = HTTPBearer(auto_error=False)
+    # セキュリティ設定
+    security = HTTPBearer(auto_error=False)
 
-# CORS設定
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # フロントエンドのオリジン
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-)
+    # CORS設定
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000", "http://localhost:5173"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
+else:
+    app = _NullApp()
+    security = None
 
 # セキュリティミドルウェア
-@app.middleware("http")
-async def security_middleware(request, call_next):
-    """セキュリティミドルウェア"""
-    # リクエストログ記録
-    logger.info(f"API Request: {request.method} {request.url}")
-
-    # レート制限のチェック（簡易版）
-    # 実際の運用ではRedisなどの外部ストアを使用することを推奨
-
-    return await call_next(request)
+if FASTAPI_AVAILABLE:
+    @app.middleware("http")  # type: ignore[union-attr]
+    async def security_middleware(request, call_next):
+        """セキュリティミドルウェア"""
+        logger.info(f"API Request: {request.method} {request.url}")
+        return await call_next(request)
 
 # Pydanticモデル定義
 class HealthCheck(BaseModel):
