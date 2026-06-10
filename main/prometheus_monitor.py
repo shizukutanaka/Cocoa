@@ -80,7 +80,7 @@ class EnhancedPrometheusMonitor:
         """
         self.config = config or MetricConfig()
         self.environment = environment
-        self.registry = CollectorRegistry()
+        self.registry = CollectorRegistry() if CollectorRegistry is not None else None
 
         # メトリクス初期化
         self._init_counters()

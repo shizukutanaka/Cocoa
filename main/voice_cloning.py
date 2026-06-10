@@ -25,7 +25,14 @@ try:
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
-from scipy.io import wavfile
+    torch = None
+    torchaudio = None
+try:
+    from scipy.io import wavfile
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+    wavfile = None
 
 from integrated_security import get_security_manager
 
@@ -83,7 +90,7 @@ class VoiceCloningEngine:
 
         # Tortoise TTS関連
         self.tts = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if (TORCH_AVAILABLE and torch and torch.cuda.is_available()) else "cpu"
 
         # 音声データ管理
         self.voice_samples_dir = Path("data/voice_samples")

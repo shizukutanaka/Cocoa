@@ -16,14 +16,28 @@ try:
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
+    np = None
 
 try:
     from PIL import Image, ImageDraw
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
-import cv2
-import face_recognition
+    Image = None
+    ImageDraw = None
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None
+
+try:
+    import face_recognition
+    FACE_RECOGNITION_AVAILABLE = True
+except ImportError:
+    FACE_RECOGNITION_AVAILABLE = False
+    face_recognition = None
 
 from integrated_security import get_security_manager
 
@@ -193,7 +207,7 @@ class FaceFeatureExtractor:
             "mouth_shape": "full" if mouth_height > mouth_width * 0.3 else "thin"
         }
 
-    def _assess_face_quality(self, image: np.ndarray, face_location: Tuple, landmarks: Dict) -> str:
+    def _assess_face_quality(self, image: "Any", face_location: Tuple, landmarks: Dict) -> str:
         """顔の品質を評価"""
         top, right, bottom, left = face_location
         face_roi = image[top:bottom, left:right]
@@ -431,7 +445,7 @@ class PhotoToAvatarGenerator:
 
         return style_prompts.get(style, style_prompts["realistic"])
 
-    async def _generate_with_ai(self, prompt: str, request: PhotoToAvatarRequest) -> List[Image.Image]:
+    async def _generate_with_ai(self, prompt: str, request: PhotoToAvatarRequest) -> "List[Any]":
         """AIモデルで画像を生成"""
         try:
             # 実際の実装ではStable Diffusionなどのモデルを使用
@@ -498,7 +512,7 @@ class PhotoToAvatarGenerator:
             logger.error(f"AI generation failed: {e}")
             raise
 
-    async def _save_generated_avatars(self, images: List[Image.Image], request: PhotoToAvatarRequest) -> Dict[str, str]:
+    async def _save_generated_avatars(self, images: "List[Any]", request: PhotoToAvatarRequest) -> Dict[str, str]:
         """生成されたアバターを保存"""
         avatar_paths = {}
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
