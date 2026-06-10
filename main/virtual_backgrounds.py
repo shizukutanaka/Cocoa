@@ -250,82 +250,83 @@ class BackgroundProcessor:
         """ブランディングを適用"""
         result = image.copy()
 
-        # ロゴ追加
         logo_path = branding.get('logo_path')
         if logo_path and Path(logo_path).exists():
-            logo = Image.open(logo_path).convert('RGBA')
+            result = self._apply_branding_logo(result, branding, logo_path)
 
-            # ロゴサイズ調整
-            logo_width = branding.get('logo_width', 200)
-            logo.thumbnail((logo_width, logo_width), Image.LANCZOS)
-
-            # ロゴ位置
-            position = branding.get('logo_position', 'top_right')
-            bg_width, bg_height = result.size
-            logo_w, logo_h = logo.size
-
-            if position == 'top_left':
-                x, y = 20, 20
-            elif position == 'top_right':
-                x, y = bg_width - logo_w - 20, 20
-            elif position == 'bottom_left':
-                x, y = 20, bg_height - logo_h - 20
-            elif position == 'bottom_right':
-                x, y = bg_width - logo_w - 20, bg_height - logo_h - 20
-            else:
-                x, y = bg_width - logo_w - 20, 20
-
-            # ロゴ合成
-            if result.mode != 'RGBA':
-                result = result.convert('RGBA')
-            result.paste(logo, (x, y), logo)
-
-        # テキスト追加
         text_overlay = branding.get('text_overlay')
         if text_overlay:
-            from PIL import ImageDraw, ImageFont
-
-            draw = ImageDraw.Draw(result)
-
-            # フォント設定
-            try:
-                font_path = branding.get('font_path', "arial.ttf")
-                font_size = branding.get('font_size', 48)
-                font = ImageFont.truetype(font_path, font_size)
-            except (OSError, IOError) as e:
-                logger.debug(f"Failed to load font {branding.get('font_path')}: {e}")
-                font = ImageFont.load_default()
-
-            # テキスト設定
-            text = text_overlay.get('text', '')
-            text_color = text_overlay.get('color', '#FFFFFF')
-            text_position = text_overlay.get('position', 'bottom_center')
-
-            # テキストサイズ取得
-            bbox = draw.textbbox((0, 0), text, font=font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-
-            # 位置設定
-            bg_width, bg_height = result.size
-
-            if text_position == 'top_center':
-                x, y = (bg_width - text_width) // 2, 20
-            elif text_position == 'bottom_center':
-                x, y = (bg_width - text_width) // 2, bg_height - text_height - 20
-            elif text_position == 'center':
-                x, y = (bg_width - text_width) // 2, (bg_height - text_height) // 2
-            else:
-                x, y = 20, bg_height - text_height - 20
-
-            # テキスト描画（影付き）
-            shadow_offset = text_overlay.get('shadow_offset', 2)
-            if shadow_offset > 0:
-                draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill='#000000')
-
-            draw.text((x, y), text, font=font, fill=text_color)
+            self._apply_branding_text(result, branding, text_overlay)
 
         return result
+
+    def _apply_branding_logo(self, result: "Any", branding: Dict[str, Any], logo_path: str) -> "Any":
+        """ブランディングのロゴ合成を行い、合成後の画像を返す。"""
+        logo = Image.open(logo_path).convert('RGBA')
+
+        # ロゴサイズ調整
+        logo_width = branding.get('logo_width', 200)
+        logo.thumbnail((logo_width, logo_width), Image.LANCZOS)
+
+        # ロゴ位置
+        position = branding.get('logo_position', 'top_right')
+        bg_width, bg_height = result.size
+        logo_w, logo_h = logo.size
+
+        positions = {
+            'top_left': (20, 20),
+            'top_right': (bg_width - logo_w - 20, 20),
+            'bottom_left': (20, bg_height - logo_h - 20),
+            'bottom_right': (bg_width - logo_w - 20, bg_height - logo_h - 20),
+        }
+        x, y = positions.get(position, (bg_width - logo_w - 20, 20))
+
+        # ロゴ合成
+        if result.mode != 'RGBA':
+            result = result.convert('RGBA')
+        result.paste(logo, (x, y), logo)
+        return result
+
+    def _apply_branding_text(self, result: "Any", branding: Dict[str, Any], text_overlay: Dict[str, Any]) -> None:
+        """ブランディングのテキストオーバーレイを描画する。"""
+        from PIL import ImageDraw, ImageFont
+
+        draw = ImageDraw.Draw(result)
+
+        # フォント設定
+        try:
+            font_path = branding.get('font_path', "arial.ttf")
+            font_size = branding.get('font_size', 48)
+            font = ImageFont.truetype(font_path, font_size)
+        except (OSError, IOError) as e:
+            logger.debug(f"Failed to load font {branding.get('font_path')}: {e}")
+            font = ImageFont.load_default()
+
+        # テキスト設定
+        text = text_overlay.get('text', '')
+        text_color = text_overlay.get('color', '#FFFFFF')
+        text_position = text_overlay.get('position', 'bottom_center')
+
+        # テキストサイズ取得
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+
+        # 位置設定
+        bg_width, bg_height = result.size
+        positions = {
+            'top_center': ((bg_width - text_width) // 2, 20),
+            'bottom_center': ((bg_width - text_width) // 2, bg_height - text_height - 20),
+            'center': ((bg_width - text_width) // 2, (bg_height - text_height) // 2),
+        }
+        x, y = positions.get(text_position, (20, bg_height - text_height - 20))
+
+        # テキスト描画（影付き）
+        shadow_offset = text_overlay.get('shadow_offset', 2)
+        if shadow_offset > 0:
+            draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill='#000000')
+
+        draw.text((x, y), text, font=font, fill=text_color)
 
 class VirtualBackgroundsService:
     """
@@ -511,40 +512,23 @@ class VirtualBackgroundsService:
         # メタデータを保存
         await self._save_all_templates_metadata()
 
+    # カテゴリ別の (テンプレートIDキーワード -> 生成メソッド名) マッピング
+    _TEMPLATE_GENERATORS = {
+        "office": (("modern", "_create_modern_office_bg"), ("conference", "_create_conference_room_bg")),
+        "studio": (("green", "_create_green_screen_bg"), ("gradient", "_create_gradient_bg")),
+        "outdoor": (("park", "_create_park_bg"), ("city", "_create_city_bg")),
+        "abstract": (("geometric", "_create_geometric_bg"), ("blur", "_create_blur_bg")),
+        "brand": (("minimal", "_create_minimal_brand_bg"), ("luxury", "_create_luxury_brand_bg")),
+    }
+
     async def _generate_template_image(self, template: BackgroundTemplate) -> "Optional[Any]":
         """テンプレート画像を生成"""
         try:
             width, height = 1920, 1080
 
-            if template.category == "office":
-                if "modern" in template.template_id:
-                    return self._create_modern_office_bg(width, height)
-                elif "conference" in template.template_id:
-                    return self._create_conference_room_bg(width, height)
-
-            elif template.category == "studio":
-                if "green" in template.template_id:
-                    return self._create_green_screen_bg(width, height)
-                elif "gradient" in template.template_id:
-                    return self._create_gradient_bg(width, height)
-
-            elif template.category == "outdoor":
-                if "park" in template.template_id:
-                    return self._create_park_bg(width, height)
-                elif "city" in template.template_id:
-                    return self._create_city_bg(width, height)
-
-            elif template.category == "abstract":
-                if "geometric" in template.template_id:
-                    return self._create_geometric_bg(width, height)
-                elif "blur" in template.template_id:
-                    return self._create_blur_bg(width, height)
-
-            elif template.category == "brand":
-                if "minimal" in template.template_id:
-                    return self._create_minimal_brand_bg(width, height)
-                elif "luxury" in template.template_id:
-                    return self._create_luxury_brand_bg(width, height)
+            for keyword, method_name in self._TEMPLATE_GENERATORS.get(template.category, ()):
+                if keyword in template.template_id:
+                    return getattr(self, method_name)(width, height)
 
             # デフォルト背景
             return self.processor._create_default_background()
