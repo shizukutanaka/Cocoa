@@ -9,16 +9,30 @@ Prometheus/Grafana 2025ベストプラクティス統合
 - TechCloudUp: "7 Essential Prometheus Monitoring Best Practices"
 """
 
-from prometheus_client import (
-    Counter, Gauge, Histogram, Summary,
-    CollectorRegistry, push_to_gateway, generate_latest,
-    CONTENT_TYPE_LATEST
-)
+try:
+    from prometheus_client import (
+        Counter, Gauge, Histogram, Summary,
+        CollectorRegistry, push_to_gateway, generate_latest,
+        CONTENT_TYPE_LATEST,
+    )
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
+    Counter = Gauge = Histogram = Summary = None
+    CollectorRegistry = push_to_gateway = generate_latest = None
+    CONTENT_TYPE_LATEST = None
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    psutil = None
+
 from typing import Optional
 from dataclasses import dataclass
 from enum import Enum
 import time
-import psutil
 import logging
 
 logger = logging.getLogger(__name__)

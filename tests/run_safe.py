@@ -72,6 +72,8 @@ SAFE_MODULES = [
     "tests.test_social_media_optimizer",
     "tests.test_rag_avatar_generator",
     "tests.test_nft_avatar_manager",
+    "tests.test_video_analytics",
+    "tests.test_preset_manager",
 ]
 
 

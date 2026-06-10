@@ -1,7 +1,11 @@
 import json
 from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
-from logging_manager import Logger
+import logging
+try:
+    from logging_manager import Logger
+except ImportError:
+    Logger = logging.Logger
 from collections import defaultdict
 
 
@@ -157,6 +161,11 @@ class PresetManager:
         except Exception as e:
             self.logger.error(f"Error deleting preset {preset_name}: {str(e)}")
             raise PresetError(f"Failed to delete preset {preset_name}: {str(e)}") from e
+
+    def _validate_preset(self, preset_data: Dict[str, Any]) -> None:
+        """Validate preset data structure"""
+        if not isinstance(preset_data, dict):
+            raise PresetError("Preset data must be a dictionary")
 
     def _remove_from_index(self, preset_name: str, preset_data: Dict[str, Any]) -> None:
         """プリセットをインデックスから削除"""

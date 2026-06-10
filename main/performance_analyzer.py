@@ -1,8 +1,17 @@
-import psutil
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    psutil = None
 import time
 from typing import Dict, Any
 from datetime import datetime, timezone
-from logging_manager import Logger
+import logging
+try:
+    from logging_manager import Logger
+except ImportError:
+    Logger = logging.Logger
 
 
 class PerformanceError(Exception):
@@ -47,6 +56,8 @@ class PerformanceAnalyzer:
     def _collect_metrics(self) -> None:
         """Collect system metrics"""
         try:
+            if not PSUTIL_AVAILABLE:
+                return
             timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
             # CPU metrics
