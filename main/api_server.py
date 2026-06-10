@@ -1175,6 +1175,8 @@ async def unpublish_avatar(listing_id: str, current_user: dict = Depends(get_cur
         ok = get_marketplace().unpublish(listing_id, current_user["user_id"])
         if not ok:
             raise HTTPException(status_code=404, detail="リスティングが見つかりません")
+        if get_search_index:
+            get_search_index().remove(listing_id)
         return {"status": "unpublished"}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
