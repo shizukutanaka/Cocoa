@@ -20,12 +20,24 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 import logging
 import json
-import qrcode
+try:
+    import qrcode
+    QRCODE_AVAILABLE = True
+except ImportError:
+    QRCODE_AVAILABLE = False
+    qrcode = None
 import io
 
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+try:
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    CRYPTO_AVAILABLE = True
+except (ImportError, BaseException):
+    CRYPTO_AVAILABLE = False
+    Fernet = None
+    hashes = None
+    PBKDF2HMAC = None
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +108,7 @@ class TwoFactorAuthManager:
         """2FAマネージャーを初期化"""
         self.secret_key = secret_key
         self.db_manager = db_manager
-        self.fernet = Fernet(self._derive_key())
+        self.fernet = Fernet(self._derive_key()) if CRYPTO_AVAILABLE else None
 
         # 設定
         self.issuer_name = "Cocoa Avatar System"
@@ -111,6 +123,9 @@ class TwoFactorAuthManager:
 
     def _derive_key(self) -> bytes:
         """暗号化キーを導出"""
+        if not CRYPTO_AVAILABLE:
+            import hashlib
+            return base64.urlsafe_b64encode(hashlib.sha256(self.secret_key.encode()).digest())
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
@@ -151,6 +166,8 @@ class TwoFactorAuthManager:
 
     def create_qr_code(self, username: str, secret: str) -> bytes:
         """QRコード画像を生成"""
+        if not QRCODE_AVAILABLE:
+            raise RuntimeError("qrcode library not installed")
         uri = self.generate_qr_code_uri(username, secret)
 
         # QRコード生成

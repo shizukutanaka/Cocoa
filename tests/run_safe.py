@@ -74,6 +74,8 @@ SAFE_MODULES = [
     "tests.test_nft_avatar_manager",
     "tests.test_video_analytics",
     "tests.test_preset_manager",
+    "tests.test_two_factor_auth",
+    "tests.test_integrated_security",
 ]
 
 
