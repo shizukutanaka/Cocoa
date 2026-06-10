@@ -479,25 +479,9 @@ class StripeBillingService:
                 "event_id": event_id,
             }
 
-        if event_type == "customer.subscription.created":
-            logger.debug("Processing subscription.created for %s", data_object.get("customer"))
-            result = self._handle_subscription_update(data_object, event_type)
-        elif event_type == "customer.subscription.updated":
-            logger.debug("Processing subscription.updated for %s", data_object.get("customer"))
-            result = self._handle_subscription_update(data_object, event_type)
-        elif event_type == "customer.subscription.deleted":
-            logger.debug("Processing subscription.deleted for %s", data_object.get("customer"))
-            result = self._handle_subscription_update(data_object, event_type)
-        elif event_type == "customer.subscription.trial_will_end":
-            result = self._handle_trial_will_end(data_object, event_type)
-        elif event_type == "checkout.session.completed":
-            result = self._handle_checkout_completed(data_object, event_type)
-        elif event_type == "invoice.payment_succeeded":
-            result = self._handle_invoice_payment(data_object, event_type)
-        elif event_type == "invoice.payment_failed":
-            result = self._handle_invoice_payment_failed(data_object, event_type)
-        elif event_type == "invoice.payment_action_required":
-            result = self._handle_invoice_payment_action_required(data_object, event_type)
+        handler_name = self._WEBHOOK_HANDLERS.get(event_type)
+        if handler_name is not None:
+            result = getattr(self, handler_name)(data_object, event_type)
         else:
             logger.info("Unhandled Stripe event received: %s", event_type)
             result = {"processed": False, "reason": "Unhandled event", "event_type": event_type}
@@ -505,6 +489,18 @@ class StripeBillingService:
         if event_id:
             self._event_log.record(event_id, event_type or "unknown")
         return result
+
+    # Stripe イベントタイプ -> ハンドラメソッド名のディスパッチテーブル
+    _WEBHOOK_HANDLERS = {
+        "customer.subscription.created": "_handle_subscription_update",
+        "customer.subscription.updated": "_handle_subscription_update",
+        "customer.subscription.deleted": "_handle_subscription_update",
+        "customer.subscription.trial_will_end": "_handle_trial_will_end",
+        "checkout.session.completed": "_handle_checkout_completed",
+        "invoice.payment_succeeded": "_handle_invoice_payment",
+        "invoice.payment_failed": "_handle_invoice_payment_failed",
+        "invoice.payment_action_required": "_handle_invoice_payment_action_required",
+    }
 
     # ------------------------------------------------------------------
     # Stripe back-office operations
