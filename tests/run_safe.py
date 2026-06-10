@@ -76,6 +76,8 @@ SAFE_MODULES = [
     "tests.test_preset_manager",
     "tests.test_two_factor_auth",
     "tests.test_integrated_security",
+    "tests.test_vr_ar_avatar_system",
+    "tests.test_metaverse_integration",
 ]
 
 

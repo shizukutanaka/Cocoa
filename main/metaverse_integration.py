@@ -13,16 +13,59 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 
-from quantum_safe_manager import get_quantum_safe_manager
-from edge_ai_manager import get_edge_ai_manager, ModelCompressionConfig
-from blockchain_audit import get_blockchain_audit_manager, BlockchainAuditEvent
-from ar_cloud_manager import get_ar_cloud_manager
-from bci_manager import get_bci_manager
-from global_edge_manager import get_global_edge_manager
-from integrated_security import get_security_manager, get_ai_security_manager
-from i18n_manager import get_i18n_manager
-from performance_monitor import get_hybrid_system_manager
-from avatar_agent import get_agentic_ai_manager
+try:
+    from quantum_safe_manager import get_quantum_safe_manager
+except ImportError:
+    get_quantum_safe_manager = None
+
+try:
+    from edge_ai_manager import get_edge_ai_manager, ModelCompressionConfig
+except ImportError:
+    get_edge_ai_manager = None
+    ModelCompressionConfig = None
+
+try:
+    from blockchain_audit import get_blockchain_audit_manager, BlockchainAuditEvent
+except ImportError:
+    get_blockchain_audit_manager = None
+    BlockchainAuditEvent = None
+
+try:
+    from ar_cloud_manager import get_ar_cloud_manager
+except ImportError:
+    get_ar_cloud_manager = None
+
+try:
+    from bci_manager import get_bci_manager
+except ImportError:
+    get_bci_manager = None
+
+try:
+    from global_edge_manager import get_global_edge_manager
+except ImportError:
+    get_global_edge_manager = None
+
+from integrated_security import get_security_manager
+
+try:
+    from integrated_security import get_ai_security_manager
+except ImportError:
+    get_ai_security_manager = None
+
+try:
+    from i18n_manager import get_i18n_manager
+except ImportError:
+    get_i18n_manager = None
+
+try:
+    from performance_monitor import get_hybrid_system_manager
+except ImportError:
+    get_hybrid_system_manager = None
+
+try:
+    from avatar_agent import get_agentic_ai_manager
+except ImportError:
+    get_agentic_ai_manager = None
 
 logger = logging.getLogger(__name__)
 

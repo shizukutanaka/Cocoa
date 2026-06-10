@@ -19,6 +19,9 @@ try:
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
+    torch = None
+    nn = None
+    Dataset = object
 
 try:
     import onnx  # noqa: F401
@@ -296,8 +299,8 @@ class EdgeAIManager:
             logger.error(f"Model compression failed: {e}")
             raise
 
-    async def _compress_model(self, model: nn.Module, config: ModelCompressionConfig,
-                            device_info: EdgeDeviceInfo) -> nn.Module:
+    async def _compress_model(self, model: "Any", config: ModelCompressionConfig,
+                            device_info: EdgeDeviceInfo) -> "Any":
         """モデルを圧縮"""
         compressed_model = model
 
@@ -317,30 +320,30 @@ class EdgeAIManager:
 
         return compressed_model
 
-    def _quantize_model_int8(self, model: nn.Module, device_info: EdgeDeviceInfo) -> nn.Module:
+    def _quantize_model_int8(self, model: "Any", device_info: EdgeDeviceInfo) -> "Any":
         """INT8量子化"""
         if device_info.available_memory_mb < 1024:
             # メモリが少ない場合はより積極的な量子化
             model = torch.quantization.quantize_dynamic(
-                model, {nn.Linear, nn.Conv2d}, dtype=torch.qint8
+                model, getattr(nn, "Linear", object), getattr(nn, "Conv2d", object), dtype=torch.qint8
             )
         else:
             model = torch.quantization.quantize_dynamic(
-                model, {nn.Linear}, dtype=torch.qint8
+                model, getattr(nn, "Linear", object), dtype=torch.qint8
             )
         return model
 
-    def _quantize_model_fp16(self, model: nn.Module) -> nn.Module:
+    def _quantize_model_fp16(self, model: "Any") -> "Any":
         """FP16量子化"""
         model = model.half()
         return model
 
-    def _prune_model(self, model: nn.Module, pruning_ratio: float) -> nn.Module:
+    def _prune_model(self, model: "Any", pruning_ratio: float) -> "Any":
         """モデルプルーニング"""
         # 簡易的なプルーニング実装
         parameters_to_prune = []
         for _name, module in model.named_modules():
-            if isinstance(module, nn.Linear):
+            if TORCH_AVAILABLE and nn and isinstance(module, nn.Linear):
                 parameters_to_prune.append((module, 'weight'))
 
         if parameters_to_prune:
@@ -353,14 +356,14 @@ class EdgeAIManager:
 
         return model
 
-    async def _distill_model(self, model: nn.Module, config: ModelCompressionConfig) -> nn.Module:
+    async def _distill_model(self, model: "Any", config: ModelCompressionConfig) -> "Any":
         """知識蒸留"""
         # 簡易的な蒸留実装
         # 実際には教師モデルからの知識転移を実行
         logger.info(f"Model distillation applied with temperature: {config.knowledge_distillation_temperature}")
         return model
 
-    async def _measure_model_performance(self, model: nn.Module, device_info: EdgeDeviceInfo) -> Dict[str, float]:
+    async def _measure_model_performance(self, model: "Any", device_info: EdgeDeviceInfo) -> Dict[str, float]:
         """モデルパフォーマンスを測定"""
         metrics = {}
 
@@ -388,21 +391,21 @@ class EdgeAIManager:
 
         return metrics
 
-    def _calculate_model_size(self, model: nn.Module) -> float:
+    def _calculate_model_size(self, model: "Any") -> float:
         """モデルサイズを計算（MB）"""
         param_size = 0
         for param in model.parameters():
             param_size += param.nelement() * param.element_size()
         return param_size / (1024 * 1024)
 
-    def _estimate_memory_usage(self, model: nn.Module, device_info: EdgeDeviceInfo) -> float:
+    def _estimate_memory_usage(self, model: "Any", device_info: EdgeDeviceInfo) -> float:
         """メモリ使用量を推定"""
         param_memory = sum(p.numel() * p.element_size() for p in model.parameters())
         buffer_memory = sum(b.numel() * b.element_size() for b in model.buffers())
         total_memory = param_memory + buffer_memory
         return total_memory / (1024 * 1024)
 
-    def _infer_model_type(self, model: nn.Module) -> str:
+    def _infer_model_type(self, model: "Any") -> str:
         """モデルタイプを推定"""
         # 出力層やモデル構造からタイプを推定
         if hasattr(model, 'num_classes'):
@@ -412,24 +415,24 @@ class EdgeAIManager:
         else:
             return "generation"
 
-    def _get_model_input_shape(self, model: nn.Module) -> Tuple[int, ...]:
+    def _get_model_input_shape(self, model: "Any") -> Tuple[int, ...]:
         """モデル入力形状を取得"""
         # 実際の実装ではモデル定義から取得
         return (1, 3, 224, 224)  # デフォルト値
 
-    def _get_model_output_shape(self, model: nn.Module) -> Tuple[int, ...]:
+    def _get_model_output_shape(self, model: "Any") -> Tuple[int, ...]:
         """モデル出力形状を取得"""
         # 実際の実装ではモデル定義から取得
         return (1, 1000)  # デフォルト値
 
-    async def _export_to_onnx(self, model: nn.Module, output_path: str):
+    async def _export_to_onnx(self, model: "Any", output_path: str):
         """ONNX形式でエクスポート"""
         if ONNX_AVAILABLE:
             dummy_input = torch.randn(self._get_model_input_shape(model))
             torch.onnx.export(model, dummy_input, output_path, export_params=True)
             logger.info(f"Model exported to ONNX: {output_path}")
 
-    async def _export_to_tflite(self, model: nn.Module, output_path: str):
+    async def _export_to_tflite(self, model: "Any", output_path: str):
         """TensorFlow Lite形式でエクスポート"""
         if TFLITE_AVAILABLE:
             # PyTorchからTensorFlowへの変換が必要

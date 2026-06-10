@@ -70,9 +70,9 @@ class ARContent:
 @dataclass
 class PointCloudData:
     """ポイントクラウドデータ"""
-    points: np.ndarray  # N x 3
-    colors: np.ndarray  # N x 3
-    normals: Optional[np.ndarray] = None
+    points: "Any"  # N x 3 ndarray
+    colors: "Any"  # N x 3 ndarray
+    normals: "Optional[Any]" = None
     timestamp: datetime = None
     device_id: str = ""
     location: Tuple[float, float, float] = None

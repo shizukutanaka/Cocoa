@@ -25,6 +25,9 @@ try:
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
+    torch = None
+    nn = None
+    F = None
 
 try:
     import mne  # noqa: F401
@@ -48,7 +51,7 @@ class BCISignal:
     """BCI信号データ"""
     timestamp: datetime
     signal_type: str  # "eeg", "fnirs", "ecog", "neuralink"
-    channels: np.ndarray  # チャンネルデータ
+    channels: "Any"  # チャンネルデータ
     sampling_rate: float
     device_id: str
     user_id: str
@@ -60,7 +63,7 @@ class ThoughtPattern:
     """思考パターン"""
     pattern_id: str
     pattern_type: str  # "movement", "speech", "emotion", "attention"
-    signal_signature: np.ndarray
+    signal_signature: "Any"
     confidence_threshold: float
     action_mapping: Dict[str, Any]
     training_data: List[BCISignal]
@@ -82,7 +85,7 @@ class BCICommand:
 class BCIProfile:
     """BCIユーザープロファイル"""
     user_id: str
-    baseline_signals: Dict[str, np.ndarray]
+    baseline_signals: Dict[str, "Any"]
     trained_patterns: List[str]
     calibration_data: Dict[str, Any]
     preferences: Dict[str, Any]
@@ -97,7 +100,7 @@ class EEGProcessor:
         self.filters = {}
         self.features = {}
 
-    def preprocess_eeg(self, signal: BCISignal) -> np.ndarray:
+    def preprocess_eeg(self, signal: BCISignal) -> "Any":
         """EEG信号の前処理"""
         # ノイズ除去
         filtered = self._apply_filters(signal)
@@ -107,7 +110,7 @@ class EEGProcessor:
 
         return features
 
-    def _apply_filters(self, signal: BCISignal) -> np.ndarray:
+    def _apply_filters(self, signal: BCISignal) -> "Any":
         """フィルタ適用"""
         # バンドパスフィルタ（1-40Hz）
         if signal.signal_type == "eeg":
@@ -120,12 +123,12 @@ class EEGProcessor:
 
         return filtered
 
-    def _notch_filter(self, data: np.ndarray, freq: float, fs: float) -> np.ndarray:
+    def _notch_filter(self, data: "Any", freq: float, fs: float) -> "Any":
         """ノッチフィルタ"""
         # 簡易的な50Hzノイズ除去
         return data
 
-    def _extract_features(self, data: np.ndarray, sampling_rate: float) -> np.ndarray:
+    def _extract_features(self, data: "Any", sampling_rate: float) -> "Any":
         """特徴抽出"""
         features = []
 
@@ -151,7 +154,7 @@ class EEGProcessor:
 
         return np.array(features)
 
-class NeuralNetwork(nn.Module):
+class NeuralNetwork(nn.Module if TORCH_AVAILABLE and nn else object):
     """BCI用ニューラルネットワーク"""
 
     def __init__(self, input_size: int, hidden_size: int, output_size: int):
@@ -335,7 +338,7 @@ class BCIManager:
             logger.error(f"BCI signal processing failed: {e}")
             return []
 
-    async def _recognize_thought_patterns(self, signal: BCISignal, features: np.ndarray) -> List[BCICommand]:
+    async def _recognize_thought_patterns(self, signal: BCISignal, features: "Any") -> List[BCICommand]:
         """思考パターンを認識"""
         commands = []
 
