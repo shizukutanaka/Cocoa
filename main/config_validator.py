@@ -876,35 +876,7 @@ class ConfigValidator:
                 if not isinstance(tiers, dict) or not tiers:
                     errors.append("billing.enabled が true の場合は tiers を辞書で定義してください。")
                 else:
-                    price_ids: Dict[str, str] = {}
-                    for tier_key, tier_data in tiers.items():
-                        if not isinstance(tier_key, str) or not tier_key:
-                            errors.append("billing.tiers のキーは空ではない文字列である必要があります。")
-                            continue
-                        if not isinstance(tier_data, dict):
-                            errors.append(f"billing.tiers.{tier_key} はオブジェクトである必要があります。")
-                            continue
-
-                        price_id = tier_data.get("price_id")
-                        if not price_id:
-                            errors.append(f"billing.tiers.{tier_key}.price_id を設定してください。")
-                        elif not isinstance(price_id, str) or not price_id.startswith("price_"):
-                            errors.append(
-                                f"billing.tiers.{tier_key}.price_id は 'price_' で始まるStripe価格IDを指定してください。"
-                            )
-                        else:
-                            duplicated_key = price_ids.get(price_id)
-                            if duplicated_key and duplicated_key != tier_key:
-                                warnings.append(
-                                    f"billing.tiers で price_id '{price_id}' が複数のティア ({duplicated_key}, {tier_key}) に設定されています。"
-                                )
-                            price_ids[price_id] = tier_key
-
-                        description = tier_data.get("description")
-                        if description is not None and not isinstance(description, str):
-                            errors.append(
-                                f"billing.tiers.{tier_key}.description は文字列である必要があります。"
-                            )
+                    self._validate_billing_tiers(tiers, errors, warnings)
 
             if default_price_tier:
                 if not isinstance(default_price_tier, str):
@@ -923,25 +895,7 @@ class ConfigValidator:
 
             checkout_config = billing_config.get("checkout")
             if isinstance(checkout_config, dict):
-                for url_field in ("success_url", "cancel_url"):
-                    url_value = checkout_config.get(url_field)
-                    if not url_value:
-                        errors.append(f"billing.checkout.{url_field} を設定してください。")
-                        continue
-                    if not isinstance(url_value, str):
-                        errors.append(f"billing.checkout.{url_field} は文字列である必要があります。")
-                        continue
-                    parsed = urlparse(url_value)
-                    if parsed.scheme != "https":
-                        errors.append(f"billing.checkout.{url_field} には https スキームのURLを指定してください。")
-                    if not parsed.netloc:
-                        errors.append(
-                            f"billing.checkout.{url_field} に有効なホスト名が含まれていません。"
-                        )
-                    if parsed.hostname in {"localhost", "127.0.0.1"}:
-                        warnings.append(
-                            f"billing.checkout.{url_field} のホストがローカルアドレスです。本番環境では公開エンドポイントを指定してください。"
-                        )
+                self._validate_billing_checkout(checkout_config, errors, warnings)
             elif enabled:
                 errors.append("billing.enabled が true の場合は checkout 設定を定義してください。")
 
@@ -956,6 +910,70 @@ class ConfigValidator:
             if isinstance(billing_validated, dict):
                 billing_validated["mode"] = mode or "subscription"
 
+    def _validate_billing_tiers(
+        self,
+        tiers: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """billing.tiers の各ティア定義（price_id / description）の検証"""
+        price_ids: Dict[str, str] = {}
+        for tier_key, tier_data in tiers.items():
+            if not isinstance(tier_key, str) or not tier_key:
+                errors.append("billing.tiers のキーは空ではない文字列である必要があります。")
+                continue
+            if not isinstance(tier_data, dict):
+                errors.append(f"billing.tiers.{tier_key} はオブジェクトである必要があります。")
+                continue
+
+            price_id = tier_data.get("price_id")
+            if not price_id:
+                errors.append(f"billing.tiers.{tier_key}.price_id を設定してください。")
+            elif not isinstance(price_id, str) or not price_id.startswith("price_"):
+                errors.append(
+                    f"billing.tiers.{tier_key}.price_id は 'price_' で始まるStripe価格IDを指定してください。"
+                )
+            else:
+                duplicated_key = price_ids.get(price_id)
+                if duplicated_key and duplicated_key != tier_key:
+                    warnings.append(
+                        f"billing.tiers で price_id '{price_id}' が複数のティア ({duplicated_key}, {tier_key}) に設定されています。"
+                    )
+                price_ids[price_id] = tier_key
+
+            description = tier_data.get("description")
+            if description is not None and not isinstance(description, str):
+                errors.append(
+                    f"billing.tiers.{tier_key}.description は文字列である必要があります。"
+                )
+
+    def _validate_billing_checkout(
+        self,
+        checkout_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """billing.checkout の success_url / cancel_url の検証"""
+        for url_field in ("success_url", "cancel_url"):
+            url_value = checkout_config.get(url_field)
+            if not url_value:
+                errors.append(f"billing.checkout.{url_field} を設定してください。")
+                continue
+            if not isinstance(url_value, str):
+                errors.append(f"billing.checkout.{url_field} は文字列である必要があります。")
+                continue
+            parsed = urlparse(url_value)
+            if parsed.scheme != "https":
+                errors.append(f"billing.checkout.{url_field} には https スキームのURLを指定してください。")
+            if not parsed.netloc:
+                errors.append(
+                    f"billing.checkout.{url_field} に有効なホスト名が含まれていません。"
+                )
+            if parsed.hostname in {"localhost", "127.0.0.1"}:
+                warnings.append(
+                    f"billing.checkout.{url_field} のホストがローカルアドレスです。本番環境では公開エンドポイントを指定してください。"
+                )
+
     def _validate_notification_section(
         self,
         original_config: Dict[str, Any],
@@ -969,91 +987,122 @@ class ConfigValidator:
         if (isinstance(notification_config, dict)
                 and isinstance(notification_validated, dict)
                 and notification_config.get("enabled")):
-                email_conf = notification_config.get("email", {})
-                webhook_conf = notification_config.get("webhook", {})
+            email_conf = notification_config.get("email", {})
+            webhook_conf = notification_config.get("webhook", {})
 
-                email_ready = False
-                if isinstance(email_conf, dict):
-                    email_validated = notification_validated.setdefault("email", {})
-                    smtp_server = email_conf.get("smtp_server")
-                    from_address = email_conf.get("from_address")
-                    smtp_port = email_conf.get("smtp_port")
-                    to_addresses = email_conf.get("to_addresses")
-                    smtp_server_ok = False
-                    smtp_port_ok = False
+            email_ready = False
+            if isinstance(email_conf, dict):
+                email_ready = self._validate_notification_email(
+                    email_conf, notification_validated, errors, warnings
+                )
 
-                    if smtp_server:
-                        if not isinstance(smtp_server, str) or not smtp_server.strip():
-                            errors.append("notification.email.smtp_server は空白以外の文字列で指定してください。")
-                        elif smtp_port is None:
-                            errors.append("notification.email.smtp_server を使用する場合は smtp_port を指定してください。")
-                        else:
-                            email_validated["smtp_server"] = smtp_server.strip()
-                            smtp_server_ok = True
-                        email_ready = True
+            webhook_ready = False
+            if isinstance(webhook_conf, dict):
+                webhook_ready = self._validate_notification_webhook(
+                    webhook_conf, notification_validated, errors, warnings
+                )
 
-                    if from_address:
-                        if not isinstance(from_address, str) or not self._is_valid_email(from_address.strip()):
-                            errors.append("notification.email.from_address は有効なメールアドレスである必要があります。")
-                        else:
-                            email_validated["from_address"] = from_address.strip()
-                    elif smtp_server:
-                        errors.append("notification.email.from_address は通知メール送信時に必須です。")
+            if not (email_ready or webhook_ready):
+                errors.append("notification.enabled が true の場合は email または webhook の送信先を設定してください。")
 
-                    if isinstance(smtp_port, int):
-                        email_validated["smtp_port"] = smtp_port
-                        smtp_port_ok = True
-                    elif smtp_port is not None:
-                        errors.append("notification.email.smtp_port は整数で指定してください。")
+    def _validate_notification_email(
+        self,
+        email_conf: Dict[str, Any],
+        notification_validated: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> bool:
+        """notification.email（SMTP サーバー / 差出人 / 宛先）の検証。送信可能なら True を返す。"""
+        email_ready = False
+        email_validated = notification_validated.setdefault("email", {})
+        smtp_server = email_conf.get("smtp_server")
+        from_address = email_conf.get("from_address")
+        smtp_port = email_conf.get("smtp_port")
+        to_addresses = email_conf.get("to_addresses")
+        smtp_server_ok = False
+        smtp_port_ok = False
 
-                    normalized_to = self._normalize_email_list(
-                        "notification.email.to_addresses", to_addresses, errors
-                    )
-                    if normalized_to:
-                        email_validated["to_addresses"] = normalized_to
-                        duplicates = self._find_duplicates(normalized_to)
-                        if duplicates:
-                            warnings.append(
-                                "notification.email.to_addresses に重複があります: " + ", ".join(duplicates)
-                            )
-                        email_ready = True
-                    elif smtp_server:
-                        errors.append("notification.email.to_addresses には1件以上の有効なメールアドレスを指定してください。")
+        if smtp_server:
+            if not isinstance(smtp_server, str) or not smtp_server.strip():
+                errors.append("notification.email.smtp_server は空白以外の文字列で指定してください。")
+            elif smtp_port is None:
+                errors.append("notification.email.smtp_server を使用する場合は smtp_port を指定してください。")
+            else:
+                email_validated["smtp_server"] = smtp_server.strip()
+                smtp_server_ok = True
+            email_ready = True
 
-                    email_ready = email_ready and smtp_server_ok and smtp_port_ok and bool(email_validated.get("from_address")) and bool(email_validated.get("to_addresses"))
+        if from_address:
+            if not isinstance(from_address, str) or not self._is_valid_email(from_address.strip()):
+                errors.append("notification.email.from_address は有効なメールアドレスである必要があります。")
+            else:
+                email_validated["from_address"] = from_address.strip()
+        elif smtp_server:
+            errors.append("notification.email.from_address は通知メール送信時に必須です。")
 
-                webhook_ready = False
-                if isinstance(webhook_conf, dict):
-                    webhook_validated = notification_validated.setdefault("webhook", {})
-                    url = webhook_conf.get("url")
-                    method = webhook_conf.get("method")
-                    if url:
-                        if not isinstance(url, str) or not self._is_valid_url(url.strip()):
-                            errors.append("notification.webhook.url は http(s):// 形式の有効なURLを指定してください。")
-                        else:
-                            webhook_validated["url"] = url.strip()
-                            webhook_ready = True
-                            if method:
-                                normalized_method = method.upper()
-                                allowed = {"GET", "POST", "PUT", "PATCH", "DELETE"}
-                                if normalized_method not in allowed:
-                                    errors.append(
-                                        "notification.webhook.method は GET/POST/PUT/PATCH/DELETE のいずれかで指定してください。"
-                                    )
-                                else:
-                                    webhook_validated["method"] = normalized_method
-                            else:
-                                webhook_validated["method"] = "POST"
-                            if webhook_validated["url"].lower().startswith("http://"):
-                                errors.append("notification.webhook.url は https:// で始まる必要があります。")
-                            parsed_url = urlparse(webhook_validated["url"])
-                            if parsed_url.hostname in {"localhost", "127.0.0.1"}:
-                                warnings.append("notification.webhook.url のホストがローカルアドレスです。本番運用では外部到達可能なエンドポイントを設定してください。")
-                    elif method:
-                        warnings.append("notification.webhook.method が指定されていますが url が未設定です。")
+        if isinstance(smtp_port, int):
+            email_validated["smtp_port"] = smtp_port
+            smtp_port_ok = True
+        elif smtp_port is not None:
+            errors.append("notification.email.smtp_port は整数で指定してください。")
 
-                if not (email_ready or webhook_ready):
-                    errors.append("notification.enabled が true の場合は email または webhook の送信先を設定してください。")
+        normalized_to = self._normalize_email_list(
+            "notification.email.to_addresses", to_addresses, errors
+        )
+        if normalized_to:
+            email_validated["to_addresses"] = normalized_to
+            duplicates = self._find_duplicates(normalized_to)
+            if duplicates:
+                warnings.append(
+                    "notification.email.to_addresses に重複があります: " + ", ".join(duplicates)
+                )
+            email_ready = True
+        elif smtp_server:
+            errors.append("notification.email.to_addresses には1件以上の有効なメールアドレスを指定してください。")
+
+        return (
+            email_ready and smtp_server_ok and smtp_port_ok
+            and bool(email_validated.get("from_address"))
+            and bool(email_validated.get("to_addresses"))
+        )
+
+    def _validate_notification_webhook(
+        self,
+        webhook_conf: Dict[str, Any],
+        notification_validated: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> bool:
+        """notification.webhook（URL / メソッド）の検証。送信可能なら True を返す。"""
+        webhook_ready = False
+        webhook_validated = notification_validated.setdefault("webhook", {})
+        url = webhook_conf.get("url")
+        method = webhook_conf.get("method")
+        if url:
+            if not isinstance(url, str) or not self._is_valid_url(url.strip()):
+                errors.append("notification.webhook.url は http(s):// 形式の有効なURLを指定してください。")
+            else:
+                webhook_validated["url"] = url.strip()
+                webhook_ready = True
+                if method:
+                    normalized_method = method.upper()
+                    allowed = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+                    if normalized_method not in allowed:
+                        errors.append(
+                            "notification.webhook.method は GET/POST/PUT/PATCH/DELETE のいずれかで指定してください。"
+                        )
+                    else:
+                        webhook_validated["method"] = normalized_method
+                else:
+                    webhook_validated["method"] = "POST"
+                if webhook_validated["url"].lower().startswith("http://"):
+                    errors.append("notification.webhook.url は https:// で始まる必要があります。")
+                parsed_url = urlparse(webhook_validated["url"])
+                if parsed_url.hostname in {"localhost", "127.0.0.1"}:
+                    warnings.append("notification.webhook.url のホストがローカルアドレスです。本番運用では外部到達可能なエンドポイントを設定してください。")
+        elif method:
+            warnings.append("notification.webhook.method が指定されていますが url が未設定です。")
+        return webhook_ready
 
     def _validate_rate_limiting_section(
         self,
