@@ -57,7 +57,6 @@ class TestAdvancedSecurityManagerInit(unittest.TestCase):
             self.assertIsInstance(mgr.security_events, list)
 
     def test_get_advanced_security_manager_factory(self):
-        import inspect
         from advanced_security_2025 import get_advanced_security_manager
         self.assertTrue(callable(get_advanced_security_manager))
 

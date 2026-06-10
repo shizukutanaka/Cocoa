@@ -280,9 +280,9 @@ class APIIntegrationService:
 
             # シグネチャ検証（オプション）
             signature = request.headers.get('X-Signature', '')
-            if integration.config.get('verify_signature', False):
-                if not self._verify_webhook_signature(data, signature, integration):
-                    return web.json_response({"error": "Invalid signature"}, status=401)
+            if (integration.config.get('verify_signature', False)
+                    and not self._verify_webhook_signature(data, signature, integration)):
+                return web.json_response({"error": "Invalid signature"}, status=401)
 
             # ワークフロートリガー実行
             execution_results = await self._process_webhook_trigger(
@@ -326,17 +326,15 @@ class APIIntegrationService:
         # 関連するトリガーを検索
         for trigger in self.triggers.values():
             if (trigger.integration_id == integration_id and
-                trigger.event_type == event_type and
-                trigger.enabled):
-
-                # 条件チェック
-                if self._check_trigger_conditions(trigger.conditions, data):
-                    execution = await self._execute_workflow_trigger(trigger, data)
-                    executions.append({
-                        "trigger_id": trigger.trigger_id,
-                        "execution_id": execution.execution_id,
-                        "status": execution.status
-                    })
+                    trigger.event_type == event_type and
+                    trigger.enabled and
+                    self._check_trigger_conditions(trigger.conditions, data)):
+                execution = await self._execute_workflow_trigger(trigger, data)
+                executions.append({
+                    "trigger_id": trigger.trigger_id,
+                    "execution_id": execution.execution_id,
+                    "status": execution.status
+                })
 
         return executions
 

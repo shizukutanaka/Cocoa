@@ -1,7 +1,6 @@
 """Tests for preset_manager module."""
 import sys
 import os
-import json
 import unittest
 import tempfile
 import logging

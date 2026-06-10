@@ -31,6 +31,16 @@ except ImportError:
     psutil = None
     PSUTIL_AVAILABLE = False
 
+if PSUTIL_AVAILABLE:
+    _NoSuchProcess = psutil.NoSuchProcess
+    _AccessDenied = psutil.AccessDenied
+else:
+    class _NoSuchProcess(Exception):
+        pass
+
+    class _AccessDenied(Exception):
+        pass
+
 logger = logging.getLogger(__name__)
 
 HistorySample = Dict[str, Any]
@@ -637,11 +647,11 @@ class PerformanceMonitor:
             self._consecutive_errors = 0
             self._last_error_time = None
 
-        except (psutil.NoSuchProcess if PSUTIL_AVAILABLE else Exception):
+        except _NoSuchProcess:
             logger.error(self._get_message("process_not_found"))
             self._record_error("process_not_found")
             return self._get_default_stats(timestamp)
-        except (psutil.AccessDenied if PSUTIL_AVAILABLE else Exception):
+        except _AccessDenied:
             logger.error(self._get_message("access_denied"))
             self._record_error("access_denied")
             return self._get_default_stats(timestamp)

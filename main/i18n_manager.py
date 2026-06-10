@@ -6,6 +6,7 @@ Internationalization Manager for Cocoa
 
 import os
 import json
+import contextlib
 import asyncio
 import logging
 from pathlib import Path
@@ -450,10 +451,9 @@ class I18NManager:
 
         # フォーマット適用
         if isinstance(value, str) and kwargs:
-            try:
+            # フォーマット失敗時はそのまま
+            with contextlib.suppress(KeyError, ValueError):
                 value = value.format(**kwargs)
-            except (KeyError, ValueError):
-                pass  # フォーマット失敗時はそのまま
 
         return value
 

@@ -263,9 +263,8 @@ class AgenticAIManager:
             elif isinstance(threshold, bool):
                 if not current_value:
                     return False
-            elif isinstance(threshold, str):
-                if context.user_activity != threshold:
-                    return False
+            elif isinstance(threshold, str) and context.user_activity != threshold:
+                return False
 
         # 優先度に基づく実行判断
         if task.priority < 5:

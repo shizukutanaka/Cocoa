@@ -16,7 +16,6 @@ class TestAvatarRAGSystem(unittest.TestCase):
     def _make_full(self):
         with patch('rag_avatar_generator.get_security_manager', return_value=MagicMock()):
             from rag_avatar_generator import AvatarRAGSystem
-            import tempfile, os
             # Patch mkdir to avoid FS side effects
             with patch('pathlib.Path.mkdir'):
                 obj = AvatarRAGSystem.__new__(AvatarRAGSystem)

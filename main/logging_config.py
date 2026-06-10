@@ -219,6 +219,6 @@ if __name__ == "__main__":
 
     # 例外ログ（スタックトレース自動追加）
     try:
-        1 / 0
+        1 / 0  # noqa: B018 — 意図的な例外発生（exceptionログのデモ用）
     except ZeroDivisionError:
         logger.exception("Math error occurred")  # この行でスタックトレース自動追加

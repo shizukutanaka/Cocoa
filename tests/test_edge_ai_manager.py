@@ -6,16 +6,13 @@ import sys
 import os
 import inspect
 import unittest
-from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
-import edge_ai_manager
 from edge_ai_manager import (
     EdgeDeviceInfo,
     ModelCompressionConfig,
-    EdgeAIModel,
     FederatedLearningConfig,
     EdgeAIDataset,
     EdgeAIManager,

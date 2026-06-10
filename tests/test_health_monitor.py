@@ -201,7 +201,7 @@ class TestStatusPropagation(unittest.TestCase):
         monitor.startup_time = time.time()
         for i, status in enumerate(statuses):
             s = status
-            monitor.checks[f"check_{i}"] = lambda s=s: HealthCheckResult(
+            monitor.checks[f"check_{i}"] = lambda s=s, i=i: HealthCheckResult(
                 component=f"check_{i}", status=s, message="test"
             )
         return monitor

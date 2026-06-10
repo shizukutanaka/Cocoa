@@ -240,11 +240,10 @@ class VRChatSDKManager:
         # パフォーマンスランクに基づく最適化
         performance_rank = self._calculate_performance_rank(avatar_data, [], [])
 
-        if performance_rank in ['Poor', 'Medium']:
-            # テクスチャサイズの圧縮
-            if avatar_data['width'] > 2048:
-                optimized['width'] = 2048
-                optimized['height'] = 2048
+        # テクスチャサイズの圧縮
+        if performance_rank in ['Poor', 'Medium'] and avatar_data['width'] > 2048:
+            optimized['width'] = 2048
+            optimized['height'] = 2048
 
         # ポリゴン数の最適化
         target_polygons = {

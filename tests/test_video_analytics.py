@@ -67,7 +67,8 @@ class TestVideoAnalyticsServiceAsync(unittest.IsolatedAsyncioTestCase):
             svc = VideoAnalyticsService.__new__(VideoAnalyticsService)
             svc.security_manager = MagicMock()
             svc.db_path = os.path.join(tmpdir, "analytics.db")
-            import queue, threading
+            import queue
+            import threading
             svc.event_queue = queue.Queue()
             svc.metrics_cache = {}
             svc.cache_lock = threading.Lock()

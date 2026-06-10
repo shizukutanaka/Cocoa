@@ -877,19 +877,21 @@ class ConfigValidator:
                 errors.append("billing.enabled が true の場合は checkout 設定を定義してください。")
 
             webhook_config = billing_config.get("webhook")
-            if isinstance(webhook_config, dict):
-                if webhook_config.get("enabled") and not webhook_config.get("endpoint_secret_env"):
-                    warnings.append(
-                        "billing.webhook.enabled が true の場合は endpoint_secret_env を設定してください。"
-                    )
+            if (isinstance(webhook_config, dict)
+                    and webhook_config.get("enabled")
+                    and not webhook_config.get("endpoint_secret_env")):
+                warnings.append(
+                    "billing.webhook.enabled が true の場合は endpoint_secret_env を設定してください。"
+                )
 
             if isinstance(billing_validated, dict):
                 billing_validated["mode"] = mode or "subscription"
 
         notification_config = original_config.get("notification")
         notification_validated = validated_config.get("notification")
-        if isinstance(notification_config, dict) and isinstance(notification_validated, dict):
-            if notification_config.get("enabled"):
+        if (isinstance(notification_config, dict)
+                and isinstance(notification_validated, dict)
+                and notification_config.get("enabled")):
                 email_conf = notification_config.get("email", {})
                 webhook_conf = notification_config.get("webhook", {})
 

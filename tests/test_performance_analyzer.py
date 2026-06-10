@@ -4,7 +4,6 @@ Unit tests for main/performance_analyzer.py
 
 import sys
 import os
-import inspect
 import logging
 import unittest
 from unittest.mock import patch, MagicMock
@@ -178,7 +177,6 @@ class TestCollectMetricsMocked(unittest.TestCase):
             self.skipTest(f"PerformanceAnalyzer construction failed: {e}")
 
     def test_collect_metrics_populates_cpu(self):
-        mock_cpu = MagicMock()
         mock_mem = MagicMock()
         mock_disk = MagicMock()
         mock_net = MagicMock()

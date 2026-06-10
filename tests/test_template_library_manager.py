@@ -1,11 +1,10 @@
 """Tests for TemplateLibrary — get/search, categories, AvatarTemplate/VideoTemplate dataclasses."""
-import asyncio
 import os
 import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
-from template_library import TemplateLibrary, AvatarTemplate, VideoTemplate, TemplateCategory
+from template_library import TemplateLibrary, AvatarTemplate, VideoTemplate
 
 
 class TestAvatarTemplate(unittest.TestCase):

@@ -22,21 +22,18 @@ class TestSanitizeTemplateId(unittest.TestCase):
 
     def test_rejects_path_traversal(self):
         for bad in ("../etc", "..", "a/b", "a\\b", "../../x", "foo/../bar"):
-            with self.subTest(bad=bad):
-                with self.assertRaises(ValueError):
-                    tf.sanitize_template_id(bad)
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                tf.sanitize_template_id(bad)
 
     def test_rejects_empty_and_non_string(self):
         for bad in ("", "   ", None, 123):
-            with self.subTest(bad=bad):
-                with self.assertRaises(ValueError):
-                    tf.sanitize_template_id(bad)
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                tf.sanitize_template_id(bad)
 
     def test_rejects_invalid_chars(self):
         for bad in ("a b", "tmpl!", "name#1", "x\x00y"):
-            with self.subTest(bad=bad):
-                with self.assertRaises(ValueError):
-                    tf.sanitize_template_id(bad)
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                tf.sanitize_template_id(bad)
 
 
 class TestValidateTemplate(unittest.TestCase):

@@ -215,9 +215,9 @@ async def fetch_multiple_sources(urls: List[str]) -> List[str]:
 
     async def fetch(url: str) -> str:
         # 非ブロッキング: aiohttp（同期リクエストライブラリは使わない）
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                return await resp.text()
+        async with aiohttp.ClientSession() as session, \
+                session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            return await resp.text()
 
     try:
         # 全URLを並行処理

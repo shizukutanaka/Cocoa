@@ -6,7 +6,7 @@ import os
 import sys
 import inspect
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
@@ -48,7 +48,6 @@ with patch('integrated_security.get_security_manager', return_value=mock_securit
         WorkflowTrigger,
         WorkflowExecution,
         APIIntegrationService,
-        get_api_integration_service,
     )
 
 

@@ -2,7 +2,6 @@
 import sys
 import os
 import unittest
-from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -55,7 +54,6 @@ class TestHybridSystemManager(unittest.TestCase):
 
     def test_factory_is_callable(self):
         from performance_monitor import get_hybrid_system_manager
-        import inspect
         # Could be async or sync
         self.assertTrue(callable(get_hybrid_system_manager))
 

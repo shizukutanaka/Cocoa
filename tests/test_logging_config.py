@@ -186,9 +186,8 @@ class TestLogContext(unittest.TestCase):
 
     def test_exception_propagates(self):
         logger = self._make_logger()
-        with self.assertRaises(RuntimeError):
-            with LogContext(logger, "failing-op"):
-                raise RuntimeError("intentional")
+        with self.assertRaises(RuntimeError), LogContext(logger, "failing-op"):
+            raise RuntimeError("intentional")
 
 
 if __name__ == "__main__":

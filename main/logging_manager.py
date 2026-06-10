@@ -333,11 +333,12 @@ class LoggingManager:
                 return False
 
             if format.lower() == "json":
-                logs = [
-                    self._parse_log_line(line)
-                    for line in open(log_file, 'r', encoding='utf-8')
-                    if line.strip()
-                ]
+                with open(log_file, 'r', encoding='utf-8') as src:
+                    logs = [
+                        self._parse_log_line(line)
+                        for line in src
+                        if line.strip()
+                    ]
 
                 with open(filename, 'w', encoding='utf-8') as f:
                     json.dump(logs, f, indent=2, ensure_ascii=False)
