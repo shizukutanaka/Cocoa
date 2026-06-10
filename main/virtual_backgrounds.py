@@ -23,6 +23,9 @@ try:
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
+    Image = None
+    ImageEnhance = None
+    ImageFilter = None
 
 from integrated_security import get_security_manager
 
@@ -84,9 +87,9 @@ class BackgroundProcessor:
         self.max_image_size = (4096, 4096)  # 最大画像サイズ
         self.thumbnail_size = (300, 200)
 
-    async def apply_background(self, foreground_image: Image.Image,
+    async def apply_background(self, foreground_image: "Any",
                              background_config: BackgroundConfig,
-                             output_size: Tuple[int, int] = (1920, 1080)) -> Image.Image:
+                             output_size: Tuple[int, int] = (1920, 1080)) -> "Any":
         """
         背景を適用
 
@@ -123,7 +126,7 @@ class BackgroundProcessor:
             logger.error(f"Background application failed: {e}")
             raise
 
-    async def _load_background_image(self, config: BackgroundConfig) -> Image.Image:
+    async def _load_background_image(self, config: BackgroundConfig) -> "Any":
         """背景画像を読み込み"""
         if config.template_id:
             # テンプレートから読み込み
@@ -138,7 +141,7 @@ class BackgroundProcessor:
         # デフォルト背景
         return self._create_default_background()
 
-    def _create_default_background(self) -> Image.Image:
+    def _create_default_background(self) -> "Any":
         """デフォルト背景を作成"""
         # グラデーション背景
         width, height = 1920, 1080
@@ -154,7 +157,7 @@ class BackgroundProcessor:
 
         return image
 
-    def _fit_foreground(self, foreground: Image.Image, output_size: Tuple[int, int]) -> Image.Image:
+    def _fit_foreground(self, foreground: "Any", output_size: Tuple[int, int]) -> "Any":
         """前景画像をフィット"""
         # アバター画像の場合、適切なサイズにリサイズ
         fg_width, fg_height = foreground.size
@@ -172,8 +175,8 @@ class BackgroundProcessor:
 
         return foreground.resize((new_width, new_height), Image.LANCZOS)
 
-    def _composite_images(self, background: Image.Image, foreground: Image.Image,
-                         config: BackgroundConfig) -> Image.Image:
+    def _composite_images(self, background: "Any", foreground: "Any",
+                         config: BackgroundConfig) -> "Any":
         """画像を合成"""
         # 新しい画像作成
         result = background.copy()
@@ -210,7 +213,7 @@ class BackgroundProcessor:
 
         return result
 
-    async def _apply_effects(self, image: Image.Image, effects: List[Dict[str, Any]]) -> Image.Image:
+    async def _apply_effects(self, image: "Any", effects: List[Dict[str, Any]]) -> "Any":
         """エフェクトを適用"""
         result = image.copy()
 
@@ -243,7 +246,7 @@ class BackgroundProcessor:
 
         return result
 
-    async def _apply_branding(self, image: Image.Image, branding: Dict[str, Any]) -> Image.Image:
+    async def _apply_branding(self, image: "Any", branding: Dict[str, Any]) -> "Any":
         """ブランディングを適用"""
         result = image.copy()
 
@@ -508,7 +511,7 @@ class VirtualBackgroundsService:
         # メタデータを保存
         await self._save_all_templates_metadata()
 
-    async def _generate_template_image(self, template: BackgroundTemplate) -> Optional[Image.Image]:
+    async def _generate_template_image(self, template: BackgroundTemplate) -> "Optional[Any]":
         """テンプレート画像を生成"""
         try:
             width, height = 1920, 1080
@@ -550,7 +553,7 @@ class VirtualBackgroundsService:
             logger.error(f"Template image generation failed for {template.template_id}: {e}")
             return None
 
-    def _create_modern_office_bg(self, width: int, height: int) -> Image.Image:
+    def _create_modern_office_bg(self, width: int, height: int) -> "Any":
         """モダンオフィス背景を作成"""
         image = Image.new('RGB', (width, height), '#F8F9FA')
 
@@ -568,7 +571,7 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_conference_room_bg(self, width: int, height: int) -> Image.Image:
+    def _create_conference_room_bg(self, width: int, height: int) -> "Any":
         """会議室背景を作成"""
         image = Image.new('RGB', (width, height), '#FFFFFF')
 
@@ -592,11 +595,11 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_green_screen_bg(self, width: int, height: int) -> Image.Image:
+    def _create_green_screen_bg(self, width: int, height: int) -> "Any":
         """グリーンスクリーン背景を作成"""
         return Image.new('RGB', (width, height), '#00FF00')
 
-    def _create_gradient_bg(self, width: int, height: int) -> Image.Image:
+    def _create_gradient_bg(self, width: int, height: int) -> "Any":
         """グラデーション背景を作成"""
         image = Image.new('RGB', (width, height))
 
@@ -611,7 +614,7 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_park_bg(self, width: int, height: int) -> Image.Image:
+    def _create_park_bg(self, width: int, height: int) -> "Any":
         """公園背景を作成"""
         image = Image.new('RGB', (width, height), '#90EE90')
 
@@ -629,7 +632,7 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_city_bg(self, width: int, height: int) -> Image.Image:
+    def _create_city_bg(self, width: int, height: int) -> "Any":
         """都市背景を作成"""
         image = Image.new('RGB', (width, height), '#87CEEB')
 
@@ -649,7 +652,7 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_geometric_bg(self, width: int, height: int) -> Image.Image:
+    def _create_geometric_bg(self, width: int, height: int) -> "Any":
         """幾何学背景を作成"""
         image = Image.new('RGB', (width, height), '#FFFFFF')
 
@@ -674,7 +677,7 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_blur_bg(self, width: int, height: int) -> Image.Image:
+    def _create_blur_bg(self, width: int, height: int) -> "Any":
         """ぼかし背景を作成"""
         # カラフルなベース画像を作成
         base_image = Image.new('RGB', (width, height))
@@ -696,11 +699,11 @@ class VirtualBackgroundsService:
         # ぼかし適用
         return base_image.filter(ImageFilter.GaussianBlur(10))
 
-    def _create_minimal_brand_bg(self, width: int, height: int) -> Image.Image:
+    def _create_minimal_brand_bg(self, width: int, height: int) -> "Any":
         """ミニマルブランド背景を作成"""
         return Image.new('RGB', (width, height), '#F8F9FA')
 
-    def _create_luxury_brand_bg(self, width: int, height: int) -> Image.Image:
+    def _create_luxury_brand_bg(self, width: int, height: int) -> "Any":
         """ラグジュアリーブランド背景を作成"""
         image = Image.new('RGB', (width, height), '#1A1A1A')
 

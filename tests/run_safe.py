@@ -96,6 +96,11 @@ SAFE_MODULES = [
     "tests.test_bci_manager",
     "tests.test_edge_ai_manager",
     "tests.test_performance_analyzer",
+    "tests.test_virtual_backgrounds",
+    "tests.test_interactive_avatar",
+    "tests.test_vrchat_sdk_integration",
+    "tests.test_api_integration",
+    "tests.test_avatar_video_creator",
 ]
 
 
