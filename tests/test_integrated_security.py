@@ -1,8 +1,8 @@
 """Tests for integrated_security module."""
-import sys
 import os
-import unittest
+import sys
 import tempfile
+import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 

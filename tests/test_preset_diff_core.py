@@ -8,12 +8,12 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "main"))
 
 from preset_diff_core import (
+    _json_lines,
     diff_presets,
     generate_html_diff,
     load_preset,
     save_diff_html,
     write_diff_output,
-    _json_lines,
 )
 
 
@@ -57,7 +57,7 @@ class TestJsonLines(unittest.TestCase):
     def test_returns_list_of_strings(self):
         result = _json_lines({"key": "value"}, sort_keys=False)
         self.assertIsInstance(result, list)
-        self.assertTrue(all(isinstance(l, str) for l in result))
+        self.assertTrue(all(isinstance(line, str) for line in result))
 
     def test_sort_keys_produces_sorted_output(self):
         payload = {"z": 1, "a": 2}

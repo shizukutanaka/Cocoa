@@ -1,9 +1,9 @@
 """
 Tests for main/ar_cloud_manager.py
 """
-import sys
-import os
 import inspect
+import os
+import sys
 import unittest
 from datetime import datetime, timezone
 
@@ -30,8 +30,9 @@ class TestSpatialAnchorDataclass(unittest.TestCase):
         self.assertIsNone(anchor.expires_at)
 
     def test_spatial_anchor_with_expiry(self):
-        from ar_cloud_manager import SpatialAnchor
         from datetime import timedelta
+
+        from ar_cloud_manager import SpatialAnchor
         now = datetime.now(timezone.utc)
         expires = now + timedelta(hours=24)
         anchor = SpatialAnchor(

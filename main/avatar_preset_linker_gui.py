@@ -1,9 +1,10 @@
-import os
-import logging
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
 import json
+import logging
+import os
+import tkinter as tk
 from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+
 from ai_avatar_gui import AIAvatarGeneratorGUI
 
 logger = logging.getLogger(__name__)

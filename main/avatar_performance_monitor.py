@@ -5,17 +5,17 @@ Avatar Performance Monitor Module for Cocoa
 """
 
 import asyncio
-import logging
 import json
+import logging
 import sqlite3
+import statistics
 import threading
 import time
-from pathlib import Path
-from typing import Dict, List, Optional, Union, Any
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from collections import deque
-import statistics
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 from integrated_security import get_security_manager
 

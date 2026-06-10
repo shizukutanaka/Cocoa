@@ -12,9 +12,12 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+from avatar_parameter_sets import get_preset, list_presets  # noqa: E402
 from avatar_parameters import AvatarParameters, estimate_joint_range  # noqa: E402
-from avatar_parameter_sets import get_preset, list_presets             # noqa: E402
-from joint_range_report import generate_joint_range_report, report_as_records  # noqa: E402
+from joint_range_report import (  # noqa: E402
+    generate_joint_range_report,
+    report_as_records,
+)
 
 
 class TestAvatarParametersValidation(unittest.TestCase):

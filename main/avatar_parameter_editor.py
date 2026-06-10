@@ -2,19 +2,29 @@
 # アバターパラメータ編集パネル（カテゴリ・サブカテゴリ選択式/10万パラメータ対応）
 
 try:
-    from PyQt5.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QComboBox,
-        QColorDialog, QPushButton, QLineEdit, QScrollArea, QMessageBox,
-    )
     from PyQt5.QtCore import Qt
     from PyQt5.QtGui import QColor
+    from PyQt5.QtWidgets import (
+        QColorDialog,
+        QComboBox,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QMessageBox,
+        QPushButton,
+        QScrollArea,
+        QSlider,
+        QVBoxLayout,
+        QWidget,
+    )
     PYQT5_AVAILABLE = True
 except ImportError:
     PYQT5_AVAILABLE = False
     QWidget = object
 
-from parameters import CATEGORIES, SUBCATEGORIES, AVATAR_PARAMETERS
 import json
+
+from parameters import AVATAR_PARAMETERS, CATEGORIES, SUBCATEGORIES
 
 PAGE_SIZE = 50
 

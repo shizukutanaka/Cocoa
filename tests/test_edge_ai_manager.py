@@ -2,20 +2,20 @@
 Unit tests for main/edge_ai_manager.py
 """
 
-import sys
-import os
 import inspect
+import os
+import sys
 import unittest
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
 from edge_ai_manager import (
-    EdgeDeviceInfo,
-    ModelCompressionConfig,
-    FederatedLearningConfig,
     EdgeAIDataset,
     EdgeAIManager,
+    EdgeDeviceInfo,
+    FederatedLearningConfig,
+    ModelCompressionConfig,
     get_edge_ai_manager,
 )
 
@@ -24,14 +24,14 @@ class TestEdgeDeviceInfoDataclass(unittest.TestCase):
     """Tests for EdgeDeviceInfo dataclass."""
 
     def _make_device(self, **kwargs):
-        defaults = dict(
-            device_id="dev_001",
-            device_type="smartphone",
-            hardware_specs={"cpu_cores": 4},
-            available_memory_mb=2048,
-            available_storage_mb=64000,
-            network_bandwidth_mbps=50.0,
-        )
+        defaults = {
+            'device_id': "dev_001",
+            'device_type': "smartphone",
+            'hardware_specs': {"cpu_cores": 4},
+            'available_memory_mb': 2048,
+            'available_storage_mb': 64000,
+            'network_bandwidth_mbps': 50.0,
+        }
         defaults.update(kwargs)
         return EdgeDeviceInfo(**defaults)
 
@@ -64,12 +64,12 @@ class TestModelCompressionConfigDataclass(unittest.TestCase):
     """Tests for ModelCompressionConfig dataclass."""
 
     def _make_config(self, **kwargs):
-        defaults = dict(
-            target_size_mb=10.0,
-            quantization_type="int8",
-            pruning_ratio=0.3,
-            distillation_enabled=True,
-        )
+        defaults = {
+            'target_size_mb': 10.0,
+            'quantization_type': "int8",
+            'pruning_ratio': 0.3,
+            'distillation_enabled': True,
+        }
         defaults.update(kwargs)
         return ModelCompressionConfig(**defaults)
 

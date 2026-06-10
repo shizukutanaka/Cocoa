@@ -6,10 +6,10 @@ Emotional Intelligence Module for Avatar System
 
 import asyncio
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 try:
     import numpy as np

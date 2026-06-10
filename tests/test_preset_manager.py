@@ -1,9 +1,9 @@
 """Tests for preset_manager module."""
-import sys
-import os
-import unittest
-import tempfile
 import logging
+import os
+import sys
+import tempfile
+import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 

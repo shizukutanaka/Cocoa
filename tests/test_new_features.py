@@ -3,16 +3,20 @@
 設定ファイル暗号化とキャッシュマネージャーのテスト
 """
 
-import unittest
-import tempfile
 import json
+import tempfile
 import time
+import unittest
 from pathlib import Path
 
 # 新しい機能のインポート
 try:
-    from main.config_encryptor import ConfigEncryptor, encrypt_config_file, decrypt_config_file
-    from main.cache_manager import CacheManager, MemoryCache, FileCache, cached
+    from main.cache_manager import CacheManager, FileCache, MemoryCache, cached
+    from main.config_encryptor import (
+        ConfigEncryptor,
+        decrypt_config_file,
+        encrypt_config_file,
+    )
     CONFIG_ENCRYPTOR_AVAILABLE = True
 except ImportError as e:
     print(f"テスト対象モジュールがインポートできません: {e}")

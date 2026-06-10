@@ -1,8 +1,8 @@
 """Tests for avatar_personality_tuner module."""
-import sys
 import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -36,7 +36,7 @@ class TestBehaviorSample(unittest.TestCase):
 
 class TestTunedAvatarConfig(unittest.TestCase):
     def test_creation(self):
-        from avatar_personality_tuner import TunedAvatarConfig, PersonalityProfile
+        from avatar_personality_tuner import PersonalityProfile, TunedAvatarConfig
         profile = PersonalityProfile(user_id="u1")
         cfg = TunedAvatarConfig(
             user_id="u1",
@@ -76,6 +76,7 @@ class TestAvatarPersonalityTuner(unittest.TestCase):
 
     def test_get_tuner_factory(self):
         import inspect
+
         from avatar_personality_tuner import get_avatar_personality_tuner
         self.assertTrue(inspect.iscoroutinefunction(get_avatar_personality_tuner))
 

@@ -2,11 +2,11 @@
 Unit tests for main/performance_analyzer.py
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 

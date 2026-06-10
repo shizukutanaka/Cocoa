@@ -4,15 +4,15 @@ Interactive AI Agent Module for Cocoa
 会話可能なAIアバター機能を提供
 """
 
-import os
 import asyncio
-import logging
 import json
-from pathlib import Path
-from typing import Dict, List, Any
+import logging
+import os
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import uuid
+from pathlib import Path
+from typing import Any, Dict, List
 
 try:
     import openai
@@ -21,7 +21,7 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 try:
-    from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+    from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False

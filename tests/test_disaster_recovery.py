@@ -15,7 +15,9 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
         sys.path.insert(0, p)
 
 from disaster_recovery import (  # noqa: E402
-    BackupMetadata, BackupStatus, DisasterRecoveryManager,
+    BackupMetadata,
+    BackupStatus,
+    DisasterRecoveryManager,
     initialize_disaster_recovery,
 )
 

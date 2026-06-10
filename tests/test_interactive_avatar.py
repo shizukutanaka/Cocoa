@@ -2,9 +2,9 @@
 Tests for main/interactive_avatar.py
 """
 
-import sys
-import os
 import inspect
+import os
+import sys
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch

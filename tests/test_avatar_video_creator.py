@@ -2,12 +2,12 @@
 Unit tests for main/avatar_video_creator.py
 """
 
+import inspect
 import os
 import sys
-import inspect
+import types
 import unittest
 from unittest.mock import MagicMock, patch
-import types
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -57,9 +57,9 @@ sys.modules.setdefault('integrated_security', is_stub)
 
 with patch('integrated_security.get_security_manager', return_value=mock_security_manager):
     from avatar_video_creator import (
+        AvatarVideoCreator,
         VideoGenerationRequest,
         VideoGenerationResult,
-        AvatarVideoCreator,
         get_avatar_video_creator,
     )
 
@@ -68,11 +68,11 @@ class TestVideoGenerationRequest(unittest.TestCase):
     """Tests for VideoGenerationRequest dataclass"""
 
     def _make_request(self, **kwargs):
-        defaults = dict(
-            user_id="user_1",
-            avatar_id="avatar_1",
-            script_text="Hello world, this is a test script.",
-        )
+        defaults = {
+            'user_id': "user_1",
+            'avatar_id': "avatar_1",
+            'script_text': "Hello world, this is a test script.",
+        }
         defaults.update(kwargs)
         return VideoGenerationRequest(**defaults)
 

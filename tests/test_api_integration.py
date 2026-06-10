@@ -2,9 +2,9 @@
 Unit tests for main/api_integration.py
 """
 
+import inspect
 import os
 import sys
-import inspect
 import unittest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
@@ -44,10 +44,10 @@ sys.modules.setdefault('integrated_security', is_stub)
 
 with patch('integrated_security.get_security_manager', return_value=mock_security_manager):
     from api_integration import (
-        IntegrationConfig,
-        WorkflowTrigger,
-        WorkflowExecution,
         APIIntegrationService,
+        IntegrationConfig,
+        WorkflowExecution,
+        WorkflowTrigger,
     )
 
 
@@ -55,13 +55,13 @@ class TestIntegrationConfig(unittest.TestCase):
     """Tests for IntegrationConfig dataclass"""
 
     def _make_config(self, **kwargs):
-        defaults = dict(
-            integration_id="test_id",
-            name="Test Integration",
-            type="webhook",
-            provider="custom",
-            config={"key": "value"},
-        )
+        defaults = {
+            'integration_id': "test_id",
+            'name': "Test Integration",
+            'type': "webhook",
+            'provider': "custom",
+            'config': {"key": "value"},
+        }
         defaults.update(kwargs)
         return IntegrationConfig(**defaults)
 
@@ -101,13 +101,13 @@ class TestWorkflowTrigger(unittest.TestCase):
     """Tests for WorkflowTrigger dataclass"""
 
     def _make_trigger(self, **kwargs):
-        defaults = dict(
-            trigger_id="trig_1",
-            integration_id="int_1",
-            event_type="content_created",
-            conditions={},
-            actions=[],
-        )
+        defaults = {
+            'trigger_id': "trig_1",
+            'integration_id': "int_1",
+            'event_type': "content_created",
+            'conditions': {},
+            'actions': [],
+        }
         defaults.update(kwargs)
         return WorkflowTrigger(**defaults)
 
@@ -129,12 +129,12 @@ class TestWorkflowExecution(unittest.TestCase):
     """Tests for WorkflowExecution dataclass"""
 
     def _make_execution(self, **kwargs):
-        defaults = dict(
-            execution_id="exec_1",
-            trigger_id="trig_1",
-            input_data={"foo": "bar"},
-            status="pending",
-        )
+        defaults = {
+            'execution_id': "exec_1",
+            'trigger_id': "trig_1",
+            'input_data': {"foo": "bar"},
+            'status': "pending",
+        }
         defaults.update(kwargs)
         return WorkflowExecution(**defaults)
 

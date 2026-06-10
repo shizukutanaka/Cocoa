@@ -5,16 +5,16 @@ Video Analytics Module for Cocoa
 """
 
 import asyncio
-import logging
 import json
+import logging
+import queue
 import sqlite3
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 import statistics
 import threading
-import queue
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from integrated_security import get_security_manager
 

@@ -1,5 +1,5 @@
-import time
 import argparse
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 

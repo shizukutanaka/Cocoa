@@ -1,9 +1,9 @@
 """Tests for two_factor_auth module."""
-import sys
-import os
-import unittest
 import base64
+import os
 import secrets
+import sys
+import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 

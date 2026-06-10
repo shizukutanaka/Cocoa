@@ -12,14 +12,15 @@
 import base64
 import hashlib
 import hmac
+import json
+import logging
 import os
 import secrets
 import struct
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Any
-import logging
-import json
+from typing import Any, Dict, List, Optional
+
 try:
     import qrcode
     QRCODE_AVAILABLE = True

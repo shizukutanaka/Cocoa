@@ -13,8 +13,10 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
         sys.path.insert(0, p)
 
 from secret_manager import (  # noqa: E402
-    EnvironmentSecretManager, SecretProvider,
-    SecretManagerFactory, get_secret_manager,
+    EnvironmentSecretManager,
+    SecretManagerFactory,
+    SecretProvider,
+    get_secret_manager,
 )
 
 

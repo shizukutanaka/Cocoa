@@ -17,7 +17,7 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
         sys.path.insert(0, p)
 
 import i18n as i18n_mod  # noqa: E402
-from i18n import _normalize_lang, I18N  # noqa: E402
+from i18n import I18N, _normalize_lang  # noqa: E402
 
 
 class TestNormalizeLang(unittest.TestCase):

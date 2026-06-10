@@ -6,10 +6,10 @@ AIアバターを使用した動画自動生成システム
 
 import asyncio
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
 
 try:
     from PIL import Image
@@ -28,7 +28,7 @@ try:
 except ImportError:
     MOVIEPY_AVAILABLE = False
 
-from ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
+from ai_avatar_generator import AvatarGenerationRequest, get_ai_avatar_generator
 from integrated_security import get_security_manager
 
 # Configure logging

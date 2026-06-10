@@ -3,18 +3,18 @@ NFT-Enhanced Avatar Management System for Cocoa
 ブロックチェーンとNFTを活用したアバター真正性証明システム
 """
 
-import os
+import hashlib
 import json
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Any
+import os
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from dataclasses import dataclass, asdict
-import hashlib
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 try:
-    from web3 import Web3
     from eth_account import Account
+    from web3 import Web3
     WEB3_AVAILABLE = True
 except ImportError:
     WEB3_AVAILABLE = False

@@ -15,25 +15,45 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 try:
-    from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
+    import uvicorn
+    from fastapi import (
+        Depends,
+        FastAPI,
+        HTTPException,
+        WebSocket,
+        WebSocketDisconnect,
+        status,
+    )
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
-    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+    from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
     from pydantic import BaseModel
-    import uvicorn
     FASTAPI_AVAILABLE = True
 except ImportError:
     FASTAPI_AVAILABLE = False
 
 # カスタムモジュールインポート
 try:
-    from .performance_monitor import PerformanceMonitor
+    from .database_manager import (
+        create_avatar_preset,
+        get_database_manager,
+        get_database_service,
+        get_user_avatars,
+        log_audit_event,
+    )
+    from .disaster_recovery import get_recovery_manager
     from .health_monitor import get_health_monitor
     from .integrated_security import get_security_manager
-    from .disaster_recovery import get_recovery_manager
-    from .database_manager import get_database_service, get_database_manager, get_user_avatars, create_avatar_preset, log_audit_event
-    from .redis_cache_manager import get_cache_manager, cache_async
-    from .two_factor_auth import get_two_factor_service, setup_2fa, verify_2fa_token, verify_backup_code, disable_2fa, get_2fa_status
+    from .performance_monitor import PerformanceMonitor
+    from .redis_cache_manager import cache_async, get_cache_manager
+    from .two_factor_auth import (
+        disable_2fa,
+        get_2fa_status,
+        get_two_factor_service,
+        setup_2fa,
+        verify_2fa_token,
+        verify_backup_code,
+    )
 except ImportError:
     # 開発環境用のフォールバック
     PerformanceMonitor = None

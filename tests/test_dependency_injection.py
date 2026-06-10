@@ -13,7 +13,13 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
         sys.path.insert(0, p)
 
 import dependency_injection as di  # noqa: E402
-from dependency_injection import Container, Dependency, Scope, inject, init_container  # noqa: E402
+from dependency_injection import (  # noqa: E402
+    Container,
+    Dependency,
+    Scope,
+    init_container,
+    inject,
+)
 
 
 class _SimpleService:

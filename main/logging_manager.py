@@ -2,9 +2,9 @@
 ログ管理システム
 軽量で実用的なログ管理機能を提供
 """
+import json
 import logging
 import logging.handlers
-import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path

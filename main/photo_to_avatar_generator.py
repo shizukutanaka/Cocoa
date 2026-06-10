@@ -6,10 +6,10 @@ Photo-to-Avatar AI Generator Module for Cocoa
 
 import asyncio
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import numpy as np

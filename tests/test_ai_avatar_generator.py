@@ -1,8 +1,8 @@
 """Tests for ai_avatar_generator module."""
-import sys
 import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -62,6 +62,7 @@ class TestAIAvatarGeneratorInit(unittest.TestCase):
 
     def test_get_generator_is_async(self):
         import inspect
+
         from ai_avatar_generator import get_ai_avatar_generator
         self.assertTrue(inspect.iscoroutinefunction(get_ai_avatar_generator))
 

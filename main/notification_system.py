@@ -1,9 +1,9 @@
 import json
 import logging
 import platform
-from datetime import datetime, timezone
-from typing import Dict, Any, List
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
+from typing import Any, Dict, List
 
 Logger = logging.Logger
 

@@ -7,8 +7,12 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 from billing_service import (
-    BillingConfig, BillingStorage, BillingEventLog,
-    StripeBillingService, PriceTier, BillingError,
+    BillingConfig,
+    BillingError,
+    BillingEventLog,
+    BillingStorage,
+    PriceTier,
+    StripeBillingService,
 )
 
 

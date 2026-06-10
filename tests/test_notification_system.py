@@ -6,7 +6,11 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
-from notification_system import NotificationSystem, ConsoleNotificationHandler, FileNotificationHandler
+from notification_system import (
+    ConsoleNotificationHandler,
+    FileNotificationHandler,
+    NotificationSystem,
+)
 
 
 class TestNotificationSystem(unittest.TestCase):

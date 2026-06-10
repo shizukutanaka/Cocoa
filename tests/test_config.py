@@ -15,8 +15,14 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
 
 import config as config_module
 from config import (  # noqa: E402
-    APIConfig, Config, DatabaseConfig, SecurityConfig,
-    BackupConfig, LoggingConfig, get_config, init_config,
+    APIConfig,
+    BackupConfig,
+    Config,
+    DatabaseConfig,
+    LoggingConfig,
+    SecurityConfig,
+    get_config,
+    init_config,
 )
 
 _SAFE_KEYS = {"secret_key", "password", "admin_password", "encryption_key"}

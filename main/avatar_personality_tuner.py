@@ -4,14 +4,14 @@ Avatar Personality Tuner Module for Cocoa
 ユーザーの話し方・表情を分析して自然なアバター動作を最適化
 """
 
-import logging
 import json
+import logging
 import sqlite3
-from pathlib import Path
-from typing import Dict, List, Optional, Any
+import statistics
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import statistics
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 try:
     import numpy as np

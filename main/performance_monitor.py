@@ -7,22 +7,21 @@ Performance monitoring subsystem for Cocoa.
 
 from __future__ import annotations
 
+import asyncio
 import json
-import random
 import logging
 import os
 import platform
+import random
+import subprocess
 import threading
 import time
 from collections import deque
-from datetime import datetime, timezone
-from statistics import mean, stdev, StatisticsError
-from typing import Any, Callable, Deque, Dict, List, Optional
-
-import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
-import subprocess
+from statistics import StatisticsError, mean, stdev
+from typing import Any, Callable, Deque, Dict, List, Optional
 
 try:
     import psutil

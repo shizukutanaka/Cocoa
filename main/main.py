@@ -3,8 +3,8 @@
 Cocoa Main Launcher
 アバター管理システムのメインランチャー
 """
-import sys
 import os
+import sys
 from pathlib import Path
 
 try:
@@ -221,8 +221,9 @@ class CocoaLauncher:
     def _run_health_check_handler(self):
         """ヘルスチェック実行ハンドラ"""
         try:
-            from health_monitor import get_health_monitor
             from tkinter import messagebox
+
+            from health_monitor import get_health_monitor
 
             # ヘルスチェック実行
             monitor = get_health_monitor()
@@ -277,6 +278,7 @@ class CocoaLauncher:
         """APIサーバー起動ハンドラ"""
         try:
             import threading
+
             from api_server import start_api_server
 
             # 別スレッドでAPIサーバーを起動

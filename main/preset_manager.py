@@ -1,7 +1,8 @@
 import json
-from typing import Dict, Any, List, Optional, Set
-from pathlib import Path
 import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
+
 try:
     from logging_manager import Logger
 except ImportError:

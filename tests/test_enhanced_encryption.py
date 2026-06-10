@@ -1,6 +1,6 @@
 """Tests for enhanced_encryption module."""
-import sys
 import os
+import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
 class TestSecurityLevel(unittest.TestCase):
     def test_values(self):
-        from enhanced_encryption import SecurityLevel, CRYPTO_AVAILABLE
+        from enhanced_encryption import CRYPTO_AVAILABLE, SecurityLevel
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         self.assertIsNotNone(SecurityLevel.STANDARD)
@@ -17,7 +17,7 @@ class TestSecurityLevel(unittest.TestCase):
 
 class TestScryptParams(unittest.TestCase):
     def test_defaults(self):
-        from enhanced_encryption import ScryptParams, CRYPTO_AVAILABLE
+        from enhanced_encryption import CRYPTO_AVAILABLE, ScryptParams
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         params = ScryptParams()
@@ -25,7 +25,7 @@ class TestScryptParams(unittest.TestCase):
         self.assertGreater(params.n, 0)
 
     def test_custom(self):
-        from enhanced_encryption import ScryptParams, CRYPTO_AVAILABLE
+        from enhanced_encryption import CRYPTO_AVAILABLE, ScryptParams
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         params = ScryptParams(n=16384, r=8, p=1)
@@ -34,14 +34,14 @@ class TestScryptParams(unittest.TestCase):
 
 class TestEnhancedDataEncryptor(unittest.TestCase):
     def test_init(self):
-        from enhanced_encryption import EnhancedDataEncryptor, CRYPTO_AVAILABLE
+        from enhanced_encryption import CRYPTO_AVAILABLE, EnhancedDataEncryptor
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         enc = EnhancedDataEncryptor()
         self.assertIsNotNone(enc)
 
     def test_encrypt_decrypt_roundtrip(self):
-        from enhanced_encryption import EnhancedDataEncryptor, CRYPTO_AVAILABLE
+        from enhanced_encryption import CRYPTO_AVAILABLE, EnhancedDataEncryptor
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         enc = EnhancedDataEncryptor()
@@ -53,7 +53,7 @@ class TestEnhancedDataEncryptor(unittest.TestCase):
         self.assertEqual(decrypted, data)
 
     def test_wrong_password_fails(self):
-        from enhanced_encryption import EnhancedDataEncryptor, CRYPTO_AVAILABLE
+        from enhanced_encryption import CRYPTO_AVAILABLE, EnhancedDataEncryptor
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         enc = EnhancedDataEncryptor()

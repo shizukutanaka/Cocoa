@@ -6,7 +6,9 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 from multi_avatar_manager import (
-    MultiAvatarManager, AvatarInstance, MultiAvatarScene,
+    AvatarInstance,
+    MultiAvatarManager,
+    MultiAvatarScene,
 )
 
 

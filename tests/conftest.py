@@ -8,9 +8,10 @@ pytest グローバル設定ファイル
 
 import os
 import sys
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 # プロジェクトルートを sys.path に追加
 project_root = Path(__file__).parent.parent

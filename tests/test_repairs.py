@@ -11,11 +11,11 @@ Covers three earlier fixes:
   3. run_tests: run_suite returns an (int, result) tuple (exit-code contract).
 """
 import ast
+import contextlib
+import importlib.util
 import io
 import json
 import sys
-import contextlib
-import importlib.util
 import tempfile
 import unittest
 from pathlib import Path

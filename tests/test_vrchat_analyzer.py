@@ -13,11 +13,14 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
         sys.path.insert(0, p)
 
 from vrchat_performance_analyzer import (  # noqa: E402
-    AvatarStats, PerformanceRank, Platform,
+    AvatarStats,
     PerformanceAnalysisResult,
+    PerformanceRank,
+    Platform,
     VRChatPerformanceAnalyzer,
-    analyze_all_platforms, worst_platform_rank,
+    analyze_all_platforms,
     generate_cross_platform_report,
+    worst_platform_rank,
 )
 
 

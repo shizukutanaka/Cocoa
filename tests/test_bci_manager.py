@@ -1,9 +1,9 @@
 """
 Tests for main/bci_manager.py
 """
-import sys
-import os
 import inspect
+import os
+import sys
 import unittest
 from datetime import datetime, timezone
 

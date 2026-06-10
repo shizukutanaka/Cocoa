@@ -17,7 +17,11 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
 import tempfile
 
 from cache_manager import (  # noqa: E402
-    MemoryCache, CacheManager, cached, async_cached, FileCache,
+    CacheManager,
+    FileCache,
+    MemoryCache,
+    async_cached,
+    cached,
 )
 
 

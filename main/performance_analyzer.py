@@ -4,10 +4,11 @@ try:
 except ImportError:
     PSUTIL_AVAILABLE = False
     psutil = None
-import time
-from typing import Dict, Any
-from datetime import datetime, timezone
 import logging
+import time
+from datetime import datetime, timezone
+from typing import Any, Dict
+
 try:
     from logging_manager import Logger
 except ImportError:

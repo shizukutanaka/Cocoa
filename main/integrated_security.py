@@ -5,20 +5,20 @@ Provides encryption (AES-256-GCM), security auditing, input validation,
 behavioral anomaly detection and zero-trust session management.
 """
 
+import hashlib
+import json
+import logging
 import os
 import re
-import json
-import time
-import hashlib
 import secrets
-import logging
-from stat import S_IMODE
-from pathlib import Path
-from enum import Enum
-from datetime import datetime, timezone
-from dataclasses import dataclass, field
+import time
 from collections import defaultdict, deque
-from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
+from stat import S_IMODE
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -97,9 +97,9 @@ def _resolve_security_db_path() -> Path:
     return candidate
 
 try:
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
     from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     CRYPTO_AVAILABLE = True
 except (ImportError, BaseException):

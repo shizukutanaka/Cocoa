@@ -1,6 +1,7 @@
 import logging
+
+from avatar_parameter_sets import get_preset, list_presets
 from avatar_parameters import estimate_joint_range
-from avatar_parameter_sets import list_presets, get_preset
 
 logger = logging.getLogger(__name__)
 

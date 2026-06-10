@@ -1,6 +1,6 @@
 """Tests for prometheus_monitor module."""
-import sys
 import os
+import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
@@ -23,7 +23,11 @@ class TestMetricConfig(unittest.TestCase):
 
 class TestEnhancedPrometheusMonitor(unittest.TestCase):
     def _make_monitor(self):
-        from prometheus_monitor import EnhancedPrometheusMonitor, Environment, PROMETHEUS_AVAILABLE
+        from prometheus_monitor import (
+            PROMETHEUS_AVAILABLE,
+            EnhancedPrometheusMonitor,
+            Environment,
+        )
         if not PROMETHEUS_AVAILABLE:
             self.skipTest("prometheus_client not installed")
         return EnhancedPrometheusMonitor(environment=Environment.DEV)
@@ -43,7 +47,12 @@ class TestEnhancedPrometheusMonitor(unittest.TestCase):
 
 class TestMetricsServer(unittest.TestCase):
     def test_init(self):
-        from prometheus_monitor import MetricsServer, EnhancedPrometheusMonitor, Environment, PROMETHEUS_AVAILABLE
+        from prometheus_monitor import (
+            PROMETHEUS_AVAILABLE,
+            EnhancedPrometheusMonitor,
+            Environment,
+            MetricsServer,
+        )
         if not PROMETHEUS_AVAILABLE:
             self.skipTest("prometheus_client not installed")
         mon = EnhancedPrometheusMonitor(environment=Environment.DEV)

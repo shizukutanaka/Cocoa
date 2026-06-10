@@ -4,8 +4,8 @@ Virtual Backgrounds Module for Cocoa
 仮想背景統合システム
 """
 
-import logging
 import json
+import logging
 import shutil
 from pathlib import Path
 
@@ -15,9 +15,10 @@ try:
 except ImportError:
     aiofiles = None
     AIOFILES_AVAILABLE = False
-from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
 try:
     from PIL import Image, ImageEnhance, ImageFilter
     PIL_AVAILABLE = True

@@ -10,9 +10,9 @@ FastAPI との統合を想定した実装
 """
 
 import inspect
-from typing import Any, Callable, Dict, Optional, Type, TypeVar, Union
-from enum import Enum
 import logging
+from enum import Enum
+from typing import Any, Callable, Dict, Optional, Type, TypeVar, Union
 
 logger = logging.getLogger(__name__)
 

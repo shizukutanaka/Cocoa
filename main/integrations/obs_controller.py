@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Optional
@@ -10,7 +11,6 @@ import aiohttp
 
 from .interfaces import StreamingController
 from .models import ConnectionParams, ControllerStatus, SceneInfo, SourceInfo
-import contextlib
 
 
 class OBSController(StreamingController):

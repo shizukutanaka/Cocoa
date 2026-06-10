@@ -1,7 +1,9 @@
-import json
 import argparse
+import json
 from datetime import datetime
+
 from preset_change_history import PresetChangeHistory
+
 
 def diff_dict(d1, d2, prefix=""):
     """dict 差分を返す。ネストした dict は再帰し、ドット区切りのパスで表示する。

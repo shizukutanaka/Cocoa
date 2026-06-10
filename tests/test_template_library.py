@@ -1,8 +1,8 @@
 """Tests for template_library module."""
-import sys
 import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -10,13 +10,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 class TestAvatarTemplate(unittest.TestCase):
     def _make(self, **kw):
         from template_library import AvatarTemplate
-        defaults = dict(
-            template_id="tpl_1",
-            name="Anime Girl",
-            description="Cute anime avatar",
-            category="anime",
-            style="cute",
-        )
+        defaults = {
+            'template_id': "tpl_1",
+            'name': "Anime Girl",
+            'description': "Cute anime avatar",
+            'category': "anime",
+            'style': "cute",
+        }
         defaults.update(kw)
         return AvatarTemplate(**defaults)
 

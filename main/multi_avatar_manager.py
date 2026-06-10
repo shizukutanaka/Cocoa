@@ -4,16 +4,16 @@ Multi Avatar Manager Module for Cocoa
 複数アバターの同時管理と複雑な交信シーン作成
 """
 
-import logging
 import json
+import logging
 import sqlite3
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from integrated_security import get_security_manager
 from ai_avatar_generator import get_ai_avatar_generator
+from integrated_security import get_security_manager
 from video_creator import get_video_creator
 
 # Configure logging

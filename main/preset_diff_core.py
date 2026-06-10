@@ -1,10 +1,10 @@
 """Core utilities for preset diff tools."""
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import webbrowser
-import difflib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple

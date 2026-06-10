@@ -3,11 +3,11 @@ RAG-Enhanced Avatar Generator for Cocoa
 Retrieval-Augmented Generationを活用した高度なアバター生成システム
 """
 
+import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
-from datetime import datetime, timezone
-import json
 
 try:
     from sentence_transformers import SentenceTransformer

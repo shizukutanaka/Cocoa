@@ -3,8 +3,8 @@
 Spec: docs/SPEC_PRESET_HISTORY.md
 Runnable without pytest:  python3 -m unittest tests.test_preset_history -v
 """
-import sys
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path

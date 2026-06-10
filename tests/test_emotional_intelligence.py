@@ -1,8 +1,8 @@
 """Tests for emotional_intelligence module."""
-import sys
 import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -85,6 +85,7 @@ class TestEmotionalIntelligenceInit(unittest.TestCase):
 
     def test_get_emotional_intelligence_is_async(self):
         import inspect
+
         from emotional_intelligence import get_emotional_intelligence
         self.assertTrue(inspect.iscoroutinefunction(get_emotional_intelligence))
 

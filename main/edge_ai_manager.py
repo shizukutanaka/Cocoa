@@ -4,13 +4,13 @@ Edge AI Manager for Cocoa
 デバイスレベルでのAI処理と分散学習システム
 """
 
-import time
-import logging
 import json
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import torch

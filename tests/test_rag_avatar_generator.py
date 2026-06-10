@@ -1,8 +1,8 @@
 """Tests for rag_avatar_generator module."""
-import sys
 import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -64,6 +64,7 @@ class TestAvatarRAGSystem(unittest.TestCase):
 class TestGetRAGSystem(unittest.TestCase):
     def test_get_rag_system_is_async(self):
         import inspect
+
         from rag_avatar_generator import get_rag_system
         self.assertTrue(inspect.iscoroutinefunction(get_rag_system))
 

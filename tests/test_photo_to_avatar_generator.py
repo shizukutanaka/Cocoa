@@ -1,8 +1,8 @@
 """Tests for photo_to_avatar_generator module."""
-import sys
 import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -53,6 +53,7 @@ class TestPhotoToAvatarGenerator(unittest.TestCase):
 
     def test_generate_is_async(self):
         import inspect
+
         from photo_to_avatar_generator import PhotoToAvatarGenerator
         self.assertTrue(inspect.iscoroutinefunction(PhotoToAvatarGenerator.generate_avatar_from_photo))
 

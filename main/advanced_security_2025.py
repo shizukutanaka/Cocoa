@@ -3,23 +3,23 @@ Advanced Security System for Cocoa 2025
 ゼロトラストセキュリティとポスト量子暗号を活用した高度なセキュリティシステム
 """
 
-import os
+import hashlib
 import json
 import logging
-from pathlib import Path
-from typing import Dict, List, Any
-from datetime import datetime, timezone
-from dataclasses import dataclass
-import hashlib
+import os
 import secrets
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
 # 古典暗号 (AEAD/KDF) — ハイブリッド方式の対称鍵部分に使用
 try:
     from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
     _AEAD_AVAILABLE = True
 except (ImportError, BaseException):
     _AEAD_AVAILABLE = False
@@ -57,6 +57,7 @@ def _is_kem_alg(name: str) -> bool:
 
 
 from integrated_security import get_security_manager
+
 
 @dataclass
 class ZeroTrustContext:

@@ -2,9 +2,9 @@
 Tests for main/vrchat_sdk_integration.py
 """
 
-import sys
-import os
 import inspect
+import os
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
 

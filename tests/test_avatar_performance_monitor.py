@@ -5,7 +5,9 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 from avatar_performance_monitor import (
-    AvatarPerformanceMonitor, AvatarPerformanceMetrics, PerformanceStats,
+    AvatarPerformanceMetrics,
+    AvatarPerformanceMonitor,
+    PerformanceStats,
 )
 
 
@@ -75,8 +77,8 @@ class TestAvatarPerformanceMonitorTracking(unittest.IsolatedAsyncioTestCase):
         await self.monitor._init_database()
 
     async def asyncTearDown(self):
-        import os
         import contextlib
+        import os
         with contextlib.suppress(OSError):
             os.unlink(self.tmpfile.name)
 

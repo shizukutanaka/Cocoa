@@ -1,8 +1,8 @@
 """Tests for voice_cloning module."""
-import sys
 import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -53,16 +53,19 @@ class TestVoiceCloningEngine(unittest.TestCase):
 
     def test_clone_voice_is_async(self):
         import inspect
+
         from voice_cloning import VoiceCloningEngine
         self.assertTrue(inspect.iscoroutinefunction(VoiceCloningEngine.clone_voice))
 
     def test_generate_speech_is_async(self):
         import inspect
+
         from voice_cloning import VoiceCloningEngine
         self.assertTrue(inspect.iscoroutinefunction(VoiceCloningEngine.generate_speech))
 
     def test_list_user_voices_is_async(self):
         import inspect
+
         from voice_cloning import VoiceCloningEngine
         self.assertTrue(inspect.iscoroutinefunction(VoiceCloningEngine.list_user_voices))
 
@@ -70,6 +73,7 @@ class TestVoiceCloningEngine(unittest.TestCase):
 class TestVoiceCloningFactory(unittest.TestCase):
     def test_factory_is_async(self):
         import inspect
+
         from voice_cloning import get_voice_cloning_engine
         self.assertTrue(inspect.iscoroutinefunction(get_voice_cloning_engine))
 

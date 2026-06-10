@@ -4,13 +4,13 @@ AI Avatar Generator Module for Cocoa
 生産グレードのAIアバター生成システム
 """
 
-import os
 import asyncio
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Union
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional, Union
 
 try:
     import torch
@@ -25,13 +25,13 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 try:
-    from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
+    from diffusers import StableDiffusionImg2ImgPipeline, StableDiffusionPipeline
     DIFFUSERS_AVAILABLE = True
 except ImportError:
     DIFFUSERS_AVAILABLE = False
 
 try:
-    from transformers import CLIPProcessor, CLIPModel
+    from transformers import CLIPModel, CLIPProcessor
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False

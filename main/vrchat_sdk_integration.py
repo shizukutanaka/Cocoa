@@ -4,15 +4,16 @@ VRChat SDK Integration Module for Cocoa
 VRChat Avatars 3.0システムとの連携機能を提供
 """
 
-import os
 import json
 import logging
-from pathlib import Path
-from typing import Dict, List
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List
 
 import requests
+
 try:
     from PIL import Image
     PIL_AVAILABLE = True

@@ -1,23 +1,23 @@
 """Tests for config_encryptor module."""
-import sys
-import os
 import json
-import unittest
+import os
+import sys
 import tempfile
+import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
 
 class TestConfigEncryptorInit(unittest.TestCase):
     def test_init_default(self):
-        from config_encryptor import ConfigEncryptor, CRYPTO_AVAILABLE
+        from config_encryptor import CRYPTO_AVAILABLE, ConfigEncryptor
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         enc = ConfigEncryptor()
         self.assertIsNotNone(enc)
 
     def test_mask_sensitive_data(self):
-        from config_encryptor import ConfigEncryptor, CRYPTO_AVAILABLE
+        from config_encryptor import CRYPTO_AVAILABLE, ConfigEncryptor
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         enc = ConfigEncryptor()
@@ -28,7 +28,7 @@ class TestConfigEncryptorInit(unittest.TestCase):
         self.assertNotEqual(masked.get("password"), "secret123")
 
     def test_mask_nested(self):
-        from config_encryptor import ConfigEncryptor, CRYPTO_AVAILABLE
+        from config_encryptor import CRYPTO_AVAILABLE, ConfigEncryptor
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         enc = ConfigEncryptor()
@@ -38,7 +38,7 @@ class TestConfigEncryptorInit(unittest.TestCase):
         self.assertEqual(masked["db"]["host"], "localhost")
 
     def test_encrypt_decrypt_roundtrip(self):
-        from config_encryptor import ConfigEncryptor, CRYPTO_AVAILABLE
+        from config_encryptor import CRYPTO_AVAILABLE, ConfigEncryptor
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         enc = ConfigEncryptor()
@@ -48,7 +48,7 @@ class TestConfigEncryptorInit(unittest.TestCase):
         self.assertEqual(decrypted, data)
 
     def test_encrypt_produces_different_output(self):
-        from config_encryptor import ConfigEncryptor, CRYPTO_AVAILABLE
+        from config_encryptor import CRYPTO_AVAILABLE, ConfigEncryptor
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         enc = ConfigEncryptor()
@@ -61,7 +61,7 @@ class TestConfigEncryptorInit(unittest.TestCase):
 
 class TestEncryptDecryptFile(unittest.TestCase):
     def test_encrypt_decrypt_json_file(self):
-        from config_encryptor import ConfigEncryptor, CRYPTO_AVAILABLE
+        from config_encryptor import CRYPTO_AVAILABLE, ConfigEncryptor
         if not CRYPTO_AVAILABLE:
             self.skipTest("cryptography not available")
         with tempfile.TemporaryDirectory() as d:

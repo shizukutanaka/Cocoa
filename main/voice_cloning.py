@@ -4,15 +4,16 @@ Voice Cloning Module for Cocoa
 ユーザーの音声をクローンしてアバターに使用するシステム
 """
 
-import os
 import asyncio
+import json
 import logging
+import os
 import shutil
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
 try:
     import numpy as np
     NUMPY_AVAILABLE = True

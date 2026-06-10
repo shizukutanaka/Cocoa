@@ -4,16 +4,21 @@ AI Avatar Generator GUI Module for Cocoa
 AIアバター生成GUIコンポーネント
 """
 
-import os
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
 import asyncio
-import threading
-from pathlib import Path
 import json
+import os
+import threading
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 
-from ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest, AvatarStyle
-from video_creator import get_video_creator, VideoCreationRequest
+from ai_avatar_generator import (
+    AvatarGenerationRequest,
+    AvatarStyle,
+    get_ai_avatar_generator,
+)
+from video_creator import VideoCreationRequest, get_video_creator
+
 
 class AIAvatarGeneratorGUI:
     """
@@ -496,8 +501,8 @@ class AIAvatarGeneratorGUI:
             return
 
         try:
-            import subprocess
             import platform
+            import subprocess
 
             video_path = self.current_video_result.video_path
 
@@ -686,8 +691,8 @@ class AIAvatarGeneratorGUI:
         """プレビューを表示"""
         if self.current_result and self.current_result.thumbnail_path:
             try:
-                import subprocess
                 import platform
+                import subprocess
 
                 if platform.system() == "Windows":
                     os.startfile(self.current_result.thumbnail_path)

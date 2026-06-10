@@ -5,13 +5,12 @@ VR/AR環境でのシームレスなアバター統合機能を提供
 """
 
 import asyncio
-import logging
 import json
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from quantum_safe_manager import get_quantum_safe_manager
@@ -19,13 +18,13 @@ except ImportError:
     get_quantum_safe_manager = None
 
 try:
-    from edge_ai_manager import get_edge_ai_manager, ModelCompressionConfig
+    from edge_ai_manager import ModelCompressionConfig, get_edge_ai_manager
 except ImportError:
     get_edge_ai_manager = None
     ModelCompressionConfig = None
 
 try:
-    from blockchain_audit import get_blockchain_audit_manager, BlockchainAuditEvent
+    from blockchain_audit import BlockchainAuditEvent, get_blockchain_audit_manager
 except ImportError:
     get_blockchain_audit_manager = None
     BlockchainAuditEvent = None

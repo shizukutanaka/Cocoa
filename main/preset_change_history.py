@@ -3,6 +3,7 @@ import os
 import time
 from datetime import datetime, timezone
 
+
 class PresetChangeHistory:
     def __init__(self, history_file="preset_change_history.jsonl"):
         self.history_file = history_file

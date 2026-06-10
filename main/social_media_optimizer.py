@@ -4,22 +4,23 @@ Social Media Optimizer Module for Cocoa
 各プラットフォームに最適化された動画フォーマット自動調整
 """
 
-import os
 import asyncio
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from video_encoding import get_video_encoder, EncodingPreset
+    from video_encoding import EncodingPreset, get_video_encoder
     VIDEO_ENCODING_AVAILABLE = True
 except ImportError:
     VIDEO_ENCODING_AVAILABLE = False
     get_video_encoder = None
 
-    from dataclasses import dataclass as _dc, field as _field
+    from dataclasses import dataclass as _dc
+    from dataclasses import field as _field
 
     @_dc
     class EncodingPreset:
@@ -554,8 +555,8 @@ class SocialMediaOptimizer:
     async def _generate_platform_thumbnail(self, video_path: str, platform_id: str) -> Optional[str]:
         """プラットフォーム固有のサムネイルを生成"""
         try:
-            from PIL import Image
             import cv2
+            from PIL import Image
 
             # 動画からフレームを抽出
             cap = cv2.VideoCapture(video_path)

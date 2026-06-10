@@ -7,8 +7,8 @@ Contract (verified against the implementation):
     * identical presets -> (True, [])
     * differing presets  -> (False, [non-empty lines])
 """
-import sys
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path

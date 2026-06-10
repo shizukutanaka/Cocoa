@@ -16,8 +16,12 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
 
 import logging_config as lc  # noqa: E402
 from logging_config import (  # noqa: E402
-    _validate_level, JSONFormatter, CorrelationIdFilter,
-    LogContext, set_correlation_id, get_correlation_id,
+    CorrelationIdFilter,
+    JSONFormatter,
+    LogContext,
+    _validate_level,
+    get_correlation_id,
+    set_correlation_id,
 )
 
 

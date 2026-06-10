@@ -1,8 +1,8 @@
 """Tests for metaverse_integration module."""
-import sys
 import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -10,12 +10,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 class TestMetaverseAvatarRequest(unittest.TestCase):
     def _make(self, **kw):
         from metaverse_integration import MetaverseAvatarRequest
-        defaults = dict(
-            user_id="u1",
-            avatar_id="av1",
-            platform="unity",
-            environment="vr",
-        )
+        defaults = {
+            'user_id': "u1",
+            'avatar_id': "av1",
+            'platform': "unity",
+            'environment': "vr",
+        }
         defaults.update(kw)
         return MetaverseAvatarRequest(**defaults)
 

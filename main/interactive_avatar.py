@@ -5,19 +5,20 @@ Interactive Avatar Module for Cocoa
 """
 
 import asyncio
-import logging
 import json
+import logging
+
 try:
     import websockets
     WEBSOCKETS_AVAILABLE = True
 except ImportError:
     WEBSOCKETS_AVAILABLE = False
-from typing import Dict, List, Optional
+import queue
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import queue
+from typing import Dict, List, Optional
 
-from ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
+from ai_avatar_generator import AvatarGenerationRequest, get_ai_avatar_generator
 from integrated_security import get_security_manager
 
 # Configure logging

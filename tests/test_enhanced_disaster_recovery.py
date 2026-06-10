@@ -18,9 +18,9 @@ from enhanced_disaster_recovery import (  # noqa: E402
     BackupLocation,
     BackupMetadata,
     Enhanced321BackupManager,
+    RecoveryStrategy,
     RPOConfig,
     RTOConfig,
-    RecoveryStrategy,
     StorageType,
     TestType,
 )

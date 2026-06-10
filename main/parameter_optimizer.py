@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 try:
     import numpy as np
@@ -13,6 +13,7 @@ except ImportError:
     SCIPY_AVAILABLE = False
 from avatar_parameters import AvatarParameters
 from error_handling import ParameterError
+
 
 class ParameterOptimizer:
     """Optimize avatar parameters for better performance"""

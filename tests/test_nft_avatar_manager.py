@@ -1,8 +1,8 @@
 """Tests for nft_avatar_manager module."""
-import sys
 import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -10,16 +10,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 class TestAvatarNFTMetadata(unittest.TestCase):
     def _make(self, **kw):
         from nft_avatar_manager import AvatarNFTMetadata
-        defaults = dict(
-            name="TestAvatar",
-            description="A test avatar",
-            image_hash="abc123",
-            avatar_hash="def456",
-            creator_id="user_1",
-            creation_date="2026-01-01",
-            attributes={"style": "anime"},
-            ipfs_cid="Qm123",
-        )
+        defaults = {
+            'name': "TestAvatar",
+            'description': "A test avatar",
+            'image_hash': "abc123",
+            'avatar_hash': "def456",
+            'creator_id': "user_1",
+            'creation_date': "2026-01-01",
+            'attributes': {"style": "anime"},
+            'ipfs_cid': "Qm123",
+        }
         defaults.update(kw)
         return AvatarNFTMetadata(**defaults)
 
@@ -97,7 +97,7 @@ class TestNFTAvatarManagerInit(unittest.TestCase):
 
 class TestAvailabilityFlags(unittest.TestCase):
     def test_flags_are_bool(self):
-        from nft_avatar_manager import WEB3_AVAILABLE, IPFS_AVAILABLE
+        from nft_avatar_manager import IPFS_AVAILABLE, WEB3_AVAILABLE
         self.assertIsInstance(WEB3_AVAILABLE, bool)
         self.assertIsInstance(IPFS_AVAILABLE, bool)
 

@@ -6,10 +6,10 @@ Template Library Module for Cocoa
 
 import json
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Union
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional, Union
 
 from integrated_security import get_security_manager
 from template_filters import (

@@ -11,9 +11,14 @@ Prometheus/Grafana 2025ベストプラクティス統合
 
 try:
     from prometheus_client import (
-        Counter, Gauge, Histogram, Summary,
-        CollectorRegistry, push_to_gateway, generate_latest,
         CONTENT_TYPE_LATEST,
+        CollectorRegistry,
+        Counter,
+        Gauge,
+        Histogram,
+        Summary,
+        generate_latest,
+        push_to_gateway,
     )
     PROMETHEUS_AVAILABLE = True
 except ImportError:
@@ -29,11 +34,11 @@ except ImportError:
     PSUTIL_AVAILABLE = False
     psutil = None
 
-from typing import Optional
+import logging
+import time
 from dataclasses import dataclass
 from enum import Enum
-import time
-import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -437,7 +442,7 @@ class MetricsServer:
 
     def start(self):
         """メトリクスサーバーを起動"""
-        from http.server import HTTPServer, BaseHTTPRequestHandler
+        from http.server import BaseHTTPRequestHandler, HTTPServer
 
         class MetricsHandler(BaseHTTPRequestHandler):
             def do_GET(self_handler):

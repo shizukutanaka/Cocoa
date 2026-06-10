@@ -1,8 +1,8 @@
 """Tests for interactive_ai_agent module."""
-import sys
 import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
@@ -64,6 +64,7 @@ class TestPersonalityManager(unittest.TestCase):
 class TestInteractiveAIAgentFactory(unittest.TestCase):
     def test_factory_is_async(self):
         import inspect
+
         from interactive_ai_agent import get_interactive_ai_agent
         self.assertTrue(inspect.iscoroutinefunction(get_interactive_ai_agent))
 

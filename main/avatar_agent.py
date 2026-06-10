@@ -4,16 +4,16 @@ Avatar Agent Module for Cocoa
 Webサイトやキオスクに埋め込み可能なリアルタイムアバター代理機能
 """
 
-import time
-import json
-import random
-from pathlib import Path
-from datetime import datetime, timezone
-from dataclasses import dataclass
-from collections import defaultdict, deque
-from typing import Dict, List, Optional, Any
 import asyncio
+import json
 import logging
+import random
+import time
+from collections import defaultdict, deque
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,9 @@ try:
 except ImportError:
     AIOFILES_AVAILABLE = False
 
-from interactive_avatar import InteractiveAvatar, create_interactive_avatar
 from integrated_security import get_security_manager
+from interactive_avatar import InteractiveAvatar, create_interactive_avatar
+
 
 @dataclass
 class AgentSession:

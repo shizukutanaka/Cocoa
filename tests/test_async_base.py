@@ -13,7 +13,12 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from async_base import AsyncBatch, AsyncCache, async_timeout, process_stream  # noqa: E402
+from async_base import (  # noqa: E402
+    AsyncBatch,
+    AsyncCache,
+    async_timeout,
+    process_stream,
+)
 
 
 def run(coro):

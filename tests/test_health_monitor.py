@@ -14,8 +14,11 @@ for p in (str(PROJECT_ROOT), str(PROJECT_ROOT / "main")):
         sys.path.insert(0, p)
 
 from health_monitor import (  # noqa: E402
-    HealthCheckResult, HealthMonitor, HealthStatus,
-    get_health_monitor, initialize_health_monitoring,
+    HealthCheckResult,
+    HealthMonitor,
+    HealthStatus,
+    get_health_monitor,
+    initialize_health_monitoring,
 )
 
 
