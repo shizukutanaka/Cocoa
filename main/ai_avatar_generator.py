@@ -17,6 +17,7 @@ try:
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
+    torch = None
 
 try:
     from PIL import Image
@@ -125,7 +126,7 @@ class AIAvatarGenerator:
     def _determine_device(self, device: str) -> str:
         """計算デバイスを決定"""
         if device == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
+            return "cuda" if (TORCH_AVAILABLE and torch and torch.cuda.is_available()) else "cpu"
         return device
 
     def _load_style_prompts(self) -> Dict[str, str]:

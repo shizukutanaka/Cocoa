@@ -86,6 +86,9 @@ SAFE_MODULES = [
     "tests.test_performance_monitor_module",
     "tests.test_avatar_personality_tuner",
     "tests.test_avatar_agent",
+    "tests.test_advanced_security_2025",
+    "tests.test_ai_avatar_generator",
+    "tests.test_interactive_ai_agent",
 ]
 
 
