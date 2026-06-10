@@ -21,6 +21,8 @@ try:
     WEB3_AVAILABLE = True
 except ImportError:
     WEB3_AVAILABLE = False
+    Web3 = None
+    Contract = None
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -71,7 +73,10 @@ class BlockchainAuditManager:
 
         # ブロックチェーン設定
         self.web3_provider = os.getenv("WEB3_PROVIDER_URL", "http://localhost:8545")
-        self.web3 = Web3(Web3.HTTPProvider(self.web3_provider))
+        if WEB3_AVAILABLE:
+            self.web3 = Web3(Web3.HTTPProvider(self.web3_provider))
+        else:
+            self.web3 = None
 
         # スマートコントラクト
         self.contract_config = None

@@ -637,11 +637,11 @@ class PerformanceMonitor:
             self._consecutive_errors = 0
             self._last_error_time = None
 
-        except psutil.NoSuchProcess:
+        except (psutil.NoSuchProcess if PSUTIL_AVAILABLE else Exception):
             logger.error(self._get_message("process_not_found"))
             self._record_error("process_not_found")
             return self._get_default_stats(timestamp)
-        except psutil.AccessDenied:
+        except (psutil.AccessDenied if PSUTIL_AVAILABLE else Exception):
             logger.error(self._get_message("access_denied"))
             self._record_error("access_denied")
             return self._get_default_stats(timestamp)
