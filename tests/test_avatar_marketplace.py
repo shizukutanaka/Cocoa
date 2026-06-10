@@ -205,6 +205,53 @@ class TestSearch(unittest.TestCase):
             self.assertIn(key, d)
 
 
+class TestCreatorAnalytics(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.l1 = self.store.publish("av1", "u1", "alice", "Cat", "cute cat", ["cute"], "vrc", {})
+        self.l2 = self.store.publish("av2", "u1", "alice", "Dog", "cute dog", ["cute"], "vrc", {})
+        self.store.publish("av3", "u2", "bob", "Dragon", "scary", ["dark"], "web", {})
+
+    def test_analytics_total_listings(self):
+        a = self.store.get_creator_analytics("u1")
+        self.assertEqual(a["total_listings"], 2)
+        self.assertEqual(a["active_listings"], 2)
+
+    def test_analytics_total_downloads(self):
+        self.store.download(self.l1.listing_id, "u3")
+        self.store.download(self.l1.listing_id, "u4")
+        a = self.store.get_creator_analytics("u1")
+        self.assertEqual(a["total_downloads"], 2)
+
+    def test_analytics_downloads_by_day(self):
+        self.store.download(self.l1.listing_id, "u3")
+        a = self.store.get_creator_analytics("u1")
+        self.assertGreater(len(a["downloads_by_day"]), 0)
+
+    def test_analytics_rating_distribution(self):
+        self.store.rate(self.l1.listing_id, "u3", 5)
+        self.store.rate(self.l1.listing_id, "u4", 3)
+        a = self.store.get_creator_analytics("u1")
+        self.assertEqual(a["rating_distribution"][5], 1)
+        self.assertEqual(a["rating_distribution"][3], 1)
+
+    def test_analytics_total_reviews(self):
+        self.store.review(self.l1.listing_id, "u3", "carol", 4, "Good")
+        a = self.store.get_creator_analytics("u1")
+        self.assertEqual(a["total_reviews"], 1)
+
+    def test_analytics_top_listing(self):
+        self.store.download(self.l2.listing_id, "u3")
+        self.store.download(self.l2.listing_id, "u4")
+        a = self.store.get_creator_analytics("u1")
+        self.assertEqual(a["top_listing"]["listing_id"], self.l2.listing_id)
+
+    def test_analytics_no_listings(self):
+        a = self.store.get_creator_analytics("nonexistent-user")
+        self.assertEqual(a["total_listings"], 0)
+        self.assertIsNone(a["top_listing"])
+
+
 class TestReviews(unittest.TestCase):
     def setUp(self):
         self.store = _store()

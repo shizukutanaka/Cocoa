@@ -104,6 +104,7 @@ class MarketplaceStore:
         self._listings: Dict[str, MarketplaceListing] = {}
         self._votes: Dict[str, Dict[str, int]] = {}  # listing_id → {user_id: stars}
         self._reviews: Dict[str, Dict[str, Review]] = {}  # listing_id → {user_id: Review}
+        self._download_log: List[Tuple[str, str, datetime]] = []  # (listing_id, downloader_id, ts)
         self._lock = threading.Lock()
 
     # --- Publish ---
@@ -168,8 +169,10 @@ class MarketplaceStore:
             listing = self._listings.get(listing_id)
             if not listing or not listing.is_active:
                 return None
+            now = datetime.now(timezone.utc)
             listing.download_count += 1
-            listing.updated_at = datetime.now(timezone.utc)
+            listing.updated_at = now
+            self._download_log.append((listing_id, downloader_id, now))
             return {
                 "source_listing_id": listing_id,
                 "source_avatar_id": listing.avatar_id,
@@ -324,6 +327,43 @@ class MarketplaceStore:
             "total_downloads": sum(lst.download_count for lst in active),
             "total_ratings": sum(lst.rating_count for lst in active),
             "categories": list({lst.category for lst in active}),
+        }
+
+    def get_creator_analytics(self, owner_id: str) -> Dict[str, Any]:
+        """Per-creator dashboard stats."""
+        with self._lock:
+            listings = [lst for lst in self._listings.values() if lst.owner_id == owner_id]
+            logs = [(lid, did, ts) for lid, did, ts in self._download_log
+                    if self._listings.get(lid) and self._listings[lid].owner_id == owner_id]
+
+        total_downloads = sum(lst.download_count for lst in listings)
+        active_count = sum(1 for lst in listings if lst.is_active)
+        total_reviews = sum(len(self._reviews.get(lst.listing_id, {})) for lst in listings)
+
+        # Rating distribution across all listings
+        rating_dist: Dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for lst in listings:
+            for stars in self._votes.get(lst.listing_id, {}).values():
+                rating_dist[stars] = rating_dist.get(stars, 0) + 1
+
+        # Downloads by day (last 30 days)
+        from collections import Counter
+        day_counts: Counter = Counter()
+        for _, _, ts in logs:
+            day_counts[ts.strftime("%Y-%m-%d")] += 1
+
+        # Top listing by downloads
+        top = max(listings, key=lambda lst: lst.download_count, default=None)
+
+        return {
+            "owner_id": owner_id,
+            "total_listings": len(listings),
+            "active_listings": active_count,
+            "total_downloads": total_downloads,
+            "total_reviews": total_reviews,
+            "rating_distribution": rating_dist,
+            "downloads_by_day": dict(day_counts),
+            "top_listing": top.to_dict() if top else None,
         }
 
 

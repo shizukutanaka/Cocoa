@@ -1220,6 +1220,14 @@ async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
     return {"user_id": user_id, "status": "deleted"}
 
 
+@app.get("/api/marketplace/analytics/me", tags=["marketplace"])
+async def my_creator_analytics(current_user: dict = Depends(get_current_user)):
+    """自分のクリエイターダッシュボード統計"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    return get_marketplace().get_creator_analytics(current_user["user_id"])
+
+
 @app.get("/api/admin/stats", tags=["admin"])
 async def admin_stats(admin: dict = Depends(get_current_admin)):
     """システム統計（管理者専用）"""
