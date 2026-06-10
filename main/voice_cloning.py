@@ -406,7 +406,7 @@ class VoiceCloningEngine:
         samples = []
         for json_file in user_dir.glob("*.json"):
             try:
-                with open(json_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                with open(json_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     metadata = json.load(f)
 
                 audio_path = json_file.with_suffix('.wav')
@@ -564,9 +564,9 @@ class VoiceCloningEngine:
                 metadata_file = voice_dir / "metadata.json"
                 if metadata_file.exists():
                     try:
-                        with open(metadata_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                        with open(metadata_file, encoding='utf-8') as f:  # noqa: ASYNC230
                             metadata = json.load(f)
-                    except (IOError, json.JSONDecodeError) as e:
+                    except (OSError, json.JSONDecodeError) as e:
                         logger.warning(f"Failed to load voice metadata from {metadata_file}: {e}")
 
                 voices.append({

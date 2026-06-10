@@ -83,7 +83,7 @@ class TestPerformanceMonitor(unittest.TestCase):
             self.assertTrue(os.path.exists(temp_file))
 
             # エクスポートされたファイルの内容を確認
-            with open(temp_file, 'r', encoding='utf-8') as f:
+            with open(temp_file, encoding='utf-8') as f:
                 data = json.load(f)
                 self.assertIn("export_time", data)
                 self.assertIn("config", data)

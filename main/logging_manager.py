@@ -58,7 +58,7 @@ class EncryptedFileHandler(logging.handlers.RotatingFileHandler):
 
         logs = []
         try:
-            with open(self.baseFilename, 'r', encoding='latin1') as f:
+            with open(self.baseFilename, encoding='latin1') as f:
                 encrypted_lines = []
                 for line in f:
                     if line.strip() == '---ENCRYPTED---':
@@ -264,7 +264,7 @@ class LoggingManager:
                 return results
 
             keyword_lower = keyword.lower()
-            with open(log_file, 'r', encoding='utf-8') as f:
+            with open(log_file, encoding='utf-8') as f:
                 for line in f:
                     parsed = self._parse_log_line(line)
                     haystack = json.dumps(parsed, ensure_ascii=False).lower()
@@ -295,7 +295,7 @@ class LoggingManager:
                 return {"error": "ログファイルが存在しません"}
 
             file_size = log_file.stat().st_size
-            with open(log_file, 'r', encoding='utf-8') as _f:
+            with open(log_file, encoding='utf-8') as _f:
                 line_count = sum(1 for _ in _f)
 
             return {
@@ -333,7 +333,7 @@ class LoggingManager:
                 return False
 
             if format.lower() == "json":
-                with open(log_file, 'r', encoding='utf-8') as src:
+                with open(log_file, encoding='utf-8') as src:
                     logs = [
                         self._parse_log_line(line)
                         for line in src

@@ -299,7 +299,7 @@ class BackgroundProcessor:
             font_path = branding.get('font_path', "arial.ttf")
             font_size = branding.get('font_size', 48)
             font = ImageFont.truetype(font_path, font_size)
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.debug(f"Failed to load font {branding.get('font_path')}: {e}")
             font = ImageFont.load_default()
 
@@ -368,7 +368,7 @@ class VirtualBackgroundsService:
 
         if metadata_file.exists():  # noqa: ASYNC240
             try:
-                with open(metadata_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                with open(metadata_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     templates_data = json.load(f)
 
                 for template_data in templates_data:

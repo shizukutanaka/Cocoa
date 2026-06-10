@@ -107,7 +107,7 @@ class EdgeAIDataset(Dataset):
         if self.data_path.exists():
             for file_path in self.data_path.glob("*.json"):
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with open(file_path, encoding='utf-8') as f:
                         sample = json.load(f)
                         samples.append(sample)
                 except Exception as e:
@@ -200,7 +200,7 @@ class EdgeAIManager:
         if model_config_dir.exists():
             for config_file in model_config_dir.glob("*.json"):
                 try:
-                    with open(config_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                    with open(config_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
                         model = EdgeAIModel(
                             model_id=data["model_id"],

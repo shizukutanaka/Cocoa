@@ -48,7 +48,7 @@ class ConfigManager:
             if not Path(self.config_path).exists():
                 self._create_default_config()
 
-            with open(self.config_path, 'r', encoding='utf-8') as f:
+            with open(self.config_path, encoding='utf-8') as f:
                 data = json.load(f)
 
             # 環境変数でオーバーライド

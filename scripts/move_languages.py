@@ -45,7 +45,7 @@ def move_remaining_languages(
         if src_path.exists():
             try:
                 # ファイルを読み込み
-                with open(src_path, 'r', encoding='utf-8') as f:
+                with open(src_path, encoding='utf-8') as f:
                     content = f.read()
 
                 # locales/ に書き込み

@@ -289,7 +289,7 @@ class ConfigValidator:
                     "config": None
                 }
 
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, encoding='utf-8') as f:
                 config = json.load(f)
 
             # JSONパースエラーのチェック

@@ -140,7 +140,7 @@ class ARCloudManager:
         if maps_dir.exists():
             for map_file in maps_dir.glob("*.json"):
                 try:
-                    with open(map_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                    with open(map_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
 
                         # ポイントクラウドを読み込み

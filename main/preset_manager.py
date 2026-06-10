@@ -51,7 +51,7 @@ class PresetManager:
     def _load_preset(self, preset_file: Path) -> Dict[str, Any]:
         """Load a single preset"""
         try:
-            with open(preset_file, 'r', encoding='utf-8') as f:
+            with open(preset_file, encoding='utf-8') as f:
                 preset_data = json.load(f)
 
             # Validate preset data

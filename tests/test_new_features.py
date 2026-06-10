@@ -79,7 +79,7 @@ class TestConfigEncryptor(unittest.TestCase):
             self.assertTrue(decrypted_file.exists())
 
             # 復号化された内容を確認
-            with open(decrypted_file, 'r', encoding='utf-8') as f:
+            with open(decrypted_file, encoding='utf-8') as f:
                 decrypted_config = json.load(f)
 
             # 機密フィールドがマスクされていることを確認
@@ -393,7 +393,7 @@ class TestLoggingManager(unittest.TestCase):
             self.assertTrue(export_file.exists())
 
             # エクスポートされたファイルの内容を確認
-            with open(export_file, 'r', encoding='utf-8') as f:
+            with open(export_file, encoding='utf-8') as f:
                 exported_data = json.load(f)
 
             self.assertIsInstance(exported_data, list)
@@ -433,7 +433,7 @@ class TestIntegrationFeatures(unittest.TestCase):
             self.assertTrue(success)
 
             # 4. 復号化された内容の確認
-            with open(decrypted_file, 'r', encoding='utf-8') as f:
+            with open(decrypted_file, encoding='utf-8') as f:
                 final_config = json.load(f)
 
             self.assertEqual(final_config['app_name'], 'Workflow Test')

@@ -54,11 +54,11 @@ def consolidate_language_files(
                 # locales/ に既に存在する場合、統合
                 try:
                     # main/ の内容を読み込み
-                    with open(main_file, 'r', encoding='utf-8') as f:
+                    with open(main_file, encoding='utf-8') as f:
                         main_data = json.load(f)
 
                     # locales/ の内容を読み込み
-                    with open(locales_file, 'r', encoding='utf-8') as f:
+                    with open(locales_file, encoding='utf-8') as f:
                         locales_data = json.load(f)
 
                     # マージ（locales/ のデータを優先）

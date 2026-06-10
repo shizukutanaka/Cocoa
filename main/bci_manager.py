@@ -157,7 +157,7 @@ class NeuralNetwork(nn.Module if TORCH_AVAILABLE and nn else object):
     """BCI用ニューラルネットワーク"""
 
     def __init__(self, input_size: int, hidden_size: int, output_size: int):
-        super(NeuralNetwork, self).__init__()
+        super().__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, output_size)
@@ -244,7 +244,7 @@ class BCIManager:
         if profile_dir.exists():
             for profile_file in profile_dir.glob("*.json"):
                 try:
-                    with open(profile_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                    with open(profile_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
 
                         profile = BCIProfile(

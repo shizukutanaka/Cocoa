@@ -896,7 +896,7 @@ class PerformanceMonitor:
 
     def _detect_metric_anomalies(
         self,
-        samples: "Deque[HistorySample]",
+        samples: Deque[HistorySample],
         values: List[float],
         avg: float,
         deviation: float,

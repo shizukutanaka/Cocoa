@@ -95,7 +95,7 @@ class LanguageFileGenerator:
         if not en_file.exists():
             raise FileNotFoundError(f"英語テンプレートファイルが見つかりません: {en_file}")
 
-        with open(en_file, 'r', encoding='utf-8') as f:
+        with open(en_file, encoding='utf-8') as f:
             return json.load(f)
 
     def create_language_file(self, lang_code: str, lang_name: str, template: Dict[str, Any]) -> bool:

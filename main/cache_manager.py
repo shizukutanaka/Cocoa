@@ -135,7 +135,7 @@ class FileCache:
                 return None
 
             # キャッシュファイルの読み込み
-            with open(cache_path, 'r', encoding='utf-8') as f:
+            with open(cache_path, encoding='utf-8') as f:
                 cache_data = json.load(f)
 
             return cache_data['value']

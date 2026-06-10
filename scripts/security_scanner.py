@@ -145,23 +145,21 @@ class SecurityScanner:
                     continue
 
                 for pkg, min_version in vulnerable_patterns.items():
-                    if line.startswith(pkg):
-                        # ピン留め (==) バージョンを抽出して実際に比較する
-                        if '==' in line:
-                            installed_version = line.split('==', 1)[1].strip()
-                            if self._is_version_vulnerable(installed_version, min_version):
-                                result['vulnerable_packages'].append({
-                                    'package': pkg,
-                                    'installed': installed_version,
-                                    'safe_version': min_version,
-                                })
-                                self.issues.append(
-                                    f"脆弱な依存: {pkg}=={installed_version} "
-                                    f"(安全バージョン {min_version})"
-                                )
-                            result['recommendations'].append(
-                                f"{pkg}: バージョン{min_version[1:]}以上を推奨"
+                    if line.startswith(pkg) and '==' in line:
+                        installed_version = line.split('==', 1)[1].strip()
+                        if self._is_version_vulnerable(installed_version, min_version):
+                            result['vulnerable_packages'].append({
+                                'package': pkg,
+                                'installed': installed_version,
+                                'safe_version': min_version,
+                            })
+                            self.issues.append(
+                                f"脆弱な依存: {pkg}=={installed_version} "
+                                f"(安全バージョン {min_version})"
                             )
+                        result['recommendations'].append(
+                            f"{pkg}: バージョン{min_version[1:]}以上を推奨"
+                        )
 
         result['status'] = 'pass' if not result['vulnerable_packages'] else 'fail'
         return result
@@ -379,7 +377,7 @@ class SecurityScanner:
             'security_score': 0
         }
 
-        for check_name, check_result in checks.items():
+        for _check_name, check_result in checks.items():
             status = check_result.get('status', 'unknown')
             if status == 'pass':
                 summary['passed'] += 1
@@ -458,7 +456,7 @@ class SecurityScanner:
 
         # 推奨事項
         recommendations = []
-        for check_name, check_result in results['checks'].items():
+        for _check_name, check_result in results['checks'].items():
             if 'recommendations' in check_result:
                 recommendations.extend(check_result['recommendations'])
 

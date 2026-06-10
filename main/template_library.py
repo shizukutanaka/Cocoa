@@ -152,7 +152,7 @@ class TemplateLibrary:
         # アバターテンプレート読み込み
         for template_file in self.avatar_templates_dir.glob("*.json"):
             try:
-                with open(template_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                with open(template_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     data = json.load(f)
                     schema = validate_avatar_template(data)
                     if not schema["valid"]:
@@ -166,7 +166,7 @@ class TemplateLibrary:
         # 動画テンプレート読み込み
         for template_file in self.video_templates_dir.glob("*.json"):
             try:
-                with open(template_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                with open(template_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     data = json.load(f)
                     schema = validate_video_template(data)
                     if not schema["valid"]:

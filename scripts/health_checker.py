@@ -232,7 +232,7 @@ class CocoaHealthChecker:
 
             # 依存関係の解析
             try:
-                with open(req_file, 'r') as f:
+                with open(req_file) as f:
                     deps = [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
                 if len(deps) > 50:

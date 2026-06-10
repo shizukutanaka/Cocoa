@@ -401,9 +401,9 @@ class AIAvatarGenerator:
             if metadata_file.exists():
                 try:
                     import json
-                    with open(metadata_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                    with open(metadata_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         metadata = json.load(f)
-                except (IOError, json.JSONDecodeError) as e:
+                except (OSError, json.JSONDecodeError) as e:
                     logger.warning(f"Failed to load metadata from {metadata_file}: {e}")
 
             avatars.append({

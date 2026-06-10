@@ -98,7 +98,7 @@ class Config:
     def from_file(cls, path: str) -> "Config":
         """設定ファイルから読み込み"""
         try:
-            with open(path, 'r') as f:
+            with open(path) as f:
                 config_dict = json.load(f)
 
             config = cls()

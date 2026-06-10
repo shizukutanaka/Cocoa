@@ -108,7 +108,7 @@ class BlockchainAuditManager:
         """既存のブロックチェーンを読み込み"""
         if self.blockchain_file.exists():
             try:
-                with open(self.blockchain_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                with open(self.blockchain_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     data = json.load(f)
                     self.blocks = [
                         AuditBlock(

@@ -379,7 +379,7 @@ class I18NManager:
         for lang_file in self.locales_dir.glob("*.json"):
             lang_code = lang_file.stem
             try:
-                with open(lang_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                with open(lang_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     self.translations[lang_code] = json.load(f)
                 logger.info(f"Loaded translations for {lang_code}")
             except Exception as e:

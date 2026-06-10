@@ -329,7 +329,7 @@ class VRChatPerformanceAnalyzer:
     def analyze_preset(self, preset_path: Path) -> PerformanceAnalysisResult:
         """プリセットファイルを解析してパフォーマンスランクを評価"""
         try:
-            with open(preset_path, 'r', encoding='utf-8') as f:
+            with open(preset_path, encoding='utf-8') as f:
                 preset_data = json.load(f)
             stats = self._extract_avatar_stats(preset_data)
             result = self.analyze_stats(stats)

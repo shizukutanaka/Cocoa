@@ -331,7 +331,7 @@ class VRAvatarSystem:
             if not config_file.exists():
                 return None
 
-            with open(config_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+            with open(config_file, encoding='utf-8') as f:  # noqa: ASYNC230
                 config_dict = json.load(f)
 
             # 作成日を除去してVRAvatarConfigを作成

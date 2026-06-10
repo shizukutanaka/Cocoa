@@ -57,7 +57,7 @@ class BillingConfig:
     webhook_secret_env: Optional[str]
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "BillingConfig":
+    def from_dict(cls, config_dict: Dict[str, Any]) -> BillingConfig:
         billing_raw = (config_dict or {}).get("billing") or {}
         enabled = bool(billing_raw.get("enabled", False))
         mode = billing_raw.get("mode", "subscription")
@@ -94,7 +94,7 @@ class BillingConfig:
         )
 
     @classmethod
-    def load(cls, path: Path = CONFIG_PATH) -> "BillingConfig":
+    def load(cls, path: Path = CONFIG_PATH) -> BillingConfig:
         with path.open(encoding="utf-8") as handle:
             config_dict = json.load(handle)
         return cls.from_dict(config_dict)

@@ -113,7 +113,7 @@ class KnowledgeBaseManager:
             kb_file = self.knowledge_dir / f"{user_id}_knowledge.json"
 
             if kb_file.exists():
-                with open(kb_file, 'r', encoding='utf-8') as f:
+                with open(kb_file, encoding='utf-8') as f:
                     existing_data = json.load(f)
                     existing_knowledge = existing_data.get('knowledge', [])
             else:
@@ -146,7 +146,7 @@ class KnowledgeBaseManager:
             if not kb_file.exists():
                 return ""
 
-            with open(kb_file, 'r', encoding='utf-8') as f:
+            with open(kb_file, encoding='utf-8') as f:
                 data = json.load(f)
                 knowledge_items = data.get('knowledge', [])
 

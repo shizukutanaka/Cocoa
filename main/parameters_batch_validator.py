@@ -69,7 +69,7 @@ def batch_validate_presets(preset_dir: str, param_types: Dict[str, type]) -> dic
             continue
         path = os.path.join(preset_dir, fname)
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 preset = json.load(f)
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Skipping %s: %s", fname, exc)
@@ -96,7 +96,7 @@ def main():
     parser.add_argument("--report", default="type_validation_report.json", help="Output report file")
     args = parser.parse_args()
 
-    with open(args.param_types_json, "r", encoding="utf-8") as f:
+    with open(args.param_types_json, encoding="utf-8") as f:
         raw_map = json.load(f)
 
     try:

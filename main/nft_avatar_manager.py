@@ -361,7 +361,7 @@ class NFTAvatarManager:
             if not record_file.exists():
                 return False
 
-            with open(record_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+            with open(record_file, encoding='utf-8') as f:  # noqa: ASYNC230
                 nft_record = json.load(f)
 
             # ブロックチェーンで所有権を確認（実際の実装では）
@@ -382,7 +382,7 @@ class NFTAvatarManager:
             # NFT記録ディレクトリからユーザーのNFTを検索
             for nft_file in self.nft_data_dir.glob("nft_*.json"):
                 try:
-                    with open(nft_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                    with open(nft_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         nft_record = json.load(f)
 
                     if nft_record.get("user_id") == user_id:
@@ -469,7 +469,7 @@ class NFTAvatarManager:
             record_file = self.nft_data_dir / f"nft_{avatar_hash}.json"
 
             if record_file.exists():
-                with open(record_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                with open(record_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     nft_record = json.load(f)
 
                 # 転送情報を追加

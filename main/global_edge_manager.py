@@ -206,7 +206,7 @@ class GlobalEdgeManager:
         if routes_dir.exists():
             for route_file in routes_dir.glob("*.json"):
                 try:
-                    with open(route_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                    with open(route_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
 
                         route = TrafficRoute(

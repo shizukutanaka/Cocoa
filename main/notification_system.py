@@ -19,7 +19,7 @@ class NotificationSystem:
         """Initialize notification system"""
         self.logger = logger
         self.notifications: List[Dict[str, Any]] = []
-        self.notification_handlers: List['NotificationHandler'] = []
+        self.notification_handlers: List[NotificationHandler] = []
         self.platform = platform.system()
 
     def register_handler(self, handler: 'NotificationHandler') -> None:

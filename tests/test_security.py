@@ -13,7 +13,7 @@ from pathlib import Path
 os.environ['COCOA_DEVELOPMENT_MODE'] = 'true'
 os.environ['COCOA_SECRET_KEY'] = 'test_secret_key_for_testing_only'
 os.environ['COCOA_ADMIN_USER'] = 'test_admin'
-os.environ['COCOA_ADMIN_PASS'] = hashlib.sha256('test_password_123'.encode()).hexdigest()
+os.environ['COCOA_ADMIN_PASS'] = hashlib.sha256(b'test_password_123').hexdigest()
 
 class SecurityTestCase(unittest.TestCase):
     """セキュリティテストケース"""

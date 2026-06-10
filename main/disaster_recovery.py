@@ -454,7 +454,7 @@ class DisasterRecoveryManager:
         """メタデータの読み込み"""
         try:
             if self.metadata_file.exists():
-                with open(self.metadata_file, 'r', encoding='utf-8') as f:
+                with open(self.metadata_file, encoding='utf-8') as f:
                     data = json.load(f)
 
                 self.backup_metadata = [

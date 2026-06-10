@@ -211,7 +211,7 @@ class AvatarParameterEditor(QWidget):
 
     def load_parameters(self):
         try:
-            with open('avatar_parameters_export.json', 'r', encoding='utf-8') as f:
+            with open('avatar_parameters_export.json', encoding='utf-8') as f:
                 params = json.load(f)
             self.set_parameters(params)
             QMessageBox.information(self, "読込", "パラメータを読込ました。")

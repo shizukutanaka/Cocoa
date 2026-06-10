@@ -32,9 +32,9 @@ class TestLaunchAvatarEditor(unittest.TestCase):
 
     def test_raises_file_not_found_when_editor_missing(self):
         launcher = self._launcher()
-        with patch.object(Path, "exists", return_value=False):
-            with self.assertRaises(FileNotFoundError):
-                launcher.launch_avatar_editor()
+        with patch.object(Path, "exists", return_value=False), \
+             self.assertRaises(FileNotFoundError):
+            launcher.launch_avatar_editor()
 
     def test_calls_popen_when_editor_exists(self):
         launcher = self._launcher()
@@ -54,9 +54,9 @@ class TestLaunchAvatarEditor(unittest.TestCase):
     def test_popen_error_raises_runtime_error(self):
         launcher = self._launcher()
         with patch.object(Path, "exists", return_value=True), \
-             patch("subprocess.Popen", side_effect=OSError("no process")):
-            with self.assertRaises(RuntimeError):
-                launcher.launch_avatar_editor()
+             patch("subprocess.Popen", side_effect=OSError("no process")), \
+             self.assertRaises(RuntimeError):
+            launcher.launch_avatar_editor()
 
 
 class TestOpenConfigFile(unittest.TestCase):
@@ -66,9 +66,9 @@ class TestOpenConfigFile(unittest.TestCase):
 
     def test_raises_file_not_found_when_config_missing(self):
         launcher = self._launcher()
-        with patch.object(Path, "exists", return_value=False):
-            with self.assertRaises(FileNotFoundError):
-                launcher.open_config_file()
+        with patch.object(Path, "exists", return_value=False), \
+             self.assertRaises(FileNotFoundError):
+            launcher.open_config_file()
 
     def test_calls_xdg_open_on_linux(self):
         launcher = self._launcher()
@@ -92,9 +92,9 @@ class TestOpenConfigFile(unittest.TestCase):
         launcher = self._launcher()
         with patch.object(Path, "exists", return_value=True), \
              patch("sys.platform", "linux"), \
-             patch("subprocess.Popen", side_effect=OSError("fail")):
-            with self.assertRaises(RuntimeError):
-                launcher.open_config_file()
+             patch("subprocess.Popen", side_effect=OSError("fail")), \
+             self.assertRaises(RuntimeError):
+            launcher.open_config_file()
 
 
 class TestValidateConfig(unittest.TestCase):
@@ -104,22 +104,21 @@ class TestValidateConfig(unittest.TestCase):
 
     def test_raises_file_not_found_when_config_missing(self):
         launcher = self._launcher()
-        with patch.object(Path, "exists", return_value=False):
-            with self.assertRaises(FileNotFoundError):
-                launcher.validate_config()
+        with patch.object(Path, "exists", return_value=False), \
+             self.assertRaises(FileNotFoundError):
+            launcher.validate_config()
 
     def test_calls_config_validator_when_config_exists(self):
         launcher = self._launcher()
         mock_validator = MagicMock()
         mock_validator.validate.return_value = {"valid": True}
         with patch.object(Path, "exists", return_value=True), \
-             patch("main.ConfigValidator", return_value=mock_validator, create=True):
-            # ConfigValidator is imported inside the method
-            with patch.dict("sys.modules", {"config_validator": MagicMock(
-                ConfigValidator=MagicMock(return_value=mock_validator)
-            )}):
-                result = launcher.validate_config()
-                self.assertIsNotNone(result)
+             patch("main.ConfigValidator", return_value=mock_validator, create=True), \
+             patch.dict("sys.modules", {"config_validator": MagicMock(
+                 ConfigValidator=MagicMock(return_value=mock_validator)
+             )}):
+            result = launcher.validate_config()
+            self.assertIsNotNone(result)
 
 
 if __name__ == "__main__":

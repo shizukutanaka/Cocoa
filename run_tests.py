@@ -130,7 +130,7 @@ def setup_test_environment():
 @dataclass(frozen=True)
 class CommandContext:
     parser: argparse.ArgumentParser
-    config_manager: "ConfigManager"
+    config_manager: ConfigManager
     args: argparse.Namespace
 
     @property
@@ -312,7 +312,7 @@ def run_tests_in_parallel(suite: unittest.TestSuite, max_workers: int = 4) -> un
 
     # 結果を集約
     final_result = unittest.TestResult()
-    for test_case, result in results:
+    for _test_case, result in results:
         final_result.testsRun += result.testsRun
         final_result.failures.extend(result.failures)
         final_result.errors.extend(result.errors)
@@ -1165,10 +1165,8 @@ def run_suite(
         if rollback_manager.should_rollback(result):
             # 最新のバックアップにロールバック
             backups = rollback_manager.list_backups()
-            if backups:
-                if rollback_manager.rollback_to_backup(backups[0]["file"]):
-                    if json_logger:
-                        json_logger.warning("エラー発生のためバックアップにロールバックしました", backup_file=backups[0]["file"])
+            if backups and rollback_manager.rollback_to_backup(backups[0]["file"]) and json_logger:
+                json_logger.warning("エラー発生のためバックアップにロールバックしました", backup_file=backups[0]["file"])
 
     if result.wasSuccessful():
         if json_logger:

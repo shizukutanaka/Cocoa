@@ -1345,7 +1345,7 @@ class AISecurityManager:
         if model_dir.exists():
             for model_file in model_dir.glob("*.json"):
                 try:
-                    with open(model_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                    with open(model_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
                         model = AIModelMetadata(**data)
                         self.registered_models[model.model_id] = model
@@ -1507,7 +1507,7 @@ class AISecurityManager:
         events = []
         if audit_file.exists():
             try:
-                with open(audit_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                with open(audit_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     events = json.load(f)
             except Exception:
                 events = []
@@ -1601,7 +1601,7 @@ class QuantumSafeManager:
         if key_dir.exists():
             for key_file in key_dir.glob("*.json"):
                 try:
-                    with open(key_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                    with open(key_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
                         key_pair = QuantumKeyPair(
                             public_key=bytes.fromhex(data["public_key"]),

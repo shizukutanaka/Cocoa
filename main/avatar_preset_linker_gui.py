@@ -242,7 +242,7 @@ class AvatarPresetLinkerGUI:
                     return
                 # JSON形式チェック
                 try:
-                    with open(f, 'r', encoding='utf-8') as test_f:
+                    with open(f, encoding='utf-8') as test_f:
                         json.load(test_f)
                 except json.JSONDecodeError:
                     if not messagebox.askyesno("警告", "有効なJSON形式ではありません。続行しますか?"):

@@ -173,9 +173,8 @@ async def get_avatar(
             raise HTTPException(status_code=404, detail="アバターが見つかりません")
 
         # アクセス権限チェック
-        if not avatar.is_public and avatar.user_id != current_user["id"]:
-            if not current_user.get("is_admin", False):
-                raise HTTPException(status_code=403, detail="アクセス権限がありません")
+        if not avatar.is_public and avatar.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="アクセス権限がありません")
 
         return avatar.to_dict()
 
@@ -323,9 +322,8 @@ async def get_preset(
             raise HTTPException(status_code=404, detail="プリセットが見つかりません")
 
         # アクセス権限チェック
-        if not preset.is_public and preset.user_id != current_user["id"]:
-            if not current_user.get("is_admin", False):
-                raise HTTPException(status_code=403, detail="アクセス権限がありません")
+        if not preset.is_public and preset.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="アクセス権限がありません")
 
         return preset.to_dict()
 

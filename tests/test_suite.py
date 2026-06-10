@@ -241,7 +241,7 @@ class TestPerformanceManager(TestBase):
         self.assertTrue(export_path.exists())
 
         # エクスポートファイルの内容検証
-        with open(export_path, 'r', encoding='utf-8') as f:
+        with open(export_path, encoding='utf-8') as f:
             data = json.load(f)
             self.assertIn("exported_at", data)
             self.assertIn("metrics", data)
@@ -284,11 +284,11 @@ class TestErrorRecoverySystem(TestBase):
 
         # 連続失敗でサーキットブレーカーが作動
         for _i in range(3):
-            with self.assertRaises(Exception):
+            with self.assertRaises(Exception):  # noqa: B017
                 failing_function()
 
         # 4回目はサーキットブレーカーが作動
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017
             failing_function()
 
         # サーキットブレーカーの状態確認

@@ -61,7 +61,7 @@ class ConfigEncryptor:
                 return False
 
             # 設定ファイルの読み込み
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, encoding='utf-8') as f:
                 config_data = json.load(f)
 
             # 機密フィールドの抽出とマスク

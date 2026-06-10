@@ -110,7 +110,7 @@ class CocoaDataMigrator:
             if presets_dir.exists():
                 for preset_file in presets_dir.glob("*.json"):
                     try:
-                        with open(preset_file, 'r', encoding='utf-8') as f:
+                        with open(preset_file, encoding='utf-8') as f:
                             data = json.load(f)
 
                         scan_results["presets"].append({
@@ -175,7 +175,7 @@ class CocoaDataMigrator:
                     try:
                         # プリセットファイル読み込み
                         preset_file = Path(preset_info["file"])
-                        with open(preset_file, 'r', encoding='utf-8') as f:
+                        with open(preset_file, encoding='utf-8') as f:
                             preset_data = json.load(f)
 
                         preset_id = preset_info["id"]
@@ -221,7 +221,7 @@ class CocoaDataMigrator:
                     try:
                         config_file = Path(config_info["file"])
 
-                        with open(config_file, 'r', encoding='utf-8') as f:
+                        with open(config_file, encoding='utf-8') as f:
                             config_data = json.load(f)
 
                         # 設定ファイル名をキーのプレフィックスとして使用
@@ -292,10 +292,10 @@ class CocoaDataMigrator:
                 file_prefix = config_file.stem
 
                 try:
-                    with open(config_file, 'r', encoding='utf-8') as f:
+                    with open(config_file, encoding='utf-8') as f:
                         original_config = json.load(f)
 
-                    for key in original_config.keys():
+                    for key in original_config:
                         config_key = f"{file_prefix}.{key}"
                         db_value = db_integration.get_configuration(config_key)
 

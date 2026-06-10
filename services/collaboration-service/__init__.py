@@ -5,7 +5,7 @@ Collaboration Service
 
 import json
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -71,19 +71,15 @@ async def lifespan(app: FastAPI):
     # WebSocket接続を閉じる
     for connections in active_connections.values():
         for connection in connections:
-            try:
+            with suppress(Exception):
                 await connection.close()
-            except Exception:
-                pass
 
     # WebRTC接続を閉じる
     if WEBRTC_AVAILABLE:
         for session_connections in active_webrtc_connections.values():
             for peer_connection in session_connections.values():
-                try:
+                with suppress(Exception):
                     await peer_connection.close()
-                except Exception:
-                    pass
 
     logger.info("Collaboration Service stopped")
 
@@ -154,10 +150,8 @@ class ConnectionManager:
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
         """個人メッセージを送信"""
-        try:
+        with suppress(Exception):
             await websocket.send_text(message)
-        except Exception:
-            pass
 
     async def broadcast_to_session(self, session_id: str, message: str, exclude: Optional[WebSocket] = None):
         """セッション内の全ユーザーにブロードキャスト"""
@@ -264,10 +258,8 @@ async def websocket_endpoint(
 
     except Exception as e:
         logging.error(f"WebSocket接続エラー: {e}")
-        try:
+        with suppress(Exception):
             await websocket.close(code=1011, reason="サーバーエラー")
-        except Exception:
-            pass
 
 
 async def handle_collaboration_message(

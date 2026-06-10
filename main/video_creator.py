@@ -127,7 +127,7 @@ class VoiceGenerator:
                 frames = wav_file.getnframes()
                 rate = wav_file.getframerate()
                 return frames / float(rate)
-        except (OSError, IOError, wave.Error) as e:
+        except (OSError, wave.Error) as e:
             # フォールバック: 文字数ベースの推定
             logger.warning(f"Failed to read audio duration from {audio_path}: {e}")
             return len(audio_path) * 0.1  # 簡易的な推定

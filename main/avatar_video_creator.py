@@ -371,7 +371,7 @@ class AvatarVideoCreator:
             # フォントの取得（フォールバック対応）
             try:
                 font = ImageFont.truetype(self.fonts.get("ja", None) or "", font_size)
-            except (OSError, IOError) as e:
+            except OSError as e:
                 logger.debug(f"Failed to load TrueType font, using default: {e}")
                 font = ImageFont.load_default()
 
@@ -519,9 +519,9 @@ class AvatarVideoCreator:
 
                 if metadata_file.exists():
                     try:
-                        with open(metadata_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
+                        with open(metadata_file, encoding='utf-8') as f:  # noqa: ASYNC230
                             metadata = json.load(f)
-                    except (IOError, json.JSONDecodeError) as e:
+                    except (OSError, json.JSONDecodeError) as e:
                         logger.warning(f"Failed to load video metadata from {metadata_file}: {e}")
 
                 videos.append({

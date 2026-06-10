@@ -113,7 +113,7 @@ def validate_and_repair_dir(target_dir, backup_dir="preset_backups", report_path
         op_id = monitor.start_operation("validate_and_repair")
         entry = {"file": filepath, "repaired": False, "error": None}
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 data = json.load(f)
 
             original = json.dumps(data, ensure_ascii=False, sort_keys=True)
@@ -124,7 +124,7 @@ def validate_and_repair_dir(target_dir, backup_dir="preset_backups", report_path
                     json.dump(repaired, f, ensure_ascii=False, indent=2)
                 entry["repaired"] = True
             monitor.end_operation(op_id, success=True)
-        except (IOError, OSError, json.JSONDecodeError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             entry["error"] = str(e)
             monitor.end_operation(op_id, success=False)
         reports.append(entry)
