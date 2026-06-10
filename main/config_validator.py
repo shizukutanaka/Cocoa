@@ -412,115 +412,130 @@ class ConfigValidator:
                 errors.append(f"フィールド '{field_name}' はnullを許容していません")
                 return errors, warnings, None
 
-            # 型チェック
-            if field_type == "string":
-                if not isinstance(value, str):
-                    errors.append(f"フィールド '{field_name}' は文字列である必要があります")
+            # 型別の検証（type_ok=False の場合は検証済み値を返さない）
+            validators = {
+                "string": self._check_string_field,
+                "integer": self._check_integer_field,
+                "number": self._check_number_field,
+                "boolean": self._check_boolean_field,
+                "array": self._check_array_field,
+                "object": self._check_object_field,
+            }
+            validator = validators.get(field_type)
+            if validator is not None:
+                type_ok = validator(field_name, value, rules, errors, warnings, validated_value)
+                if not type_ok:
                     return errors, warnings, None
-
-                # 文字列の長さチェック
-                min_length = rules.get("min_length")
-                if min_length is not None and len(value) < min_length:
-                    errors.append(f"フィールド '{field_name}' は{min_length}文字以上である必要があります")
-
-                max_length = rules.get("max_length")
-                if max_length is not None and len(value) > max_length:
-                    errors.append(f"フィールド '{field_name}' は{max_length}文字以下である必要があります")
-
-                # パターンチェック
-                pattern = rules.get("pattern")
-                if pattern and not self._match_pattern(value, pattern):
-                    errors.append(f"フィールド '{field_name}' の形式が正しくありません")
-
-                # 許可値チェック
-                allowed_values = rules.get("allowed_values")
-                if allowed_values and value not in allowed_values:
-                    errors.append(f"フィールド '{field_name}' の値が許可されていません: {allowed_values}")
-
-            elif field_type == "integer":
-                if not isinstance(value, int) or isinstance(value, bool):
-                    errors.append(f"フィールド '{field_name}' は整数である必要があります")
-                    return errors, warnings, None
-
-                # 範囲チェック
-                min_val = rules.get("min")
-                if min_val is not None and value < min_val:
-                    errors.append(f"フィールド '{field_name}' は{min_val}以上である必要があります")
-
-                max_val = rules.get("max")
-                if max_val is not None and value > max_val:
-                    errors.append(f"フィールド '{field_name}' は{max_val}以下である必要があります")
-
-                allowed_values = rules.get("allowed_values")
-                if allowed_values and value not in allowed_values:
-                    errors.append(f"フィールド '{field_name}' の値が許可されていません: {allowed_values}")
-
-            elif field_type == "number":
-                if not isinstance(value, (int, float)):
-                    errors.append(f"フィールド '{field_name}' は数値である必要があります")
-                    return errors, warnings, None
-
-                min_val = rules.get("min")
-                if min_val is not None and value < min_val:
-                    errors.append(f"フィールド '{field_name}' は{min_val}以上である必要があります")
-
-                max_val = rules.get("max")
-                if max_val is not None and value > max_val:
-                    errors.append(f"フィールド '{field_name}' は{max_val}以下である必要があります")
-
-            elif field_type == "boolean":
-                if not isinstance(value, bool):
-                    errors.append(f"フィールド '{field_name}' は真偽値である必要があります")
-                    return errors, warnings, None
-
-            elif field_type == "array":
-                if not isinstance(value, list):
-                    errors.append(f"フィールド '{field_name}' は配列である必要があります")
-                    return errors, warnings, None
-
-                # 配列要素の型チェック
-                item_type = rules.get("item_type")
-                if item_type:
-                    for i, item in enumerate(value):
-                        expected_type = str if item_type == "string" else int if item_type == "integer" else type(None)
-                        if not isinstance(item, expected_type):
-                            errors.append(f"フィールド '{field_name}[{i}]' の型が正しくありません")
-
-                min_items = rules.get("min_items")
-                if min_items is not None and len(value) < min_items:
-                    errors.append(f"フィールド '{field_name}' の要素数は{min_items}以上である必要があります")
-
-                max_items = rules.get("max_items")
-                if max_items is not None and len(value) > max_items:
-                    errors.append(f"フィールド '{field_name}' の要素数は{max_items}以下である必要があります")
-
-            elif field_type == "object":
-                if not isinstance(value, dict):
-                    errors.append(f"フィールド '{field_name}' はオブジェクトである必要があります")
-                    return errors, warnings, None
-
-                # ネストされたスキーマの検証
-                schema = rules.get("schema", {})
-                for sub_field, sub_rules in schema.items():
-                    if sub_rules.get("required") and sub_field not in value:
-                        errors.append(f"必須フィールド '{field_name}.{sub_field}' が存在しません")
-                        continue
-
-                    if sub_field in value:
-                        sub_errors, sub_warnings, sub_validated = self._validate_field(
-                            f"{field_name}.{sub_field}", value[sub_field], sub_rules
-                        )
-                        errors.extend(sub_errors)
-                        warnings.extend(sub_warnings)
-
-                        if sub_validated is not None:
-                            validated_value[sub_field] = sub_validated
 
             return errors, warnings, validated_value
 
         except Exception as e:
             errors.append(f"フィールド '{field_name}' の検証中にエラーが発生しました: {str(e)}")
             return errors, warnings, None
+
+    def _check_string_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, str):
+            errors.append(f"フィールド '{field_name}' は文字列である必要があります")
+            return False
+
+        min_length = rules.get("min_length")
+        if min_length is not None and len(value) < min_length:
+            errors.append(f"フィールド '{field_name}' は{min_length}文字以上である必要があります")
+
+        max_length = rules.get("max_length")
+        if max_length is not None and len(value) > max_length:
+            errors.append(f"フィールド '{field_name}' は{max_length}文字以下である必要があります")
+
+        pattern = rules.get("pattern")
+        if pattern and not self._match_pattern(value, pattern):
+            errors.append(f"フィールド '{field_name}' の形式が正しくありません")
+
+        allowed_values = rules.get("allowed_values")
+        if allowed_values and value not in allowed_values:
+            errors.append(f"フィールド '{field_name}' の値が許可されていません: {allowed_values}")
+        return True
+
+    def _check_integer_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, int) or isinstance(value, bool):
+            errors.append(f"フィールド '{field_name}' は整数である必要があります")
+            return False
+
+        min_val = rules.get("min")
+        if min_val is not None and value < min_val:
+            errors.append(f"フィールド '{field_name}' は{min_val}以上である必要があります")
+
+        max_val = rules.get("max")
+        if max_val is not None and value > max_val:
+            errors.append(f"フィールド '{field_name}' は{max_val}以下である必要があります")
+
+        allowed_values = rules.get("allowed_values")
+        if allowed_values and value not in allowed_values:
+            errors.append(f"フィールド '{field_name}' の値が許可されていません: {allowed_values}")
+        return True
+
+    def _check_number_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, (int, float)):
+            errors.append(f"フィールド '{field_name}' は数値である必要があります")
+            return False
+
+        min_val = rules.get("min")
+        if min_val is not None and value < min_val:
+            errors.append(f"フィールド '{field_name}' は{min_val}以上である必要があります")
+
+        max_val = rules.get("max")
+        if max_val is not None and value > max_val:
+            errors.append(f"フィールド '{field_name}' は{max_val}以下である必要があります")
+        return True
+
+    def _check_boolean_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, bool):
+            errors.append(f"フィールド '{field_name}' は真偽値である必要があります")
+            return False
+        return True
+
+    def _check_array_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, list):
+            errors.append(f"フィールド '{field_name}' は配列である必要があります")
+            return False
+
+        item_type = rules.get("item_type")
+        if item_type:
+            for i, item in enumerate(value):
+                expected_type = str if item_type == "string" else int if item_type == "integer" else type(None)
+                if not isinstance(item, expected_type):
+                    errors.append(f"フィールド '{field_name}[{i}]' の型が正しくありません")
+
+        min_items = rules.get("min_items")
+        if min_items is not None and len(value) < min_items:
+            errors.append(f"フィールド '{field_name}' の要素数は{min_items}以上である必要があります")
+
+        max_items = rules.get("max_items")
+        if max_items is not None and len(value) > max_items:
+            errors.append(f"フィールド '{field_name}' の要素数は{max_items}以下である必要があります")
+        return True
+
+    def _check_object_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, dict):
+            errors.append(f"フィールド '{field_name}' はオブジェクトである必要があります")
+            return False
+
+        # ネストされたスキーマの検証
+        schema = rules.get("schema", {})
+        for sub_field, sub_rules in schema.items():
+            if sub_rules.get("required") and sub_field not in value:
+                errors.append(f"必須フィールド '{field_name}.{sub_field}' が存在しません")
+                continue
+
+            if sub_field in value:
+                sub_errors, sub_warnings, sub_validated = self._validate_field(
+                    f"{field_name}.{sub_field}", value[sub_field], sub_rules
+                )
+                errors.extend(sub_errors)
+                warnings.extend(sub_warnings)
+
+                if sub_validated is not None:
+                    validated_value[sub_field] = sub_validated
+        return True
 
     def _match_pattern(self, value: str, pattern: str) -> bool:
         """パターンマッチング"""
