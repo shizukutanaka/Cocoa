@@ -376,16 +376,16 @@ class GlobalEdgeManager:
         # 簡易的な地域判定
         if -180 <= lng <= -30 and 15 <= lat <= 75:  # 北米
             return "north_america"
-        elif -90 <= lng <= -30 and -60 <= lat <= 15:  # 南米
+        if -90 <= lng <= -30 and -60 <= lat <= 15:  # 南米
             return "south_america"
-        elif -30 <= lng <= 60 and 30 <= lat <= 75:  # 欧州
+        if -30 <= lng <= 60 and 30 <= lat <= 75:  # 欧州
             return "europe"
-        elif 60 <= lng <= 180 and -50 <= lat <= 50:  # アジア太平洋
+        if 60 <= lng <= 180 and -50 <= lat <= 50:  # アジア太平洋
             return "asia_pacific"
-        elif 30 <= lng <= 60 and -40 <= lat <= 30:  # 中東・アフリカ
+        if 30 <= lng <= 60 and -40 <= lat <= 30:  # 中東・アフリカ
             return "middle_east_africa"
-        else:  # オセアニア
-            return "oceania"
+        # オセアニア
+        return "oceania"
 
     async def _create_optimal_route(self, source_region: str, content_type: str,
                                   priority: str) -> Optional[TrafficRoute]:

@@ -241,13 +241,12 @@ async def get_metrics(current_user: dict = Depends(get_current_user)):
                 metrics=history,
                 alerts=report.get("alerts", [])
             )
-        else:
-            # モックデータ（開発環境用）
-            return PerformanceReport(
-                summary={"status": "ok"},
-                metrics=[],
-                alerts=[]
-            )
+        # モックデータ（開発環境用）
+        return PerformanceReport(
+            summary={"status": "ok"},
+            metrics=[],
+            alerts=[]
+        )
     except Exception as e:
         logger.error(f"メトリクス取得エラー: {e}")
         raise HTTPException(status_code=500, detail="メトリクス取得に失敗しました") from e
@@ -272,8 +271,7 @@ async def list_backups(current_user: dict = Depends(get_current_user)):
                 ))
 
             return backup_list
-        else:
-            return []
+        return []
     except Exception as e:
         logger.error(f"バックアップ一覧取得エラー: {e}")
         raise HTTPException(status_code=500, detail="バックアップ一覧取得に失敗しました") from e
@@ -295,14 +293,13 @@ async def get_security_report(current_user: dict = Depends(get_current_user)):
                 suspicious_activities=report.get("statistics", {}).get("suspicious_activities", 0),
                 last_scan=report.get("last_scan", datetime.now(timezone.utc).isoformat())
             )
-        else:
-            return SecurityReport(
-                threat_level="low",
-                total_events_24h=0,
-                active_lockouts=0,
-                suspicious_activities=0,
-                last_scan=datetime.now(timezone.utc).isoformat()
-            )
+        return SecurityReport(
+            threat_level="low",
+            total_events_24h=0,
+            active_lockouts=0,
+            suspicious_activities=0,
+            last_scan=datetime.now(timezone.utc).isoformat()
+        )
     except Exception as e:
         logger.error(f"セキュリティレポート取得エラー: {e}")
         raise HTTPException(status_code=500, detail="セキュリティレポート取得に失敗しました") from e
@@ -362,12 +359,11 @@ async def get_avatars(current_user: dict = Depends(get_current_user)):
                 "total": len(avatars),
                 "status": "success"
             }
-        else:
-            return {
-                "avatars": [],
-                "total": 0,
-                "message": "データベース機能が利用できません"
-            }
+        return {
+            "avatars": [],
+            "total": 0,
+            "message": "データベース機能が利用できません"
+        }
     except Exception as e:
         logger.error(f"アバター一覧取得エラー: {e}")
         raise HTTPException(status_code=500, detail="アバター一覧取得に失敗しました") from e
@@ -392,12 +388,11 @@ async def create_avatar(avatar_data: Dict[str, Any], current_user: dict = Depend
                 "status": "created",
                 "message": "アバターが正常に作成されました"
             }
-        else:
-            return {
-                "avatar_id": str(uuid.uuid4()),
-                "status": "created_mock",
-                "message": "データベース機能が利用できないため、モックデータで作成されました"
-            }
+        return {
+            "avatar_id": str(uuid.uuid4()),
+            "status": "created_mock",
+            "message": "データベース機能が利用できないため、モックデータで作成されました"
+        }
     except Exception as e:
         logger.error(f"アバター作成エラー: {e}")
         raise HTTPException(status_code=500, detail="アバター作成に失敗しました") from e
@@ -461,8 +456,7 @@ async def setup_two_factor_auth(username: str, current_user: dict = Depends(get_
                 "status": "success",
                 "message": "2FAセットアップデータを生成しました"
             }
-        else:
-            raise HTTPException(status_code=404, detail="2FA機能が利用できません")
+        raise HTTPException(status_code=404, detail="2FA機能が利用できません")
     except Exception as e:
         logger.error(f"2FAセットアップエラー: {e}")
         raise HTTPException(status_code=500, detail="2FAセットアップに失敗しました") from e
@@ -486,8 +480,7 @@ async def enable_two_factor_auth(username: str, token: str, current_user: dict =
                 "status": "enabled",
                 "message": "2要素認証が有効になりました"
             }
-        else:
-            raise HTTPException(status_code=404, detail="2FA機能が利用できません")
+        raise HTTPException(status_code=404, detail="2FA機能が利用できません")
     except HTTPException:
         raise
     except Exception as e:
@@ -508,8 +501,7 @@ async def verify_two_factor_token(username: str, token: str, current_user: dict 
                 "remaining_time": result.get("remaining_time", 0),
                 "message": "トークン検証結果"
             }
-        else:
-            raise HTTPException(status_code=404, detail="2FA機能が利用できません")
+        raise HTTPException(status_code=404, detail="2FA機能が利用できません")
     except Exception as e:
         logger.error(f"2FAトークン検証エラー: {e}")
         raise HTTPException(status_code=500, detail="トークン検証に失敗しました") from e
@@ -527,8 +519,7 @@ async def verify_backup_code(username: str, backup_code: str, current_user: dict
                 "valid": result.get("valid", False),
                 "message": result.get("message", "バックアップコード検証結果")
             }
-        else:
-            raise HTTPException(status_code=404, detail="2FA機能が利用できません")
+        raise HTTPException(status_code=404, detail="2FA機能が利用できません")
     except Exception as e:
         logger.error(f"バックアップコード検証エラー: {e}")
         raise HTTPException(status_code=500, detail="バックアップコード検証に失敗しました") from e
@@ -547,8 +538,7 @@ async def disable_two_factor_auth(password: str, current_user: dict = Depends(ge
                     "status": "disabled",
                     "message": "2要素認証が無効になりました"
                 }
-            else:
-                raise HTTPException(status_code=400, detail=result.get("error", "無効化に失敗しました"))
+            raise HTTPException(status_code=400, detail=result.get("error", "無効化に失敗しました"))
         else:
             raise HTTPException(status_code=404, detail="2FA機能が利用できません")
     except HTTPException:
@@ -570,8 +560,7 @@ async def get_two_factor_status(current_user: dict = Depends(get_current_user)):
                 "status": result,
                 "message": "2FAステータス情報"
             }
-        else:
-            raise HTTPException(status_code=404, detail="2FA機能が利用できません")
+        raise HTTPException(status_code=404, detail="2FA機能が利用できません")
     except Exception as e:
         logger.error(f"2FAステータス取得エラー: {e}")
         raise HTTPException(status_code=500, detail="ステータス取得に失敗しました") from e

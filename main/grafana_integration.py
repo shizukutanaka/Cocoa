@@ -160,9 +160,8 @@ class GrafanaDashboardManager:
                 dashboard_uid = result.get("uid")
                 logger.info(f"ダッシュボードを作成しました: {title} (UID: {dashboard_uid})")
                 return dashboard_uid
-            else:
-                logger.error(f"ダッシュボード作成エラー: {response.status_code} - {response.text}")
-                return None
+            logger.error(f"ダッシュボード作成エラー: {response.status_code} - {response.text}")
+            return None
 
         except Exception as e:
             logger.error(f"ダッシュボード作成エラー: {e}")

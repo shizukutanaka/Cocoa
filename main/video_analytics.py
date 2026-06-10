@@ -338,9 +338,8 @@ class VideoAnalyticsService:
                     engagement_score=row[6],
                     last_updated=datetime.fromisoformat(row[7])
                 )
-            else:
-                # 新規作成
-                return VideoMetrics(video_id=video_id)
+            # 新規作成
+            return VideoMetrics(video_id=video_id)
 
     async def _calculate_realtime_metrics(self, metrics: VideoMetrics):
         """リアルタイムメトリクスを計算"""

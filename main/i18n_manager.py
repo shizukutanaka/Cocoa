@@ -227,13 +227,12 @@ class TranslationService:
             # Google Translate APIを優先
             if self.api_keys["google"]:
                 return await self._translate_google(request)
-            elif self.api_keys["deepl"]:
+            if self.api_keys["deepl"]:
                 return await self._translate_deepl(request)
-            elif self.api_keys["microsoft"]:
+            if self.api_keys["microsoft"]:
                 return await self._translate_microsoft(request)
-            else:
-                # フォールバック：ローカル辞書ベース
-                return await self._translate_local(request)
+            # フォールバック：ローカル辞書ベース
+            return await self._translate_local(request)
 
         except Exception as e:
             logger.error(f"Translation failed: {e}")
@@ -267,8 +266,7 @@ class TranslationService:
                     target_lang=request.target_lang,
                     confidence=0.9
                 )
-            else:
-                raise Exception(f"Google Translate API error: {response.status}")
+            raise Exception(f"Google Translate API error: {response.status}")
 
     async def _translate_deepl(self, request: TranslationRequest) -> TranslationResult:
         """DeepL APIを使用"""
@@ -293,8 +291,7 @@ class TranslationService:
                     target_lang=request.target_lang,
                     confidence=0.95
                 )
-            else:
-                raise Exception(f"DeepL API error: {response.status}")
+            raise Exception(f"DeepL API error: {response.status}")
 
     async def _translate_microsoft(self, request: TranslationRequest) -> TranslationResult:
         """Microsoft Translator APIを使用"""
@@ -401,9 +398,8 @@ class I18NManager:
             self.current_language = language_code
             logger.info(f"Language set to {language_code}")
             return True
-        else:
-            logger.warning(f"Unsupported language: {language_code}")
-            return False
+        logger.warning(f"Unsupported language: {language_code}")
+        return False
 
     def get_available_languages(self) -> List[Dict]:
         """利用可能な言語一覧を取得"""
@@ -510,9 +506,8 @@ class I18NManager:
                 await self._cleanup_cache()
 
             return result.translated_text
-        else:
-            logger.warning(f"Translation failed: {result.error_message}")
-            return text
+        logger.warning(f"Translation failed: {result.error_message}")
+        return text
 
     def _get_cache_key(self, text: str, source_lang: str, target_lang: str) -> str:
         """キャッシュキーを生成"""

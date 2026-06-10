@@ -683,7 +683,6 @@ class MultiAvatarManager:
                     # 実際には各タイムラインでの位置を考慮
                     x, y = avatar.position
                     # アバター画像を配置
-                    pass
 
             # シーン要素配置
             for _element in scene.elements:

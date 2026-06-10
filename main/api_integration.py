@@ -497,8 +497,7 @@ class APIIntegrationService:
 
         if isinstance(input_data, dict):
             return script_template.format(**input_data)
-        else:
-            return str(input_data)
+        return str(input_data)
 
     def _verify_webhook_signature(self, payload: str, signature: str, integration: IntegrationConfig) -> bool:
         """Webhookシグネチャを検証"""

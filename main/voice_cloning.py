@@ -500,8 +500,7 @@ class VoiceCloningEngine:
                 Path(audio_path).unlink(missing_ok=True)
 
                 return metrics
-            else:
-                return {"error": "Speech generation failed"}
+            return {"error": "Speech generation failed"}
 
         except Exception as e:
             logger.error(f"Quality evaluation failed: {e}")

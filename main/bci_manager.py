@@ -614,12 +614,11 @@ class BCIManager:
 
         if pattern_count < 3:
             return "beginner"
-        elif pattern_count < 7:
+        if pattern_count < 7:
             return "intermediate"
-        elif pattern_count < 12:
+        if pattern_count < 12:
             return "advanced"
-        else:
-            return "expert"
+        return "expert"
 
     async def _save_user_profile(self, profile: BCIProfile):
         """ユーザープロファイルを保存"""

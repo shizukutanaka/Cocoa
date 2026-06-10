@@ -147,10 +147,9 @@ class FaceFeatureExtractor:
 
             if face_height > face_width * 1.2:
                 return "oval"
-            elif face_width > face_height * 1.1:
+            if face_width > face_height * 1.1:
                 return "round"
-            else:
-                return "heart"
+            return "heart"
 
         return "unknown"
 
@@ -221,10 +220,9 @@ class FaceFeatureExtractor:
         # 品質スコアに基づいて評価
         if brightness > 100 and contrast > 30:
             return "excellent"
-        elif brightness > 60 and contrast > 20:
+        if brightness > 60 and contrast > 20:
             return "good"
-        else:
-            return "fair"
+        return "fair"
 
 class PhotoToAvatarGenerator:
     """

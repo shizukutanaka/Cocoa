@@ -1104,7 +1104,7 @@ class TemplateLibrary:
             await self.save_avatar_template(custom_template)
             return custom_template
 
-        elif template_type == "video":
+        if template_type == "video":
             base_template = self.video_templates.get(base_template_id)
             if not base_template:
                 return None
@@ -1152,7 +1152,7 @@ class TemplateLibrary:
             logger.info(f"Deleted avatar template: {template_id}")
             return True
 
-        elif template_type == "video" and template_id in self.video_templates:
+        if template_type == "video" and template_id in self.video_templates:
             template = self.video_templates[template_id]
 
             # ファイル削除

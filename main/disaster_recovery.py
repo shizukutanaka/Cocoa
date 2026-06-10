@@ -214,10 +214,9 @@ class DisasterRecoveryManager:
             if combined_checksum == metadata.checksum:
                 logger.info(f"バックアップ検証成功: {backup_id}")
                 return True, "検証成功"
-            else:
-                error_msg = f"チェックサム不一致: 期待={metadata.checksum}, 実際={combined_checksum}"
-                logger.error(error_msg)
-                return False, error_msg
+            error_msg = f"チェックサム不一致: 期待={metadata.checksum}, 実際={combined_checksum}"
+            logger.error(error_msg)
+            return False, error_msg
 
         except Exception as e:
             error_msg = f"バックアップ検証エラー: {str(e)}"

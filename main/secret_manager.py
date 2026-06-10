@@ -59,7 +59,6 @@ class SecretManager(ABC):
         Returns:
             シークレット値
         """
-        pass
 
     @abstractmethod
     def set_secret(self, secret_name: str, secret_value: str) -> bool:
@@ -73,7 +72,6 @@ class SecretManager(ABC):
         Returns:
             成功フラグ
         """
-        pass
 
     @abstractmethod
     def delete_secret(self, secret_name: str) -> bool:
@@ -86,7 +84,6 @@ class SecretManager(ABC):
         Returns:
             成功フラグ
         """
-        pass
 
     @abstractmethod
     def list_secrets(self) -> List[str]:
@@ -96,7 +93,6 @@ class SecretManager(ABC):
         Returns:
             シークレット名のリスト
         """
-        pass
 
     @abstractmethod
     def rotate_secret(self, secret_name: str, new_value: str) -> bool:
@@ -110,7 +106,6 @@ class SecretManager(ABC):
         Returns:
             成功フラグ
         """
-        pass
 
 
 class AWSSecretsManager(SecretManager):
@@ -395,7 +390,7 @@ class SecretManagerFactory:
             region = kwargs.get('region', os.getenv('AWS_REGION', 'us-east-1'))
             return AWSSecretsManager(region=region)
 
-        elif provider == SecretProvider.HASHICORP_VAULT:
+        if provider == SecretProvider.HASHICORP_VAULT:
             vault_url = kwargs.get(
                 'vault_url',
                 os.getenv('VAULT_URL', 'http://localhost:8200')
@@ -403,11 +398,10 @@ class SecretManagerFactory:
             token = kwargs.get('token', os.getenv('VAULT_TOKEN'))
             return HashiCorpVaultManager(vault_url=vault_url, token=token)
 
-        elif provider == SecretProvider.ENVIRONMENT:
+        if provider == SecretProvider.ENVIRONMENT:
             return EnvironmentSecretManager()
 
-        else:
-            raise ValueError(f"Unsupported provider: {provider}")
+        raise ValueError(f"Unsupported provider: {provider}")
 
 
 def get_secret_manager(provider: Optional[str] = None) -> SecretManager:

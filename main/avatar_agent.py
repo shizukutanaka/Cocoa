@@ -228,12 +228,11 @@ class AgenticAIManager:
         hour = datetime.now(timezone.utc).hour
         if 6 <= hour < 12:
             return "morning"
-        elif 12 <= hour < 18:
+        if 12 <= hour < 18:
             return "afternoon"
-        elif 18 <= hour < 22:
+        if 18 <= hour < 22:
             return "evening"
-        else:
-            return "night"
+        return "night"
 
     def _get_location(self) -> str:
         """場所を取得"""
@@ -269,8 +268,7 @@ class AgenticAIManager:
         # 優先度に基づく実行判断
         if task.priority < 5:
             return random.random() < 0.8  # 高優先タスクは80%の確率で実行
-        else:
-            return random.random() < 0.3  # 低優先タスクは30%の確率で実行
+        return random.random() < 0.3  # 低優先タスクは30%の確率で実行
 
     async def _execute_agentic_task(self, task_template: AgenticTask, context: EnvironmentContext):
         """自律的タスクを実行"""

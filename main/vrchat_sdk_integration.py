@@ -103,9 +103,8 @@ class VRChatSDKManager:
                 user_data = response.json()
                 logger.info(f"VRChat credentials validated for user: {user_data.get('displayName', 'Unknown')}")
                 return True
-            else:
-                logger.error(f"VRChat API authentication failed: {response.status_code}")
-                return False
+            logger.error(f"VRChat API authentication failed: {response.status_code}")
+            return False
 
         except Exception as e:
             logger.error(f"VRChat credential validation error: {e}")
@@ -226,12 +225,11 @@ class VRChatSDKManager:
         """パフォーマンスランクを計算"""
         if issues:
             return "Poor"
-        elif len(warnings) >= 2:
+        if len(warnings) >= 2:
             return "Medium"
-        elif avatar_data['texture_memory'] < 33554432:  # 32MB未満
+        if avatar_data['texture_memory'] < 33554432:  # 32MB未満
             return "Excellent"
-        else:
-            return "Good"
+        return "Good"
 
     async def _optimize_for_vrchat(self, avatar_data: Dict, export_options: Dict) -> Dict:
         """VRChat向けに最適化"""

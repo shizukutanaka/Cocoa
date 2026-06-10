@@ -239,9 +239,8 @@ class ConfigEncryptor:
             if self.encrypt_config_file(backup_path, encrypted_backup):
                 logger.info(f"セキュアバックアップを作成しました: {backup_path}")
                 return True
-            else:
-                logger.error(f"バックアップの暗号化に失敗しました: {backup_path}")
-                return False
+            logger.error(f"バックアップの暗号化に失敗しました: {backup_path}")
+            return False
 
         except Exception as e:
             logger.error(f"セキュアバックアップ作成エラー: {e}")

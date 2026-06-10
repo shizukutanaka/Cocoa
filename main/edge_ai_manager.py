@@ -410,10 +410,9 @@ class EdgeAIManager:
         # 出力層やモデル構造からタイプを推定
         if hasattr(model, 'num_classes'):
             return "classification"
-        elif any('detection' in name.lower() for name, _ in model.named_modules()):
+        if any('detection' in name.lower() for name, _ in model.named_modules()):
             return "detection"
-        else:
-            return "generation"
+        return "generation"
 
     def _get_model_input_shape(self, model: "Any") -> Tuple[int, ...]:
         """モデル入力形状を取得"""

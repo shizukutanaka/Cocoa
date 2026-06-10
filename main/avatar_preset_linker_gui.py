@@ -359,27 +359,7 @@ class AvatarPresetLinkerGUI:
             return
 
         try:
-            # ファイルサイズチェック (1MB上限)
-            if LINKS_FILE.stat().st_size > 1024 * 1024:
-                messagebox.showerror("エラー", "リンクファイルのサイズが大きすぎます")
-                self.links = {}
-                return
-
-            with LINKS_FILE.open(encoding='utf-8') as f:
-                data = json.load(f)
-
-            # データ型検証
-            if not isinstance(data, dict):
-                messagebox.showwarning("警告", "リンクファイルの形式が正しくありません。空の状態で初期化します。")
-                self.links = {}
-            else:
-                # 各エントリの検証
-                valid_links = {}
-                for k, v in data.items():
-                    if isinstance(k, str) and isinstance(v, str):
-                        valid_links[str(k)] = str(v)
-                self.links = valid_links
-
+            self._load_links_from_file()
         except json.JSONDecodeError as e:
             messagebox.showerror("エラー", f"リンクファイルのJSON解析に失敗しました:\n{str(e)}")
             self.links = {}
@@ -393,12 +373,28 @@ class AvatarPresetLinkerGUI:
             messagebox.showerror("エラー", f"予期しないエラー:\n{str(e)}")
             self.links = {}
 
-        # リストボックス更新
+        self._update_links_listbox()
+
+    def _load_links_from_file(self) -> None:
+        """LINKS_FILE からリンクデータを読み込み self.links に設定する"""
+        if LINKS_FILE.stat().st_size > 1024 * 1024:
+            messagebox.showerror("エラー", "リンクファイルのサイズが大きすぎます")
+            self.links = {}
+            return
+        with LINKS_FILE.open(encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            messagebox.showwarning("警告", "リンクファイルの形式が正しくありません。空の状態で初期化します。")
+            self.links = {}
+        else:
+            self.links = {str(k): str(v) for k, v in data.items() if isinstance(k, str) and isinstance(v, str)}
+
+    def _update_links_listbox(self) -> None:
+        """self.links の内容をリストボックスに反映する"""
         try:
             self.links_list.delete(0, tk.END)
             for avatar, preset in self.links.items():
                 display_text = f"{avatar} <-> {preset}"
-                # 表示長制限
                 if len(display_text) > 200:
                     display_text = display_text[:197] + "..."
                 self.links_list.insert(tk.END, display_text)
@@ -429,31 +425,24 @@ class AvatarPresetLinkerGUI:
 
         except PermissionError:
             messagebox.showerror("保存エラー", "ファイルへの書き込み権限がありません")
-            # クリーンアップ
-            if temp_file.exists():
-                try:
-                    temp_file.unlink()
-                except (OSError, PermissionError) as cleanup_err:
-                    logger.warning(f"Failed to clean up temp file: {cleanup_err}")
+            self._cleanup_temp_file(temp_file)
             raise
         except OSError as e:
             messagebox.showerror("保存エラー", f"ファイル保存エラー:\n{str(e)}")
-            # クリーンアップ
-            if temp_file.exists():
-                try:
-                    temp_file.unlink()
-                except (OSError, PermissionError) as cleanup_err:
-                    logger.warning(f"Failed to clean up temp file: {cleanup_err}")
+            self._cleanup_temp_file(temp_file)
             raise
         except Exception as e:
             messagebox.showerror("保存エラー", f"予期しないエラー:\n{str(e)}")
-            # クリーンアップ
-            if temp_file.exists():
-                try:
-                    temp_file.unlink()
-                except (OSError, PermissionError) as cleanup_err:
-                    logger.warning(f"Failed to clean up temp file: {cleanup_err}")
+            self._cleanup_temp_file(temp_file)
             raise
+
+    @staticmethod
+    def _cleanup_temp_file(temp_file: "Path") -> None:
+        if temp_file.exists():
+            try:
+                temp_file.unlink()
+            except (OSError, PermissionError) as cleanup_err:
+                logger.warning(f"Failed to clean up temp file: {cleanup_err}")
 
 if __name__ == "__main__":
     root = tk.Tk()

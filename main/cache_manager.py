@@ -442,8 +442,7 @@ def async_cached(ttl_seconds: int = 300, use_file_cache: bool = False):
                 result = await func(*args, **kwargs)
                 cache_manager.set(cache_key, result, use_file_cache)
                 return result
-            else:
-                return cached(ttl_seconds, use_file_cache)(func)(*args, **kwargs)
+            return cached(ttl_seconds, use_file_cache)(func)(*args, **kwargs)
 
         return wrapper
     return decorator

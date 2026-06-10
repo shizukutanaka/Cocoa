@@ -190,11 +190,10 @@ class PrivacyProtector:
         if isinstance(value, str):
             # 文字列のハッシュ化や部分マスク
             return f"<anonymized_{hash(str(value)) % 10000}>"
-        elif isinstance(value, (int, float)):
+        if isinstance(value, (int, float)):
             # 数値を範囲に変換
             return f"<range_{int(value // 10) * 10}-{int(value // 10) * 10 + 9}>"
-        else:
-            return "<anonymized>"
+        return "<anonymized>"
 
     def check_data_sharing(self, user_id: str, target: str) -> bool:
         """データ共有の許可をチェック"""
@@ -637,9 +636,8 @@ class SecurityValidator:
             if time.time() < self.lockouts[user_id]:
                 remaining = int(self.lockouts[user_id] - time.time())
                 return False, f"アカウントがロックされています ({remaining}秒後に解除)"
-            else:
-                del self.lockouts[user_id]
-                self.failed_attempts[user_id] = []
+            del self.lockouts[user_id]
+            self.failed_attempts[user_id] = []
 
         # IP制限チェック
         if ip_address and not self._check_ip_access(ip_address):
@@ -828,23 +826,9 @@ class IntegratedSecurityManager:
             return {'error': f'無効な入力: {msg}', 'success': False}
 
         # 2. 行動異常検知チェック
-        # ログイン頻度を記録
-        self.behavior_analyzer.record_behavior(user_id, 'login_frequency', 1.0, current_time)
-
-        # 操作数を記録
-        self.behavior_analyzer.record_behavior(user_id, 'operation_count', 1.0, current_time)
-
-        # セッション時間を記録（簡易版）
-        self.behavior_analyzer.record_behavior(user_id, 'session_duration', session_duration, current_time)
-
-        # 異常検知実行
-        anomaly_detected = False
-        anomaly_details = {}
-        for behavior_type in ['login_frequency', 'operation_count', 'session_duration']:
-            is_anomaly, confidence, details = self.behavior_analyzer.detect_anomaly(user_id, behavior_type, 1.0)
-            if is_anomaly:
-                anomaly_detected = True
-                anomaly_details[behavior_type] = details
+        anomaly_detected, anomaly_details, confidence = self._record_behavior_anomalies(
+            user_id, session_duration, current_time
+        )
 
         if anomaly_detected:
             self._record_security_incident("behavior_anomaly", user_id, {
@@ -897,21 +881,10 @@ class IntegratedSecurityManager:
         )
         self.auditor.log_event(event)
 
-        # 5. データ暗号化 (オプション)
-        result_data = data
-        if encrypt and self.encryptor:
-            try:
-                encrypted_data = self.encryptor.encrypt_data(data)
-                result_data = {'encrypted': encrypted_data}
-            except Exception as e:
-                logger.error(f"暗号化エラー: {e}")
-                return {'error': '暗号化処理に失敗しました', 'success': False}
-
-        # 6. プライバシー保護適用
-        try:
-            result_data = self.privacy_protector.anonymize_data(result_data, user_id)
-        except Exception as e:
-            logger.warning(f"プライバシー保護適用エラー: {e}")
+        # 5. データ暗号化 + 6. プライバシー保護
+        result_data, enc_err = self._apply_encryption_and_privacy(user_id, data, encrypt)
+        if enc_err is not None:
+            return enc_err
 
         execution_time = time.time() - start_time
 
@@ -924,6 +897,49 @@ class IntegratedSecurityManager:
             'anomaly_detected': anomaly_detected,
             'threat_level': self.threat_level.value
         }
+
+    def _record_behavior_anomalies(
+        self,
+        user_id: str,
+        session_duration: float,
+        current_time: float,
+    ) -> Tuple[bool, Dict[str, Any], float]:
+        """行動記録と異常検知を実行し (anomaly_detected, anomaly_details, confidence) を返す"""
+        self.behavior_analyzer.record_behavior(user_id, 'login_frequency', 1.0, current_time)
+        self.behavior_analyzer.record_behavior(user_id, 'operation_count', 1.0, current_time)
+        self.behavior_analyzer.record_behavior(user_id, 'session_duration', session_duration, current_time)
+        anomaly_detected = False
+        anomaly_details: Dict[str, Any] = {}
+        confidence = 0.0
+        for behavior_type in ['login_frequency', 'operation_count', 'session_duration']:
+            is_anomaly, confidence, details = self.behavior_analyzer.detect_anomaly(
+                user_id, behavior_type, 1.0
+            )
+            if is_anomaly:
+                anomaly_detected = True
+                anomaly_details[behavior_type] = details
+        return anomaly_detected, anomaly_details, confidence
+
+    def _apply_encryption_and_privacy(
+        self,
+        user_id: str,
+        data: Dict[str, Any],
+        encrypt: bool,
+    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+        """データを暗号化しプライバシー保護を適用する。エラー時は (data, error_dict) を返す。"""
+        result_data = data
+        if encrypt and self.encryptor:
+            try:
+                encrypted_data = self.encryptor.encrypt_data(data)
+                result_data = {'encrypted': encrypted_data}
+            except Exception as e:
+                logger.error(f"暗号化エラー: {e}")
+                return data, {'error': '暗号化処理に失敗しました', 'success': False}
+        try:
+            result_data = self.privacy_protector.anonymize_data(result_data, user_id)
+        except Exception as e:
+            logger.warning(f"プライバシー保護適用エラー: {e}")
+        return result_data, None
 
     def get_security_report(self) -> Dict[str, Any]:
         """包括的セキュリティレポート"""
@@ -999,12 +1015,11 @@ class IntegratedSecurityManager:
 
         if incident_count > 100:
             return ThreatLevel.CRITICAL
-        elif incident_count > 50:
+        if incident_count > 50:
             return ThreatLevel.HIGH
-        elif incident_count > 10:
+        if incident_count > 10:
             return ThreatLevel.MEDIUM
-        else:
-            return ThreatLevel.LOW
+        return ThreatLevel.LOW
 
     def _record_security_incident(self, incident_type: str, user_id: str, details: Dict[str, Any]):
         """セキュリティインシデントの記録"""
@@ -1060,8 +1075,7 @@ def initialize_security():
     manager = get_security_manager()
     if manager.initialize():
         return manager
-    else:
-        raise Exception("セキュリティの初期化に失敗")
+    raise Exception("セキュリティの初期化に失敗")
 
 class ZeroTrustSecurity:
     """ゼロトラストセキュリティシステム"""
@@ -1714,9 +1728,8 @@ class QuantumSafeManager:
         recipient_key = self.key_pairs[recipient_key_id]
         if recipient_key.algorithm.startswith("Kyber"):
             return await self._kyber_encrypt(plaintext, recipient_key)
-        else:
-            # 他のアルゴリズム
-            return await self._fallback_encrypt(plaintext, recipient_key)
+        # 他のアルゴリズム
+        return await self._fallback_encrypt(plaintext, recipient_key)
 
     async def _kyber_encrypt(self, plaintext: bytes, recipient_key: QuantumKeyPair) -> bytes:
         """Kyber暗号化"""
@@ -1756,8 +1769,7 @@ class QuantumSafeManager:
         sender_key = self.key_pairs[recipient_key_id]
         if sender_key.algorithm.startswith("Kyber"):
             return await self._kyber_decrypt(ciphertext, sender_key)
-        else:
-            return await self._fallback_decrypt(ciphertext, sender_key)
+        return await self._fallback_decrypt(ciphertext, sender_key)
 
     async def _kyber_decrypt(self, ciphertext: bytes, sender_key: QuantumKeyPair) -> bytes:
         """Kyber復号化"""
@@ -1766,8 +1778,7 @@ class QuantumSafeManager:
             shared_secret = kem.decap_secret(ciphertext, sender_key.private_key)
             # 共有鍵を使用してデータを復号化
             return shared_secret  # 簡易実装
-        else:
-            return self._fallback_decrypt(ciphertext, sender_key)
+        return self._fallback_decrypt(ciphertext, sender_key)
 
     async def _fallback_decrypt(self, ciphertext: bytes, sender_key: QuantumKeyPair) -> bytes:
         """フォールバック復号化"""
@@ -1845,12 +1856,11 @@ class QuantumSafeManager:
         try:
             if signature.algorithm.startswith("Dilithium"):
                 return await self._dilithium_verify(message, signature, signer_key)
-            elif signature.algorithm.startswith("Falcon"):
+            if signature.algorithm.startswith("Falcon"):
                 return await self._falcon_verify(message, signature, signer_key)
-            elif signature.algorithm.startswith("SPHINCS"):
+            if signature.algorithm.startswith("SPHINCS"):
                 return await self._sphincs_verify(message, signature, signer_key)
-            else:
-                return await self._fallback_verify(message, signature, signer_key)
+            return await self._fallback_verify(message, signature, signer_key)
         except Exception as e:
             logger.error(f"Signature verification failed: {e}")
             return False

@@ -246,11 +246,11 @@ class InteractiveAvatar:
                     emotion=emotion
                 )
 
-            elif message.message_type == "command":
+            if message.message_type == "command":
                 # コマンドの処理
                 return await self._handle_command(message)
 
-            elif message.message_type == "emotion":
+            if message.message_type == "emotion":
                 # 感情表現の処理
                 self.current_emotion = message.content
                 return AvatarResponse(
@@ -261,14 +261,13 @@ class InteractiveAvatar:
                     emotion=message.content
                 )
 
-            else:
-                return AvatarResponse(
-                    response_id=response_id,
-                    avatar_id=self.avatar_id,
-                    response_type="text",
-                    content="申し訳ありませんが、そのタイプのメッセージは理解できません。",
-                    emotion="confused"
-                )
+            return AvatarResponse(
+                response_id=response_id,
+                avatar_id=self.avatar_id,
+                response_type="text",
+                content="申し訳ありませんが、そのタイプのメッセージは理解できません。",
+                emotion="confused"
+            )
 
         except Exception as e:
             logger.error(f"Response generation failed: {e}")
@@ -308,10 +307,9 @@ class InteractiveAvatar:
 
         if positive_count > negative_count:
             return "happy"
-        elif negative_count > positive_count:
+        if negative_count > positive_count:
             return "sad"
-        else:
-            return "neutral"
+        return "neutral"
 
     async def _handle_command(self, message: InteractionMessage) -> AvatarResponse:
         """コマンドを処理"""
@@ -326,7 +324,7 @@ class InteractiveAvatar:
                 emotion="neutral"
             )
 
-        elif command == "emotion":
+        if command == "emotion":
             available_emotions = ["happy", "sad", "angry", "surprised", "neutral"]
             return AvatarResponse(
                 response_id=f"cmd_{datetime.now(timezone.utc).timestamp()}",
@@ -336,7 +334,7 @@ class InteractiveAvatar:
                 emotion="neutral"
             )
 
-        elif command.startswith("set_emotion "):
+        if command.startswith("set_emotion "):
             new_emotion = command.split(" ", 1)[1]
             if new_emotion in ["happy", "sad", "angry", "surprised", "neutral"]:
                 self.current_emotion = new_emotion
@@ -347,23 +345,21 @@ class InteractiveAvatar:
                     content=f"感情を {new_emotion} に変更しました",
                     emotion=new_emotion
                 )
-            else:
-                return AvatarResponse(
-                    response_id=f"cmd_{datetime.now(timezone.utc).timestamp()}",
-                    avatar_id=self.avatar_id,
-                    response_type="text",
-                    content="無効な感情です",
-                    emotion="confused"
-                )
-
-        else:
             return AvatarResponse(
                 response_id=f"cmd_{datetime.now(timezone.utc).timestamp()}",
                 avatar_id=self.avatar_id,
                 response_type="text",
-                content="不明なコマンドです。'status', 'emotion', 'set_emotion [感情]' が利用可能です。",
+                content="無効な感情です",
                 emotion="confused"
             )
+
+        return AvatarResponse(
+            response_id=f"cmd_{datetime.now(timezone.utc).timestamp()}",
+            avatar_id=self.avatar_id,
+            response_type="text",
+            content="不明なコマンドです。'status', 'emotion', 'set_emotion [感情]' が利用可能です。",
+            emotion="confused"
+        )
 
     def _add_to_history(self, message: InteractionMessage, response: AvatarResponse):
         """会話履歴に追加"""

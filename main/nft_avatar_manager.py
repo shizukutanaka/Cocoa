@@ -218,7 +218,7 @@ class NFTAvatarManager:
 
                 if isinstance(result, dict) and 'Hash' in result:
                     return result['Hash']
-                elif isinstance(result, list) and len(result) > 0:
+                if isinstance(result, list) and len(result) > 0:
                     return result[0]['Hash']
 
                 raise ValueError("Failed to get IPFS hash from upload result")
@@ -241,7 +241,7 @@ class NFTAvatarManager:
 
             if isinstance(result, dict) and 'Hash' in result:
                 return result['Hash']
-            elif isinstance(result, list) and len(result) > 0:
+            if isinstance(result, list) and len(result) > 0:
                 return result[0]['Hash']
 
             raise ValueError("Failed to get IPFS hash from metadata upload")

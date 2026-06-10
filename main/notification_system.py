@@ -66,7 +66,6 @@ class NotificationHandler(ABC):
     @abstractmethod
     def send_notification(self, notification: Dict[str, Any]) -> None:
         """Send a notification"""
-        pass
 
 class ConsoleNotificationHandler(NotificationHandler):
     """Handle notifications by printing to console"""

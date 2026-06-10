@@ -518,11 +518,9 @@ class AvatarPerformanceMonitor:
                             "period_hours": hours
                         }
                     }
-                else:
-                    return {}
-            else:
-                # 全操作タイプ
-                cursor.execute('''
+                return {}
+            # 全操作タイプ
+            cursor.execute('''
                     SELECT operation_type, COUNT(*), SUM(success), SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END),
                            AVG(duration), MIN(duration), MAX(duration)
                     FROM avatar_performance
@@ -530,23 +528,23 @@ class AvatarPerformanceMonitor:
                     GROUP BY operation_type
                 ''', (cutoff_time.isoformat(),))
 
-                results = {}
-                for row in cursor.fetchall():
-                    op_type, total, successful, failed, avg_duration, min_duration, max_duration = row
-                    success_rate = successful / total if total > 0 else 0.0
+            results = {}
+            for row in cursor.fetchall():
+                op_type, total, successful, failed, avg_duration, min_duration, max_duration = row
+                success_rate = successful / total if total > 0 else 0.0
 
-                    results[op_type] = {
-                        "total_operations": total,
-                        "successful_operations": successful,
-                        "failed_operations": failed,
-                        "average_duration": avg_duration or 0.0,
-                        "min_duration": min_duration or 0.0,
-                        "max_duration": max_duration or 0.0,
-                        "success_rate": success_rate,
-                        "period_hours": hours
-                    }
+                results[op_type] = {
+                    "total_operations": total,
+                    "successful_operations": successful,
+                    "failed_operations": failed,
+                    "average_duration": avg_duration or 0.0,
+                    "min_duration": min_duration or 0.0,
+                    "max_duration": max_duration or 0.0,
+                    "success_rate": success_rate,
+                    "period_hours": hours
+                }
 
-                return results
+            return results
 
     async def get_recent_alerts(self, limit: int = 10) -> List[Dict[str, Any]]:
         """最近のアラートを取得"""
@@ -678,12 +676,11 @@ class AvatarPerformanceMonitor:
 
         if success_rate >= 0.95 and avg_duration <= max_duration * 0.5:
             return "excellent"
-        elif success_rate >= 0.85 and avg_duration <= max_duration:
+        if success_rate >= 0.85 and avg_duration <= max_duration:
             return "good"
-        elif success_rate >= 0.7:
+        if success_rate >= 0.7:
             return "fair"
-        else:
-            return "needs_attention"
+        return "needs_attention"
 
     async def export_performance_data(self, operation_type: Optional[str] = None,
                                     hours: int = 24, format: str = "json") -> Optional[str]:

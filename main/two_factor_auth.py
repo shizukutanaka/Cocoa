@@ -273,11 +273,10 @@ class TwoFactorAuthManager:
                     'valid': True,
                     'remaining_time': totp.get_remaining_time()
                 }
-            else:
-                return {
-                    'valid': False,
-                    'error': '無効なトークンです'
-                }
+            return {
+                'valid': False,
+                'error': '無効なトークンです'
+            }
 
         except Exception as e:
             logger.error(f"2FAトークン検証エラー: {e}")
@@ -299,11 +298,10 @@ class TwoFactorAuthManager:
                     'valid': True,
                     'message': 'バックアップコードが認証されました'
                 }
-            else:
-                return {
-                    'valid': False,
-                    'error': '無効なバックアップコードです'
-                }
+            return {
+                'valid': False,
+                'error': '無効なバックアップコードです'
+            }
 
         except Exception as e:
             logger.error(f"バックアップコード検証エラー: {e}")
@@ -329,11 +327,10 @@ class TwoFactorAuthManager:
                     'success': True,
                     'message': '2要素認証が無効になりました'
                 }
-            else:
-                return {
-                    'success': False,
-                    'error': 'パスワードが正しくありません'
-                }
+            return {
+                'success': False,
+                'error': 'パスワードが正しくありません'
+            }
 
         except Exception as e:
             logger.error(f"2FA無効化エラー: {e}")

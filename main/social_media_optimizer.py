@@ -479,11 +479,10 @@ class SocialMediaOptimizer:
                         "fps": preset.fps
                     }
                 }
-            else:
-                return {
-                    "success": False,
-                    "error": result.error_message
-                }
+            return {
+                "success": False,
+                "error": result.error_message
+            }
 
         except Exception as e:
             logger.error(f"Platform optimization failed for {platform_id}: {e}")

@@ -49,37 +49,44 @@ def validate_preset_schema(preset: Any) -> Dict[str, Any]:
         errors.append("'parameters' must be a list")
         return {"valid": not errors, "errors": errors, "warnings": warnings}
 
-    seen_names = set()
+    seen_names: set = set()
     for i, p in enumerate(params):
         if not isinstance(p, dict):
             errors.append(f"parameters[{i}] must be an object")
             continue
-
-        pname = p.get("name")
-        if not isinstance(pname, str) or not pname.strip():
-            errors.append(f"parameters[{i}].name must be a non-empty string")
-        else:
-            if pname in seen_names:
-                errors.append(f"duplicate parameter name '{pname}'")
-            seen_names.add(pname)
-
-        ptype = p.get("type")
-        if not isinstance(ptype, str) or ptype.strip().lower() not in PARAMETER_TYPES:
-            errors.append(
-                f"parameters[{i}].type must be one of Bool/Int/Float/Trigger (got {ptype!r})"
-            )
-            ptype = None
-
-        synced = p.get("synced", True)
-        if not isinstance(synced, bool):
-            errors.append(f"parameters[{i}].synced must be a boolean")
-
-        if ptype is not None and "default" in p and not _check_default_type(ptype, p["default"]):
-            warnings.append(
-                f"parameters[{i}] ('{pname}') default {p['default']!r} は型 {ptype} と不整合の可能性"
-            )
+        _validate_parameter(i, p, seen_names, errors, warnings)
 
     return {"valid": not errors, "errors": errors, "warnings": warnings}
+
+
+def _validate_parameter(
+    i: int,
+    p: Dict[str, Any],
+    seen_names: set,
+    errors: List[str],
+    warnings: List[str],
+) -> None:
+    pname = p.get("name")
+    if not isinstance(pname, str) or not pname.strip():
+        errors.append(f"parameters[{i}].name must be a non-empty string")
+    else:
+        if pname in seen_names:
+            errors.append(f"duplicate parameter name '{pname}'")
+        seen_names.add(pname)
+
+    ptype = p.get("type")
+    if not isinstance(ptype, str) or ptype.strip().lower() not in PARAMETER_TYPES:
+        errors.append(f"parameters[{i}].type must be one of Bool/Int/Float/Trigger (got {ptype!r})")
+        ptype = None
+
+    synced = p.get("synced", True)
+    if not isinstance(synced, bool):
+        errors.append(f"parameters[{i}].synced must be a boolean")
+
+    if ptype is not None and "default" in p and not _check_default_type(ptype, p["default"]):
+        warnings.append(
+            f"parameters[{i}] ('{pname}') default {p['default']!r} は型 {ptype} と不整合の可能性"
+        )
 
 
 def analyze_preset(preset: Any) -> Dict[str, Any]:

@@ -47,9 +47,8 @@ class Dependency:
             if key not in self._instances:
                 self._instances[key] = self.factory(**kwargs)
             return self._instances[key]
-        else:
-            # REQUEST / TRANSIENT
-            return self.factory(**kwargs)
+        # REQUEST / TRANSIENT
+        return self.factory(**kwargs)
 
     def resolve_dependencies(self) -> Dict[str, Any]:
         """依存性を解決。Dependency オブジェクトは get_instance()、生の値はそのまま使用。"""
@@ -159,8 +158,7 @@ def inject(interface: Union[Type[T], str], scope: Scope = Scope.TRANSIENT):
 
         if inspect.iscoroutinefunction(func):
             return async_wrapper
-        else:
-            return sync_wrapper
+        return sync_wrapper
 
     return wrapper
 

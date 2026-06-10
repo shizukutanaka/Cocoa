@@ -489,10 +489,9 @@ class InteractiveAIAgent:
 
         if any(word in response_lower for word in positive_words):
             return "positive"
-        elif any(word in response_lower for word in negative_words):
+        if any(word in response_lower for word in negative_words):
             return "negative"
-        else:
-            return "neutral"
+        return "neutral"
 
     def _calculate_confidence(self, response: str, context: ConversationContext) -> float:
         """応答の信頼度を計算（簡易版）"""

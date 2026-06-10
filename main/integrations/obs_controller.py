@@ -169,10 +169,13 @@ class OBSController(StreamingController):
             self._status.last_error = str(exc)
         finally:
             self._status.connected = False
-            for fut in list(self._pending.values()):
-                if not fut.done():
-                    fut.set_exception(RuntimeError("Connection closed"))
-            self._pending.clear()
+            self._cancel_pending_futures()
+
+    def _cancel_pending_futures(self) -> None:
+        for fut in list(self._pending.values()):
+            if not fut.done():
+                fut.set_exception(RuntimeError("Connection closed"))
+        self._pending.clear()
 
     async def _handle_response(self, payload: Dict[str, Any]) -> None:
         request_id = payload.get("requestId")

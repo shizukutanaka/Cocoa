@@ -1332,12 +1332,11 @@ class HybridSystemManager:
         # 効率的な使用領域でのスコアが高い
         if cpu_percent < 30 and memory_percent < 50:
             return 90 + random.uniform(-5, 5)
-        elif cpu_percent < 60 and memory_percent < 70:
+        if cpu_percent < 60 and memory_percent < 70:
             return 70 + random.uniform(-10, 10)
-        elif cpu_percent < 80 and memory_percent < 85:
+        if cpu_percent < 80 and memory_percent < 85:
             return 50 + random.uniform(-10, 10)
-        else:
-            return 30 + random.uniform(-10, 10)
+        return 30 + random.uniform(-10, 10)
 
     def _get_system_temperature(self) -> float:
         """システム温度を取得（℃）"""
@@ -1527,10 +1526,9 @@ class HybridSystemManager:
 
         if scores[-1] > mean(scores) + 5:
             return "improving"
-        elif scores[-1] < mean(scores) - 5:
+        if scores[-1] < mean(scores) - 5:
             return "degrading"
-        else:
-            return "stable"
+        return "stable"
 
 # グローバルインスタンス
 _hybrid_system_manager = None

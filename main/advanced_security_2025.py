@@ -343,12 +343,11 @@ class AdvancedSecurityManager:
 
         if risk_score > 0.8:
             return "denied"
-        elif risk_score > 0.6:
+        if risk_score > 0.6:
             return "restricted"
-        elif risk_score > 0.4:
+        if risk_score > 0.4:
             return "monitored"
-        else:
-            return "full"
+        return "full"
 
     async def _check_compliance_requirements(
         self,
