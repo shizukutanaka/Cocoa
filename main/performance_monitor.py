@@ -861,12 +861,11 @@ class PerformanceMonitor:
 
             # 統計計算のキャッシュチェック
             cache_key = f"anomaly_{metric}_{len(values)}"
-            if cache_key in self._stats_cache:
-                cached_time, cached_result = self._stats_cache[cache_key]
-                if time.time() - cached_time < self._cache_ttl:
-                    if cached_result:
-                        anomalies[metric] = cached_result
-                    continue
+            cached = self._get_cached_anomalies(cache_key)
+            if cached is not None:
+                if cached:
+                    anomalies[metric] = cached
+                continue
 
             try:
                 avg = mean(values)
@@ -878,38 +877,7 @@ class PerformanceMonitor:
             if deviation == 0:
                 continue
 
-            metric_anomalies: List[Dict[str, Any]] = []
-            recent_values = values[-10:]  # 最近10個の値でトレンド分析
-
-            # トレンド分析（線形回帰）
-            if len(recent_values) >= 3:
-                x = list(range(len(recent_values)))
-                slope = self._calculate_slope(x, recent_values)
-                trend_strength = abs(slope) / (avg + 1e-6)  # トレンド強度を計算
-            else:
-                slope = 0.0
-                trend_strength = 0.0
-
-            for _i, sample in enumerate(samples[-5:]):
-                z_score = abs(sample["value"] - avg) / deviation if deviation > 0 else 0
-
-                # 異常検知の閾値を動的に調整（トレンド考慮）
-                dynamic_threshold = 3.0
-                if trend_strength > 0.1:  # 強いトレンドがある場合
-                    dynamic_threshold = 2.5  # 閾値を緩和
-                elif trend_strength < 0.05:  # 安定している場合
-                    dynamic_threshold = 3.5  # 閾値を厳しく
-
-                if z_score >= dynamic_threshold:
-                    anomaly_info = {
-                        "timestamp": sample["timestamp"],
-                        "value": sample["value"],
-                        "z_score": z_score,
-                        "trend_slope": slope,
-                        "trend_strength": trend_strength,
-                        "severity": "high" if z_score >= 4.0 else "medium" if z_score >= 3.0 else "low"
-                    }
-                    metric_anomalies.append(anomaly_info)
+            metric_anomalies = self._detect_metric_anomalies(samples, values, avg, deviation)
 
             if metric_anomalies:
                 anomalies[metric] = metric_anomalies
@@ -918,6 +886,56 @@ class PerformanceMonitor:
             self._stats_cache[cache_key] = (time.time(), metric_anomalies)
 
         return anomalies
+
+    def _get_cached_anomalies(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
+        """キャッシュが有効ならば異常リストを返す。未キャッシュ/期限切れなら None。"""
+        if cache_key in self._stats_cache:
+            cached_time, cached_result = self._stats_cache[cache_key]
+            if time.time() - cached_time < self._cache_ttl:
+                return cached_result
+        return None
+
+    def _detect_metric_anomalies(
+        self,
+        samples: "Deque[HistorySample]",
+        values: List[float],
+        avg: float,
+        deviation: float,
+    ) -> List[Dict[str, Any]]:
+        """1メトリクスの直近サンプルから z-score ベースで異常を検出する。"""
+        metric_anomalies: List[Dict[str, Any]] = []
+        recent_values = values[-10:]  # 最近10個の値でトレンド分析
+
+        # トレンド分析（線形回帰）
+        if len(recent_values) >= 3:
+            x = list(range(len(recent_values)))
+            slope = self._calculate_slope(x, recent_values)
+            trend_strength = abs(slope) / (avg + 1e-6)  # トレンド強度を計算
+        else:
+            slope = 0.0
+            trend_strength = 0.0
+
+        # 異常検知の閾値を動的に調整（トレンド考慮）
+        dynamic_threshold = 3.0
+        if trend_strength > 0.1:  # 強いトレンドがある場合
+            dynamic_threshold = 2.5  # 閾値を緩和
+        elif trend_strength < 0.05:  # 安定している場合
+            dynamic_threshold = 3.5  # 閾値を厳しく
+
+        for sample in samples[-5:]:
+            z_score = abs(sample["value"] - avg) / deviation if deviation > 0 else 0
+
+            if z_score >= dynamic_threshold:
+                metric_anomalies.append({
+                    "timestamp": sample["timestamp"],
+                    "value": sample["value"],
+                    "z_score": z_score,
+                    "trend_slope": slope,
+                    "trend_strength": trend_strength,
+                    "severity": "high" if z_score >= 4.0 else "medium" if z_score >= 3.0 else "low"
+                })
+
+        return metric_anomalies
 
     def _calculate_slope(self, x: List[float], y: List[float]) -> float:
         """線形回帰の傾きを計算します。"""
