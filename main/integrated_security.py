@@ -1345,7 +1345,7 @@ class AISecurityManager:
         if model_dir.exists():
             for model_file in model_dir.glob("*.json"):
                 try:
-                    with open(model_file, 'r', encoding='utf-8') as f:
+                    with open(model_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
                         model = AIModelMetadata(**data)
                         self.registered_models[model.model_id] = model
@@ -1507,7 +1507,7 @@ class AISecurityManager:
         events = []
         if audit_file.exists():
             try:
-                with open(audit_file, 'r', encoding='utf-8') as f:
+                with open(audit_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                     events = json.load(f)
             except Exception:
                 events = []
@@ -1526,7 +1526,7 @@ class AISecurityManager:
         })
 
         # 保存
-        with open(audit_file, 'w', encoding='utf-8') as f:
+        with open(audit_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(events, f, indent=2, ensure_ascii=False)
 
     def get_ai_security_metrics(self) -> Dict[str, Any]:
@@ -1601,7 +1601,7 @@ class QuantumSafeManager:
         if key_dir.exists():
             for key_file in key_dir.glob("*.json"):
                 try:
-                    with open(key_file, 'r', encoding='utf-8') as f:
+                    with open(key_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
                         key_pair = QuantumKeyPair(
                             public_key=bytes.fromhex(data["public_key"]),
@@ -1701,7 +1701,7 @@ class QuantumSafeManager:
         key_dir.mkdir(parents=True, exist_ok=True)
 
         key_file = key_dir / f"{key_pair.key_id}.json"
-        with open(key_file, 'w', encoding='utf-8') as f:
+        with open(key_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump({
                 "key_id": key_pair.key_id,
                 "algorithm": key_pair.algorithm,

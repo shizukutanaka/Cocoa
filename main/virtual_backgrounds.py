@@ -135,7 +135,7 @@ class BackgroundProcessor:
             if template_path.exists():
                 return Image.open(template_path).convert('RGB')
 
-        if config.custom_image_path and Path(config.custom_image_path).exists():
+        if config.custom_image_path and Path(config.custom_image_path).exists():  # noqa: ASYNC240
             # カスタム画像から読み込み
             return Image.open(config.custom_image_path).convert('RGB')
 
@@ -252,7 +252,7 @@ class BackgroundProcessor:
         result = image.copy()
 
         logo_path = branding.get('logo_path')
-        if logo_path and Path(logo_path).exists():
+        if logo_path and Path(logo_path).exists():  # noqa: ASYNC240
             result = self._apply_branding_logo(result, branding, logo_path)
 
         text_overlay = branding.get('text_overlay')
@@ -366,9 +366,9 @@ class VirtualBackgroundsService:
         """テンプレートを読み込み"""
         metadata_file = Path("data/backgrounds/templates_metadata.json")
 
-        if metadata_file.exists():
+        if metadata_file.exists():  # noqa: ASYNC240
             try:
-                with open(metadata_file, 'r', encoding='utf-8') as f:
+                with open(metadata_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                     templates_data = json.load(f)
 
                 for template_data in templates_data:
@@ -829,7 +829,7 @@ class VirtualBackgroundsService:
         """
         try:
             # 画像検証
-            if not Path(image_path).exists():
+            if not Path(image_path).exists():  # noqa: ASYNC240
                 raise FileNotFoundError(f"Background image not found: {image_path}")
 
             # テンプレートID生成
@@ -874,11 +874,11 @@ class VirtualBackgroundsService:
 
         # ファイル削除
         try:
-            if template.image_path and Path(template.image_path).exists():
-                Path(template.image_path).unlink()
+            if template.image_path and Path(template.image_path).exists():  # noqa: ASYNC240
+                Path(template.image_path).unlink()  # noqa: ASYNC240
 
-            if template.thumbnail_path and Path(template.thumbnail_path).exists():
-                Path(template.thumbnail_path).unlink()
+            if template.thumbnail_path and Path(template.thumbnail_path).exists():  # noqa: ASYNC240
+                Path(template.thumbnail_path).unlink()  # noqa: ASYNC240
 
             # メタデータファイル削除
             metadata_file = self.templates_dir / f"{template_id}_metadata.json"

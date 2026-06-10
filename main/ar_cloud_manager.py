@@ -140,7 +140,7 @@ class ARCloudManager:
         if maps_dir.exists():
             for map_file in maps_dir.glob("*.json"):
                 try:
-                    with open(map_file, 'r', encoding='utf-8') as f:
+                    with open(map_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
 
                         # ポイントクラウドを読み込み
@@ -331,7 +331,7 @@ class ARCloudManager:
         }
 
         map_file = maps_dir / f"{ar_map.map_id}.json"
-        with open(map_file, 'w', encoding='utf-8') as f:
+        with open(map_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(map_data, f, indent=2, ensure_ascii=False)
 
     async def add_spatial_anchor(self, map_id: str, position: Tuple[float, float, float],

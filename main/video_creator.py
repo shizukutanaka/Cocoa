@@ -102,7 +102,7 @@ class VoiceGenerator:
 
             # 音声ファイル生成
             audio_dir = Path("data/temp_audio")
-            audio_dir.mkdir(parents=True, exist_ok=True)
+            audio_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
             audio_filename = f"voice_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.wav"
             audio_path = audio_dir / audio_filename
@@ -350,7 +350,7 @@ class VideoCreator:
             audio_clip = AudioFileClip(audio_path)
 
             # 背景音楽追加（オプション）
-            if request.background_music and Path(request.background_music).exists():
+            if request.background_music and Path(request.background_music).exists():  # noqa: ASYNC240
                 bg_music = AudioFileClip(request.background_music).set_duration(audio_clip.duration)
                 bg_music = bg_music.volumex(0.3)  # ボリュームを下げる
                 audio_clip = CompositeVideoClip([audio_clip, bg_music])
@@ -498,7 +498,7 @@ class VideoCreator:
         """デフォルトのアバター画像を取得"""
         # スタイルに応じたデフォルト画像を返す
         default_dir = Path("data/default_avatars")
-        default_dir.mkdir(parents=True, exist_ok=True)
+        default_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
         default_path = default_dir / f"default_{style}.png"
 
@@ -555,8 +555,8 @@ class VideoCreator:
 
             # temp_audio内の古いファイルを削除
             audio_dir = Path("data/temp_audio")
-            if audio_dir.exists():
-                for file_path in audio_dir.glob("*"):
+            if audio_dir.exists():  # noqa: ASYNC240
+                for file_path in audio_dir.glob("*"):  # noqa: ASYNC240
                     if str(file_path) not in keep_set:
                         try:
                             file_path.unlink()

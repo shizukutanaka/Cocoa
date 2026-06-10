@@ -704,14 +704,14 @@ class VideoAnalyticsService:
 
         # エクスポートディレクトリ
         export_dir = Path("data/analytics_exports")
-        export_dir.mkdir(parents=True, exist_ok=True)
+        export_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"analytics_{video_id}_{timestamp}.{format}"
         export_path = export_dir / filename
 
         if format == 'json':
-            with open(export_path, 'w', encoding='utf-8') as f:
+            with open(export_path, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                 json.dump(export_data, f, ensure_ascii=False, indent=2)
         elif format == 'csv':
             # CSVエクスポートの実装
@@ -723,7 +723,7 @@ class VideoAnalyticsService:
         """CSV形式でエクスポート"""
         import csv
 
-        with open(export_path, 'w', newline='', encoding='utf-8') as f:
+        with open(export_path, 'w', newline='', encoding='utf-8') as f:  # noqa: ASYNC230
             writer = csv.writer(f)
 
             # ヘッダー

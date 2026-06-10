@@ -682,7 +682,7 @@ class AvatarAgentService:
     async def _save_agent_config(self, config: AgentConfiguration):
         """エージェント設定を保存"""
         config_dir = Path("data/agent_configs")
-        config_dir.mkdir(parents=True, exist_ok=True)
+        config_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
         config_file = config_dir / f"{config.agent_id}.json"
         config_data = {

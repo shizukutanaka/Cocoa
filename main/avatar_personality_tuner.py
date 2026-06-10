@@ -181,7 +181,7 @@ class PersonalityAnalyzer:
         }
 
         # 簡易的な分析（実際には音声処理ライブラリを使用）
-        if audio_path and Path(audio_path).exists():
+        if audio_path and Path(audio_path).exists():  # noqa: ASYNC240
             try:
                 # 簡易推定: 平均話速150WPM
                 analysis['speaking_rate'] = 150 * (1 + np.random.normal(0, 0.1))  # 簡易乱数

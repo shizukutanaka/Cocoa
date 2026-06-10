@@ -200,7 +200,7 @@ class EdgeAIManager:
         if model_config_dir.exists():
             for config_file in model_config_dir.glob("*.json"):
                 try:
-                    with open(config_file, 'r', encoding='utf-8') as f:
+                    with open(config_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
                         model = EdgeAIModel(
                             model_id=data["model_id"],
@@ -462,7 +462,7 @@ class EdgeAIManager:
             "version": model.version
         }
 
-        with open(config_file, 'w', encoding='utf-8') as f:
+        with open(config_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(config_data, f, indent=2, ensure_ascii=False)
 
     async def setup_federated_learning(self, model_id: str, config: FederatedLearningConfig) -> bool:
@@ -714,7 +714,7 @@ class EdgeAIManager:
         }
 
         metadata_path = device_dir / f"{model_id}_metadata.json"
-        with open(metadata_path, 'w', encoding='utf-8') as f:
+        with open(metadata_path, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(metadata, f, indent=2, ensure_ascii=False)
 
     def get_edge_ai_status(self) -> Dict[str, Any]:

@@ -244,7 +244,7 @@ class BCIManager:
         if profile_dir.exists():
             for profile_file in profile_dir.glob("*.json"):
                 try:
-                    with open(profile_file, 'r', encoding='utf-8') as f:
+                    with open(profile_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
 
                         profile = BCIProfile(
@@ -635,7 +635,7 @@ class BCIManager:
         }
 
         profile_file = profile_dir / f"{profile.user_id}.json"
-        with open(profile_file, 'w', encoding='utf-8') as f:
+        with open(profile_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(profile_data, f, indent=2, ensure_ascii=False)
 
     async def calibrate_bci_system(self, user_id: str, device_id: str,

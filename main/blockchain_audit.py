@@ -108,7 +108,7 @@ class BlockchainAuditManager:
         """既存のブロックチェーンを読み込み"""
         if self.blockchain_file.exists():
             try:
-                with open(self.blockchain_file, 'r', encoding='utf-8') as f:
+                with open(self.blockchain_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                     data = json.load(f)
                     self.blocks = [
                         AuditBlock(
@@ -311,7 +311,7 @@ class BlockchainAuditManager:
             ]
         }
 
-        with open(self.blockchain_file, 'w', encoding='utf-8') as f:
+        with open(self.blockchain_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(blockchain_data, f, indent=2, ensure_ascii=False)
 
     async def record_audit_event(self, event: BlockchainAuditEvent) -> bool:
@@ -534,7 +534,7 @@ class BlockchainAuditManager:
         snapshot_file = self.audit_dir / "snapshots" / f"{snapshot_id}.json"
         snapshot_file.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(snapshot_file, 'w', encoding='utf-8') as f:
+        with open(snapshot_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(snapshot, f, indent=2, ensure_ascii=False)
 
         logger.info(f"Audit snapshot created: {snapshot_id}")

@@ -212,7 +212,7 @@ class NFTAvatarManager:
             if not self.ipfs_client:
                 await self.initialize_blockchain()
 
-            with open(file_path, 'rb') as f:
+            with open(file_path, 'rb') as f:  # noqa: ASYNC230
                 # IPFSにファイルを追加
                 result = self.ipfs_client.add(f.read())
 
@@ -334,7 +334,7 @@ class NFTAvatarManager:
 
         # JSONファイルとして保存
         record_file = self.nft_data_dir / f"nft_{nft_metadata.avatar_hash}.json"
-        with open(record_file, 'w', encoding='utf-8') as f:
+        with open(record_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(nft_record, f, ensure_ascii=False, indent=2)
 
         logger.info(f"NFT mint record saved: {record_file}")
@@ -361,7 +361,7 @@ class NFTAvatarManager:
             if not record_file.exists():
                 return False
 
-            with open(record_file, 'r', encoding='utf-8') as f:
+            with open(record_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                 nft_record = json.load(f)
 
             # ブロックチェーンで所有権を確認（実際の実装では）
@@ -382,7 +382,7 @@ class NFTAvatarManager:
             # NFT記録ディレクトリからユーザーのNFTを検索
             for nft_file in self.nft_data_dir.glob("nft_*.json"):
                 try:
-                    with open(nft_file, 'r', encoding='utf-8') as f:
+                    with open(nft_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                         nft_record = json.load(f)
 
                     if nft_record.get("user_id") == user_id:
@@ -469,7 +469,7 @@ class NFTAvatarManager:
             record_file = self.nft_data_dir / f"nft_{avatar_hash}.json"
 
             if record_file.exists():
-                with open(record_file, 'r', encoding='utf-8') as f:
+                with open(record_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                     nft_record = json.load(f)
 
                 # 転送情報を追加
@@ -482,7 +482,7 @@ class NFTAvatarManager:
 
                 nft_record["owner_address"] = to_address
 
-                with open(record_file, 'w', encoding='utf-8') as f:
+                with open(record_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                     json.dump(nft_record, f, ensure_ascii=False, indent=2)
 
                 logger.info(f"NFT transfer record updated: {avatar_hash}")

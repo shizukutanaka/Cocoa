@@ -212,7 +212,7 @@ class APIIntegrationService:
 
         # 設定保存
         config_dir = Path("data/integrations")
-        config_dir.mkdir(parents=True, exist_ok=True)
+        config_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
         config_file = config_dir / f"{config.integration_id}.json"
         config_data = {

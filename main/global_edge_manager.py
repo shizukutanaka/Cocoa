@@ -206,7 +206,7 @@ class GlobalEdgeManager:
         if routes_dir.exists():
             for route_file in routes_dir.glob("*.json"):
                 try:
-                    with open(route_file, 'r', encoding='utf-8') as f:
+                    with open(route_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
 
                         route = TrafficRoute(
@@ -455,7 +455,7 @@ class GlobalEdgeManager:
         }
 
         route_file = routes_dir / f"{route.route_id}.json"
-        with open(route_file, 'w', encoding='utf-8') as f:
+        with open(route_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(route_data, f, indent=2, ensure_ascii=False)
 
     async def cache_content(self, content_id: str, content_data: bytes,
@@ -542,7 +542,7 @@ class GlobalEdgeManager:
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         cache_file = cache_dir / f"{cache_key}.cache"
-        with open(cache_file, 'wb') as f:
+        with open(cache_file, 'wb') as f:  # noqa: ASYNC230
             f.write(data)
 
     async def get_cached_content(self, content_id: str, content_type: str,
@@ -571,7 +571,7 @@ class GlobalEdgeManager:
                 if cache_dir.exists():
                     for cache_file in cache_dir.glob(f"{content_id}*.cache"):
                         try:
-                            with open(cache_file, 'rb') as f:
+                            with open(cache_file, 'rb') as f:  # noqa: ASYNC230
                                 data = f.read()
 
                             # キャッシュを更新

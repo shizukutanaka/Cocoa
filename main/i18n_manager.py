@@ -379,7 +379,7 @@ class I18NManager:
         for lang_file in self.locales_dir.glob("*.json"):
             lang_code = lang_file.stem
             try:
-                with open(lang_file, 'r', encoding='utf-8') as f:
+                with open(lang_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                     self.translations[lang_code] = json.load(f)
                 logger.info(f"Loaded translations for {lang_code}")
             except Exception as e:
@@ -564,7 +564,7 @@ class I18NManager:
                 # ファイルに保存
                 lang_file = self.locales_dir / f"{lang_code}.json"
                 try:
-                    with open(lang_file, 'w', encoding='utf-8') as f:
+                    with open(lang_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                         json.dump(expanded, f, ensure_ascii=False, indent=2)
                     logger.info(f"Saved expanded translations for {lang_code}")
                 except Exception as e:

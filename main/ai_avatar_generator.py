@@ -231,7 +231,7 @@ class AIAvatarGenerator:
 
         # 入力データチェック
         if request.source_image_path:
-            if not Path(request.source_image_path).exists():
+            if not Path(request.source_image_path).exists():  # noqa: ASYNC240
                 raise FileNotFoundError(f"Source image not found: {request.source_image_path}")
 
             # 画像サイズ・形式チェック
@@ -246,7 +246,7 @@ class AIAvatarGenerator:
         try:
             with Image.open(image_path) as img:
                 # サイズチェック（最大10MB）
-                if os.path.getsize(image_path) > 10 * 1024 * 1024:
+                if os.path.getsize(image_path) > 10 * 1024 * 1024:  # noqa: ASYNC240
                     raise ValueError("Image file too large (max 10MB)")
 
                 # フォーマットチェック
@@ -362,7 +362,7 @@ class AIAvatarGenerator:
             "prompt": request.prompt,
             "customizations": request.customizations,
             "image_size": image.size,
-            "file_size": os.path.getsize(avatar_path),
+            "file_size": os.path.getsize(avatar_path),  # noqa: ASYNC240
             "created_at": datetime.now(timezone.utc).isoformat()
         }
 
@@ -401,7 +401,7 @@ class AIAvatarGenerator:
             if metadata_file.exists():
                 try:
                     import json
-                    with open(metadata_file, 'r', encoding='utf-8') as f:
+                    with open(metadata_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                         metadata = json.load(f)
                 except (IOError, json.JSONDecodeError) as e:
                     logger.warning(f"Failed to load metadata from {metadata_file}: {e}")

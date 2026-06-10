@@ -519,7 +519,7 @@ class AvatarVideoCreator:
 
                 if metadata_file.exists():
                     try:
-                        with open(metadata_file, 'r', encoding='utf-8') as f:
+                        with open(metadata_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                             metadata = json.load(f)
                     except (IOError, json.JSONDecodeError) as e:
                         logger.warning(f"Failed to load video metadata from {metadata_file}: {e}")

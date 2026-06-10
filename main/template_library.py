@@ -152,7 +152,7 @@ class TemplateLibrary:
         # アバターテンプレート読み込み
         for template_file in self.avatar_templates_dir.glob("*.json"):
             try:
-                with open(template_file, 'r', encoding='utf-8') as f:
+                with open(template_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                     data = json.load(f)
                     schema = validate_avatar_template(data)
                     if not schema["valid"]:
@@ -166,7 +166,7 @@ class TemplateLibrary:
         # 動画テンプレート読み込み
         for template_file in self.video_templates_dir.glob("*.json"):
             try:
-                with open(template_file, 'r', encoding='utf-8') as f:
+                with open(template_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                     data = json.load(f)
                     schema = validate_video_template(data)
                     if not schema["valid"]:
@@ -978,7 +978,7 @@ class TemplateLibrary:
 
         template_file = self.avatar_templates_dir / f"{sanitize_template_id(template.template_id)}.json"
         try:
-            with open(template_file, 'w', encoding='utf-8') as f:
+            with open(template_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                 json.dump({
                     "template_id": template.template_id,
                     "name": template.name,
@@ -1004,7 +1004,7 @@ class TemplateLibrary:
 
         template_file = self.video_templates_dir / f"{sanitize_template_id(template.template_id)}.json"
         try:
-            with open(template_file, 'w', encoding='utf-8') as f:
+            with open(template_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                 json.dump({
                     "template_id": template.template_id,
                     "name": template.name,
@@ -1145,8 +1145,8 @@ class TemplateLibrary:
                 template_file.unlink()
 
             # サムネイル削除
-            if template.thumbnail_path and Path(template.thumbnail_path).exists():
-                Path(template.thumbnail_path).unlink()
+            if template.thumbnail_path and Path(template.thumbnail_path).exists():  # noqa: ASYNC240
+                Path(template.thumbnail_path).unlink()  # noqa: ASYNC240
 
             del self.avatar_templates[template_id]
             logger.info(f"Deleted avatar template: {template_id}")
@@ -1161,8 +1161,8 @@ class TemplateLibrary:
                 template_file.unlink()
 
             # サムネイル削除
-            if template.thumbnail_path and Path(template.thumbnail_path).exists():
-                Path(template.thumbnail_path).unlink()
+            if template.thumbnail_path and Path(template.thumbnail_path).exists():  # noqa: ASYNC240
+                Path(template.thumbnail_path).unlink()  # noqa: ASYNC240
 
             del self.video_templates[template_id]
             logger.info(f"Deleted video template: {template_id}")

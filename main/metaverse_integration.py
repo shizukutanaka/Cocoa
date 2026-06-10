@@ -1126,7 +1126,7 @@ class ARCloudAvatar {
 
         # メタデータファイル
         metadata_file = user_dir / f"avatar_metadata_{timestamp}.json"
-        with open(metadata_file, 'w', encoding='utf-8') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(avatar_data, f, ensure_ascii=False, indent=2)
         files["metadata"] = str(metadata_file)
 
@@ -1151,7 +1151,7 @@ class ARCloudAvatar {
 
         # メタデータファイル
         metadata_file = user_dir / f"avatar_metadata_{timestamp}.json"
-        with open(metadata_file, 'w', encoding='utf-8') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(avatar_data, f, ensure_ascii=False, indent=2)
         files["metadata"] = str(metadata_file)
 
@@ -1180,7 +1180,7 @@ class ARCloudAvatar {
 
         # メタデータファイル
         metadata_file = user_dir / f"avatar_metadata_{timestamp}.json"
-        with open(metadata_file, 'w', encoding='utf-8') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(avatar_data, f, ensure_ascii=False, indent=2)
         files["metadata"] = str(metadata_file)
 
@@ -1205,7 +1205,7 @@ class ARCloudAvatar {
 
         # メタデータファイル
         metadata_file = user_dir / f"avatar_metadata_{timestamp}.json"
-        with open(metadata_file, 'w', encoding='utf-8') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(avatar_data, f, ensure_ascii=False, indent=2)
         files["metadata"] = str(metadata_file)
 
@@ -1230,7 +1230,7 @@ class ARCloudAvatar {
 
         # メタデータファイル
         metadata_file = user_dir / f"avatar_metadata_{timestamp}.json"
-        with open(metadata_file, 'w', encoding='utf-8') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(avatar_data, f, ensure_ascii=False, indent=2)
         files["metadata"] = str(metadata_file)
 

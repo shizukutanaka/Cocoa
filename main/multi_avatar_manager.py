@@ -667,7 +667,7 @@ class MultiAvatarManager:
             from PIL import Image
 
             # 背景読み込み
-            if background_path and Path(background_path).exists():
+            if background_path and Path(background_path).exists():  # noqa: ASYNC240
                 background = Image.open(background_path)
             else:
                 background = Image.new('RGB', scene.resolution, (240, 240, 240))

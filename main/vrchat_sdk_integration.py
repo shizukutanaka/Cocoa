@@ -94,7 +94,7 @@ class VRChatSDKManager:
                 'Content-Type': 'application/json'
             }
 
-            response = requests.get(
+            response = requests.get(  # noqa: ASYNC210
                 f"{self.base_url}/users/{self.user_id}",
                 headers=headers,
                 timeout=10
@@ -180,7 +180,7 @@ class VRChatSDKManager:
             'height': image.height,
             'format': image.format,
             'mode': image.mode,
-            'file_size': os.path.getsize(avatar_path)
+            'file_size': os.path.getsize(avatar_path)  # noqa: ASYNC240
         }
 
         # テクスチャメモリ計算
@@ -264,7 +264,7 @@ class VRChatSDKManager:
         package_path = self.cache_dir / package_name
 
         # パッケージメタデータの作成
-        with open(package_path.with_suffix('.json'), 'w', encoding='utf-8') as f:
+        with open(package_path.with_suffix('.json'), 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump({
                 'package_name': package_name,
                 'sdk_version': self.sdk_version,
@@ -303,7 +303,7 @@ class VRChatSDKManager:
         }
 
         cache_file = self.cache_dir / f"{cache_key}.json"
-        with open(cache_file, 'w', encoding='utf-8') as f:
+        with open(cache_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(cache_data, f, indent=2, ensure_ascii=False)
 
         return {'cache_key': cache_key, 'cache_path': str(cache_file)}

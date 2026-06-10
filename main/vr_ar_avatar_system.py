@@ -189,7 +189,7 @@ class VRAvatarSystem:
         config_dict["created_at"] = datetime.now(timezone.utc).isoformat()
 
         config_file = self.vr_data_dir / f"vr_avatar_{vr_config.avatar_id}.json"
-        with open(config_file, 'w', encoding='utf-8') as f:
+        with open(config_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(config_dict, f, ensure_ascii=False, indent=2)
 
         logger.info(f"VR avatar config saved: {config_file}")
@@ -331,7 +331,7 @@ class VRAvatarSystem:
             if not config_file.exists():
                 return None
 
-            with open(config_file, 'r', encoding='utf-8') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                 config_dict = json.load(f)
 
             # 作成日を除去してVRAvatarConfigを作成

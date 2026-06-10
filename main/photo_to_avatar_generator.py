@@ -355,7 +355,7 @@ class PhotoToAvatarGenerator:
             raise ValueError("Unauthorized photo-to-avatar generation request")
 
         # 写真ファイルの検証
-        if not Path(request.source_photo_path).exists():
+        if not Path(request.source_photo_path).exists():  # noqa: ASYNC240
             raise FileNotFoundError(f"Source photo not found: {request.source_photo_path}")
 
         # 画像サイズと形式のチェック

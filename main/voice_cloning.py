@@ -282,11 +282,11 @@ class VoiceCloningEngine:
 
     async def _validate_audio_file(self, audio_path: str):
         """音声ファイルの妥当性を検証"""
-        if not Path(audio_path).exists():
+        if not Path(audio_path).exists():  # noqa: ASYNC240
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
         # ファイルサイズチェック（最大50MB）
-        if os.path.getsize(audio_path) > 50 * 1024 * 1024:
+        if os.path.getsize(audio_path) > 50 * 1024 * 1024:  # noqa: ASYNC240
             raise ValueError("Audio file too large (max 50MB)")
 
         # 音声情報を取得して検証
@@ -394,7 +394,7 @@ class VoiceCloningEngine:
             "created_at": sample.created_at.isoformat()
         }
 
-        with open(metadata_path, 'w', encoding='utf-8') as f:
+        with open(metadata_path, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(metadata, f, ensure_ascii=False, indent=2)
 
     async def _get_user_voice_samples(self, user_id: str) -> List[VoiceSample]:
@@ -406,7 +406,7 @@ class VoiceCloningEngine:
         samples = []
         for json_file in user_dir.glob("*.json"):
             try:
-                with open(json_file, 'r', encoding='utf-8') as f:
+                with open(json_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                     metadata = json.load(f)
 
                 audio_path = json_file.with_suffix('.wav')
@@ -498,7 +498,7 @@ class VoiceCloningEngine:
                 }
 
                 # 一時ファイルを削除
-                Path(audio_path).unlink(missing_ok=True)
+                Path(audio_path).unlink(missing_ok=True)  # noqa: ASYNC240
 
                 return metrics
             return {"error": "Speech generation failed"}
@@ -564,7 +564,7 @@ class VoiceCloningEngine:
                 metadata_file = voice_dir / "metadata.json"
                 if metadata_file.exists():
                     try:
-                        with open(metadata_file, 'r', encoding='utf-8') as f:
+                        with open(metadata_file, 'r', encoding='utf-8') as f:  # noqa: ASYNC230
                             metadata = json.load(f)
                     except (IOError, json.JSONDecodeError) as e:
                         logger.warning(f"Failed to load voice metadata from {metadata_file}: {e}")

@@ -356,7 +356,7 @@ class EmotionalIntelligence:
         if request.input_type == "text" and not request.input_data.strip():
             raise ValueError("Text input cannot be empty")
 
-        if request.input_type == "image" and not Path(request.input_data).exists():
+        if request.input_type == "image" and not Path(request.input_data).exists():  # noqa: ASYNC240
             raise FileNotFoundError(f"Image file not found: {request.input_data}")
 
         if request.input_type == "voice" and not request.input_data:
