@@ -934,6 +934,11 @@ class RatingRequest(BaseModel):
     stars: int  # 1-5
 
 
+class ReviewRequest(BaseModel):
+    stars: int  # 1-5
+    text: str = ""
+
+
 @app.post("/api/marketplace/publish", tags=["marketplace"])
 async def publish_avatar(body: PublishRequest, current_user: dict = Depends(get_current_user)):
     """アバターをマーケットプレイスに公開"""
@@ -1030,6 +1035,47 @@ async def rate_avatar(listing_id: str, body: RatingRequest, current_user: dict =
         return {"listing_id": listing_id, "average_rating": avg, "your_rating": body.stars}
     except (ValueError, PermissionError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/marketplace/{listing_id}/reviews", tags=["marketplace"])
+async def post_review(listing_id: str, body: ReviewRequest, current_user: dict = Depends(get_current_user)):
+    """テキストレビューと星評価を投稿（既存レビューは更新）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        avg, rv = get_marketplace().review(
+            listing_id,
+            current_user["user_id"],
+            current_user.get("username", "unknown"),
+            body.stars,
+            body.text,
+        )
+        return {"listing_id": listing_id, "average_rating": avg, "review": rv.to_dict()}
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/marketplace/{listing_id}/reviews", tags=["marketplace"])
+async def list_reviews(
+    listing_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """リスティングのレビュー一覧取得"""
+    if not get_marketplace:
+        return {"total": 0, "items": []}
+    return get_marketplace().get_reviews(listing_id, limit=limit, offset=offset)
+
+
+@app.delete("/api/marketplace/{listing_id}/reviews/mine", tags=["marketplace"])
+async def delete_my_review(listing_id: str, current_user: dict = Depends(get_current_user)):
+    """自分のレビューを削除"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    ok = get_marketplace().delete_review(listing_id, current_user["user_id"])
+    if not ok:
+        raise HTTPException(status_code=404, detail="レビューが見つかりません")
+    return {"status": "deleted"}
 
 
 @app.delete("/api/marketplace/{listing_id}", tags=["marketplace"])

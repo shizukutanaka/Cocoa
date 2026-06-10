@@ -16,7 +16,7 @@ import secrets
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,30 @@ class MarketplaceListing:
         }
 
 
+@dataclass
+class Review:
+    review_id: str
+    listing_id: str
+    user_id: str
+    username: str
+    stars: int
+    text: str
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "review_id": self.review_id,
+            "listing_id": self.listing_id,
+            "user_id": self.user_id,
+            "username": self.username,
+            "stars": self.stars,
+            "text": self.text,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+
 # ---------------------------------------------------------------------------
 # In-memory store (production: swap for DB table)
 # ---------------------------------------------------------------------------
@@ -79,6 +103,7 @@ class MarketplaceStore:
     def __init__(self):
         self._listings: Dict[str, MarketplaceListing] = {}
         self._votes: Dict[str, Dict[str, int]] = {}  # listing_id → {user_id: stars}
+        self._reviews: Dict[str, Dict[str, Review]] = {}  # listing_id → {user_id: Review}
         self._lock = threading.Lock()
 
     # --- Publish ---
@@ -119,6 +144,7 @@ class MarketplaceStore:
             )
             self._listings[listing.listing_id] = listing
             self._votes[listing.listing_id] = {}
+            self._reviews[listing.listing_id] = {}
             logger.info("Marketplace listing created: %s by %s", name, owner_username)
             return listing
 
@@ -175,6 +201,62 @@ class MarketplaceStore:
             listing.rating_sum += stars
             listing.rating_count += 1
             return listing.average_rating
+
+    def review(self, listing_id: str, user_id: str, username: str, stars: int, text: str) -> Tuple[float, Review]:
+        """Submit or update a star rating with an optional text review."""
+        if stars < 1 or stars > 5:
+            raise ValueError("Rating must be 1–5")
+        text = text.strip()[:2000]
+        with self._lock:
+            listing = self._listings.get(listing_id)
+            if not listing or not listing.is_active:
+                raise ValueError("Listing not found")
+            if listing.owner_id == user_id:
+                raise ValueError("You cannot review your own listing")
+
+            prev_stars = self._votes[listing_id].get(user_id)
+            if prev_stars is not None:
+                listing.rating_sum -= prev_stars
+                listing.rating_count -= 1
+
+            self._votes[listing_id][user_id] = stars
+            listing.rating_sum += stars
+            listing.rating_count += 1
+
+            existing = self._reviews[listing_id].get(user_id)
+            if existing:
+                existing.stars = stars
+                existing.text = text
+                existing.updated_at = datetime.now(timezone.utc)
+                rv = existing
+            else:
+                rv = Review(
+                    review_id=secrets.token_hex(10),
+                    listing_id=listing_id,
+                    user_id=user_id,
+                    username=username,
+                    stars=stars,
+                    text=text,
+                )
+                self._reviews[listing_id][user_id] = rv
+            return listing.average_rating, rv
+
+    def get_reviews(self, listing_id: str, limit: int = 20, offset: int = 0) -> Dict[str, Any]:
+        """Return paginated reviews for a listing, newest first."""
+        listing = self._listings.get(listing_id)
+        if not listing:
+            return {"total": 0, "items": []}
+        with self._lock:
+            items = sorted(self._reviews[listing_id].values(), key=lambda r: r.created_at, reverse=True)
+        total = len(items)
+        page = items[offset: offset + limit]
+        return {"total": total, "items": [r.to_dict() for r in page]}
+
+    def delete_review(self, listing_id: str, user_id: str) -> bool:
+        """Allow a user to delete their own review (stars are kept)."""
+        with self._lock:
+            rv = self._reviews.get(listing_id, {}).pop(user_id, None)
+        return rv is not None
 
     # --- Queries ---
 

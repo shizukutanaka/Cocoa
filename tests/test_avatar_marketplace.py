@@ -8,7 +8,7 @@ for _p in (str(ROOT), str(ROOT / "main")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from avatar_marketplace import MarketplaceStore
+from avatar_marketplace import MarketplaceStore, Review
 
 
 def _store():
@@ -203,6 +203,81 @@ class TestSearch(unittest.TestCase):
         d = self.l1.to_dict()
         for key in ("listing_id", "name", "owner_username", "tags", "download_count", "average_rating"):
             self.assertIn(key, d)
+
+
+class TestReviews(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.listing = _listing(self.store)
+
+    def test_review_returns_avg_and_review(self):
+        avg, rv = self.store.review(self.listing.listing_id, "u2", "bob", 4, "Great!")
+        self.assertEqual(avg, 4.0)
+        self.assertIsInstance(rv, Review)
+        self.assertEqual(rv.stars, 4)
+        self.assertEqual(rv.text, "Great!")
+
+    def test_review_text_truncated_at_2000(self):
+        _, rv = self.store.review(self.listing.listing_id, "u2", "bob", 3, "x" * 3000)
+        self.assertLessEqual(len(rv.text), 2000)
+
+    def test_update_review_changes_text_and_stars(self):
+        self.store.review(self.listing.listing_id, "u2", "bob", 5, "Perfect")
+        avg, rv = self.store.review(self.listing.listing_id, "u2", "bob", 2, "Disappointing")
+        self.assertEqual(avg, 2.0)
+        self.assertEqual(rv.text, "Disappointing")
+        self.assertEqual(self.listing.rating_count, 1)
+
+    def test_owner_cannot_review_own_listing(self):
+        with self.assertRaises((ValueError, PermissionError)):
+            self.store.review(self.listing.listing_id, "u1", "alice", 5, "mine")
+
+    def test_invalid_stars_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.review(self.listing.listing_id, "u2", "bob", 0, "bad")
+        with self.assertRaises(ValueError):
+            self.store.review(self.listing.listing_id, "u2", "bob", 6, "bad")
+
+    def test_get_reviews_empty(self):
+        result = self.store.get_reviews(self.listing.listing_id)
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(result["items"], [])
+
+    def test_get_reviews_after_post(self):
+        self.store.review(self.listing.listing_id, "u2", "bob", 4, "Nice")
+        result = self.store.get_reviews(self.listing.listing_id)
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["text"], "Nice")
+
+    def test_get_reviews_pagination(self):
+        for i in range(5):
+            self.store.review(self.listing.listing_id, f"user{i}", f"u{i}", 4, f"rev{i}")
+        page1 = self.store.get_reviews(self.listing.listing_id, limit=3, offset=0)
+        page2 = self.store.get_reviews(self.listing.listing_id, limit=3, offset=3)
+        self.assertEqual(len(page1["items"]), 3)
+        self.assertEqual(len(page2["items"]), 2)
+        self.assertEqual(page1["total"], 5)
+
+    def test_delete_review(self):
+        self.store.review(self.listing.listing_id, "u2", "bob", 4, "OK")
+        ok = self.store.delete_review(self.listing.listing_id, "u2")
+        self.assertTrue(ok)
+        result = self.store.get_reviews(self.listing.listing_id)
+        self.assertEqual(result["total"], 0)
+
+    def test_delete_nonexistent_review_returns_false(self):
+        ok = self.store.delete_review(self.listing.listing_id, "never-reviewed")
+        self.assertFalse(ok)
+
+    def test_review_to_dict_fields(self):
+        _, rv = self.store.review(self.listing.listing_id, "u2", "bob", 3, "Decent")
+        d = rv.to_dict()
+        for key in ("review_id", "listing_id", "user_id", "username", "stars", "text", "created_at"):
+            self.assertIn(key, d)
+
+    def test_get_reviews_unknown_listing(self):
+        result = self.store.get_reviews("no-such-listing")
+        self.assertEqual(result["total"], 0)
 
 
 if __name__ == "__main__":
