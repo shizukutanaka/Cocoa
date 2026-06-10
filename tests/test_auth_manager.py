@@ -221,6 +221,37 @@ class TestAuthManager(unittest.TestCase):
         self.assertEqual(updated.role, "moderator")
 
 
+class TestChangePassword(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.auth.register("cpuser", "cp@x.com", "OldPass1!")
+        self.user_id = self.auth.store.get_by_username("cpuser").user_id
+
+    def test_change_password_success(self):
+        self.auth.change_password(self.user_id, "OldPass1!", "NewPass2@")
+        tokens = self.auth.login("cpuser", "NewPass2@")
+        self.assertIsNotNone(tokens.access_token)
+
+    def test_wrong_current_password_raises(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.change_password(self.user_id, "WrongPass!", "NewPass2@")
+        self.assertEqual(ctx.exception.code, "invalid_credentials")
+
+    def test_weak_new_password_rejected(self):
+        with self.assertRaises(ValueError):
+            self.auth.change_password(self.user_id, "OldPass1!", "weak")
+
+    def test_old_password_invalid_after_change(self):
+        self.auth.change_password(self.user_id, "OldPass1!", "NewPass2@")
+        with self.assertRaises(AuthError):
+            self.auth.login("cpuser", "OldPass1!")
+
+    def test_nonexistent_user_raises(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.change_password("no-such-id", "pass", "newpass")
+        self.assertEqual(ctx.exception.code, "not_found")
+
+
 class TestUserProfile(unittest.TestCase):
     def setUp(self):
         self.auth = AuthManager()

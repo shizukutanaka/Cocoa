@@ -719,6 +719,11 @@ class UpdateProfileRequest(BaseModel):
     avatar_url: Optional[str] = None
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 @app.post("/api/auth/register", tags=["auth"])
 async def register(body: RegisterRequest):
     """新規ユーザー登録"""
@@ -802,6 +807,20 @@ async def update_profile(body: UpdateProfileRequest, current_user: dict = Depend
         return user.public_profile()
     except AuthError as e:
         raise HTTPException(status_code=404, detail=e.message) from e
+
+
+@app.post("/api/auth/change-password", tags=["auth"])
+async def change_password(body: ChangePasswordRequest, current_user: dict = Depends(get_current_user)):
+    """ログイン中のユーザーがパスワードを変更"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        get_auth_manager().change_password(current_user["user_id"], body.current_password, body.new_password)
+        return {"status": "password_changed"}
+    except AuthError as e:
+        raise HTTPException(status_code=400, detail=e.message) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.get("/api/auth/bookmarks", tags=["auth"])

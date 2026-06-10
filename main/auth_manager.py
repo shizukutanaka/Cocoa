@@ -503,6 +503,16 @@ class AuthManager:
 
     # --- Helpers ---
 
+    def change_password(self, user_id: str, current_password: str, new_password: str) -> None:
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        if not verify_password(current_password, user.password_hash):
+            raise AuthError("invalid_credentials", "現在のパスワードが正しくありません")
+        self._validate_password_strength(new_password)
+        user.password_hash = hash_password(new_password)
+        logger.info("Password changed for user_id: %s", user_id)
+
     @staticmethod
     def _validate_password_strength(password: str) -> None:
         if len(password) < 8:
