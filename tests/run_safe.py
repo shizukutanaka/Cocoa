@@ -117,6 +117,7 @@ SAFE_MODULES = [
     "tests.test_rate_limiter",
     "tests.test_avatar_marketplace",
     "tests.test_search_engine",
+    "tests.test_user_notifications",
 ]
 
 

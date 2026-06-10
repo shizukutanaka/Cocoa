@@ -119,6 +119,7 @@ try:
     from .avatar_marketplace import get_marketplace
     from .rate_limiter import get_client_ip, get_rate_limiter
     from .search_engine import get_search_index
+    from .user_notifications import get_notification_queue
     _NEW_MODULES_AVAILABLE = True
 except ImportError:
     _NEW_MODULES_AVAILABLE = False
@@ -127,6 +128,7 @@ except ImportError:
     get_rate_limiter = None
     get_search_index = None
     get_client_ip = None
+    get_notification_queue = None
     AuthError = Exception
 
 # ロギング設定
@@ -823,6 +825,60 @@ async def change_password(body: ChangePasswordRequest, current_user: dict = Depe
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@app.get("/api/notifications", tags=["notifications"])
+async def list_notifications(
+    unread_only: bool = Query(False),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """通知一覧取得"""
+    if not get_notification_queue:
+        return {"total": 0, "unread_count": 0, "items": []}
+    return get_notification_queue().get_notifications(
+        current_user["user_id"], unread_only=unread_only, limit=limit, offset=offset
+    )
+
+
+@app.get("/api/notifications/unread-count", tags=["notifications"])
+async def unread_notification_count(current_user: dict = Depends(get_current_user)):
+    """未読通知数"""
+    if not get_notification_queue:
+        return {"unread_count": 0}
+    return {"unread_count": get_notification_queue().unread_count(current_user["user_id"])}
+
+
+@app.post("/api/notifications/{notification_id}/read", tags=["notifications"])
+async def mark_notification_read(notification_id: str, current_user: dict = Depends(get_current_user)):
+    """通知を既読にする"""
+    if not get_notification_queue:
+        raise HTTPException(status_code=503, detail="通知システムが利用できません")
+    ok = get_notification_queue().mark_read(current_user["user_id"], notification_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="通知が見つかりません")
+    return {"status": "read", "notification_id": notification_id}
+
+
+@app.post("/api/notifications/read-all", tags=["notifications"])
+async def mark_all_notifications_read(current_user: dict = Depends(get_current_user)):
+    """全通知を既読にする"""
+    if not get_notification_queue:
+        raise HTTPException(status_code=503, detail="通知システムが利用できません")
+    count = get_notification_queue().mark_all_read(current_user["user_id"])
+    return {"status": "all_read", "marked_count": count}
+
+
+@app.delete("/api/notifications/{notification_id}", tags=["notifications"])
+async def delete_notification(notification_id: str, current_user: dict = Depends(get_current_user)):
+    """通知を削除"""
+    if not get_notification_queue:
+        raise HTTPException(status_code=503, detail="通知システムが利用できません")
+    ok = get_notification_queue().delete_notification(current_user["user_id"], notification_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="通知が見つかりません")
+    return {"status": "deleted"}
+
+
 @app.get("/api/auth/bookmarks", tags=["auth"])
 async def list_bookmarks(current_user: dict = Depends(get_current_user)):
     """ブックマーク一覧取得"""
@@ -879,6 +935,13 @@ async def follow_creator(creator_id: str, current_user: dict = Depends(get_curre
         raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     try:
         following = get_auth_manager().follow(current_user["user_id"], creator_id)
+        if get_notification_queue:
+            get_notification_queue().push(
+                creator_id, "new_follower",
+                "新しいフォロワー",
+                f"{current_user.get('username', 'Someone')} があなたをフォローしました",
+                {"follower_id": current_user["user_id"], "follower_username": current_user.get("username")},
+            )
         return {"following_count": len(following), "followed": creator_id}
     except (AuthError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -1107,9 +1170,18 @@ async def download_avatar(listing_id: str, current_user: dict = Depends(get_curr
     """マーケットプレイスからアバターをダウンロード（クローン）"""
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
-    data = get_marketplace().download(listing_id, current_user["user_id"])
+    mp = get_marketplace()
+    data = mp.download(listing_id, current_user["user_id"])
     if not data:
         raise HTTPException(status_code=404, detail="リスティングが見つかりません")
+    listing = mp.get_listing(listing_id)
+    if listing and get_notification_queue:
+        get_notification_queue().push(
+            listing.owner_id, "new_download",
+            "アバターがダウンロードされました",
+            f"「{listing.name}」が {current_user.get('username', '誰か')} にダウンロードされました",
+            {"listing_id": listing_id, "downloader_id": current_user["user_id"], "total_downloads": listing.download_count},
+        )
     return {"status": "downloaded", "avatar_data": data}
 
 
@@ -1131,13 +1203,22 @@ async def post_review(listing_id: str, body: ReviewRequest, current_user: dict =
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     try:
-        avg, rv = get_marketplace().review(
+        mp = get_marketplace()
+        avg, rv = mp.review(
             listing_id,
             current_user["user_id"],
             current_user.get("username", "unknown"),
             body.stars,
             body.text,
         )
+        listing = mp.get_listing(listing_id)
+        if listing and get_notification_queue:
+            get_notification_queue().push(
+                listing.owner_id, "new_review",
+                "新しいレビュー",
+                f"「{listing.name}」に {rv.stars}★ のレビューが届きました",
+                {"listing_id": listing_id, "reviewer_id": current_user["user_id"], "stars": rv.stars},
+            )
         return {"listing_id": listing_id, "average_rating": avg, "review": rv.to_dict()}
     except (ValueError, PermissionError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
