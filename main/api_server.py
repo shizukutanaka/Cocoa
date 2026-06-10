@@ -415,8 +415,20 @@ async def get_security_report(current_user: dict = Depends(get_current_user)):
 
 # WebSocketエンドポイント（リアルタイム監視）
 @app.websocket("/ws/monitoring")
-async def websocket_monitoring(websocket: WebSocket):
-    """リアルタイム監視WebSocket"""
+async def websocket_monitoring(websocket: WebSocket, token: str = Query("")):
+    """リアルタイム監視WebSocket — JWT 認証付き"""
+    # Authenticate before accepting the connection
+    if get_auth_manager and token:
+        try:
+            auth = get_auth_manager()
+            auth.verify_access_token(token)
+        except Exception:
+            await websocket.close(code=4001, reason="Unauthorized")
+            return
+    elif get_auth_manager and not token:
+        await websocket.close(code=4001, reason="Token required")
+        return
+
     await manager.connect(websocket)
 
     try:
