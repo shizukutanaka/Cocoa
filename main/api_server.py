@@ -181,6 +181,23 @@ if FASTAPI_AVAILABLE:
             response.headers.setdefault(k, v)
         return response
 
+    def _rate_limit_key(request) -> str:
+        """Prefer the authenticated user id as the rate-limit key, else fall back to IP.
+
+        Decodes the Bearer token cheaply (signature-verified, no DB lookup) so users
+        behind a shared NAT each get their own bucket. Falls back to ip:<addr>.
+        """
+        if get_auth_manager:
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.lower().startswith("bearer "):
+                token = auth_header[7:].strip()
+                try:
+                    payload = get_auth_manager().verify_access_token(token)
+                    return f"user:{payload['sub']}"
+                except Exception:
+                    pass  # invalid/expired → fall through to IP
+        return f"ip:{get_client_ip(request)}"
+
     @app.middleware("http")  # type: ignore[union-attr]
     async def security_middleware(request: Request, call_next):
         """Rate limiting + security headers middleware."""
@@ -189,8 +206,8 @@ if FASTAPI_AVAILABLE:
 
         if get_rate_limiter and get_client_ip:
             limiter = get_rate_limiter()
-            client_ip = get_client_ip(request)
-            allowed, rl_headers = limiter.check(client_ip, path)
+            client_key = _rate_limit_key(request)
+            allowed, rl_headers = limiter.check(client_key, path)
             if not allowed:
                 return JSONResponse(
                     status_code=429,
