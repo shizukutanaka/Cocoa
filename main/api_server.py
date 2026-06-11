@@ -116,6 +116,7 @@ except ImportError:
 # New modules (always available — pure stdlib)
 try:
     from .auth_manager import AuthError, get_auth_manager
+    from .avatar_collections import get_collection_store
     from .avatar_marketplace import get_marketplace
     from .rate_limiter import get_client_ip, get_rate_limiter
     from .search_engine import get_search_index
@@ -129,6 +130,7 @@ except ImportError:
     get_search_index = None
     get_client_ip = None
     get_notification_queue = None
+    get_collection_store = None
     AuthError = Exception
 
 # ロギング設定
@@ -1286,6 +1288,121 @@ async def unpublish_avatar(listing_id: str, current_user: dict = Depends(get_cur
         return {"status": "unpublished"}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+# ===========================================================================
+# COLLECTION ENDPOINTS
+# ===========================================================================
+
+class CollectionCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    is_public: bool = False
+
+
+class CollectionUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_public: Optional[bool] = None
+
+
+@app.post("/api/collections", tags=["collections"])
+async def create_collection(body: CollectionCreateRequest, current_user: dict = Depends(get_current_user)):
+    """コレクションを作成"""
+    if not get_collection_store:
+        raise HTTPException(status_code=503, detail="コレクション機能が利用できません")
+    try:
+        col = get_collection_store().create(current_user["user_id"], body.name, body.description, body.is_public)
+        return col.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/collections/mine", tags=["collections"])
+async def my_collections(current_user: dict = Depends(get_current_user)):
+    """自分のコレクション一覧"""
+    if not get_collection_store:
+        return {"collections": []}
+    uid = current_user["user_id"]
+    return {"collections": get_collection_store().list_user_collections(uid, requester_id=uid)}
+
+
+@app.get("/api/collections/{collection_id}", tags=["collections"])
+async def get_collection(collection_id: str, current_user: dict = Depends(get_current_user)):
+    """コレクション詳細（公開または自分のもの）"""
+    if not get_collection_store:
+        raise HTTPException(status_code=503, detail="コレクション機能が利用できません")
+    col = get_collection_store().get_public(collection_id, current_user["user_id"])
+    if not col:
+        raise HTTPException(status_code=404, detail="コレクションが見つかりません")
+    return col.to_dict()
+
+
+@app.put("/api/collections/{collection_id}", tags=["collections"])
+async def update_collection(collection_id: str, body: CollectionUpdateRequest, current_user: dict = Depends(get_current_user)):
+    """コレクションを更新"""
+    if not get_collection_store:
+        raise HTTPException(status_code=503, detail="コレクション機能が利用できません")
+    try:
+        col = get_collection_store().update(
+            collection_id, current_user["user_id"],
+            name=body.name, description=body.description, is_public=body.is_public,
+        )
+        return col.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+@app.delete("/api/collections/{collection_id}", tags=["collections"])
+async def delete_collection(collection_id: str, current_user: dict = Depends(get_current_user)):
+    """コレクションを削除"""
+    if not get_collection_store:
+        raise HTTPException(status_code=503, detail="コレクション機能が利用できません")
+    try:
+        ok = get_collection_store().delete(collection_id, current_user["user_id"])
+        if not ok:
+            raise HTTPException(status_code=404, detail="コレクションが見つかりません")
+        return {"status": "deleted"}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+@app.post("/api/collections/{collection_id}/items/{item_id}", tags=["collections"])
+async def add_collection_item(collection_id: str, item_id: str, current_user: dict = Depends(get_current_user)):
+    """コレクションにアイテムを追加"""
+    if not get_collection_store:
+        raise HTTPException(status_code=503, detail="コレクション機能が利用できません")
+    try:
+        col = get_collection_store().add_item(collection_id, current_user["user_id"], item_id)
+        return col.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+@app.delete("/api/collections/{collection_id}/items/{item_id}", tags=["collections"])
+async def remove_collection_item(collection_id: str, item_id: str, current_user: dict = Depends(get_current_user)):
+    """コレクションからアイテムを削除"""
+    if not get_collection_store:
+        raise HTTPException(status_code=503, detail="コレクション機能が利用できません")
+    try:
+        col = get_collection_store().remove_item(collection_id, current_user["user_id"], item_id)
+        return col.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+@app.get("/api/users/{user_id}/collections", tags=["collections"])
+async def user_public_collections(user_id: str, current_user: dict = Depends(get_current_user)):
+    """ユーザーの公開コレクション一覧"""
+    if not get_collection_store:
+        return {"collections": []}
+    return {"collections": get_collection_store().list_user_collections(user_id, requester_id=current_user["user_id"])}
 
 
 # ===========================================================================

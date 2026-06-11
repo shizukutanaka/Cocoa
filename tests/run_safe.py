@@ -118,6 +118,7 @@ SAFE_MODULES = [
     "tests.test_avatar_marketplace",
     "tests.test_search_engine",
     "tests.test_user_notifications",
+    "tests.test_avatar_collections",
 ]
 
 
