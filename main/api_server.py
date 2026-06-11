@@ -167,9 +167,23 @@ else:
 
 # セキュリティ・レート制限ミドルウェア
 if FASTAPI_AVAILABLE:
+    # Security response headers applied to every response
+    _SECURITY_HEADERS = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "X-XSS-Protection": "1; mode=block",
+        "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    }
+
+    def _apply_security_headers(response):
+        for k, v in _SECURITY_HEADERS.items():
+            response.headers.setdefault(k, v)
+        return response
+
     @app.middleware("http")  # type: ignore[union-attr]
     async def security_middleware(request: Request, call_next):
-        """Rate limiting + security middleware."""
+        """Rate limiting + security headers middleware."""
         path = request.url.path
         logger.info(f"API Request: {request.method} {path}")
 
@@ -184,14 +198,15 @@ if FASTAPI_AVAILABLE:
                         "detail": "リクエスト制限を超えました。しばらく後に再試行してください。",
                         "error_code": 429,
                     },
-                    headers=rl_headers,
+                    headers={**rl_headers, **_SECURITY_HEADERS},
                 )
             response = await call_next(request)
             for k, v in rl_headers.items():
                 response.headers[k] = v
-            return response
+            return _apply_security_headers(response)
 
-        return await call_next(request)
+        response = await call_next(request)
+        return _apply_security_headers(response)
 
 # Pydanticモデル定義
 class HealthCheck(BaseModel):
