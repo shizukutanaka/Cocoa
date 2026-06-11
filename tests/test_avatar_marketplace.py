@@ -8,7 +8,7 @@ for _p in (str(ROOT), str(ROOT / "main")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from avatar_marketplace import MarketplaceStore, Review
+from avatar_marketplace import ListingReport, MarketplaceStore, Review
 
 
 def _store():
@@ -250,6 +250,89 @@ class TestCreatorAnalytics(unittest.TestCase):
         a = self.store.get_creator_analytics("nonexistent-user")
         self.assertEqual(a["total_listings"], 0)
         self.assertIsNone(a["top_listing"])
+
+
+class TestModeration(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.listing = _listing(self.store)
+
+    def test_report_creates_report(self):
+        report = self.store.report_listing(self.listing.listing_id, "u2", "spam", "looks spammy")
+        self.assertIsInstance(report, ListingReport)
+        self.assertEqual(report.status, "pending")
+        self.assertEqual(report.reason, "spam")
+
+    def test_invalid_reason_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.report_listing(self.listing.listing_id, "u2", "bogus_reason")
+
+    def test_report_unknown_listing_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.report_listing("no-such-listing", "u2", "spam")
+
+    def test_duplicate_pending_report_raises(self):
+        self.store.report_listing(self.listing.listing_id, "u2", "spam")
+        with self.assertRaises(ValueError):
+            self.store.report_listing(self.listing.listing_id, "u2", "inappropriate")
+
+    def test_details_truncated(self):
+        report = self.store.report_listing(self.listing.listing_id, "u2", "other", "x" * 2000)
+        self.assertLessEqual(len(report.details), 1000)
+
+    def test_get_reports_all(self):
+        self.store.report_listing(self.listing.listing_id, "u2", "spam")
+        result = self.store.get_reports()
+        self.assertEqual(result["total"], 1)
+
+    def test_get_reports_filter_by_status(self):
+        self.store.report_listing(self.listing.listing_id, "u2", "spam")
+        pending = self.store.get_reports(status="pending")
+        resolved = self.store.get_reports(status="resolved")
+        self.assertEqual(pending["total"], 1)
+        self.assertEqual(resolved["total"], 0)
+
+    def test_resolve_report_dismissed(self):
+        report = self.store.report_listing(self.listing.listing_id, "u2", "spam")
+        resolved = self.store.resolve_report(report.report_id, "admin1", "dismissed", "not spam")
+        self.assertEqual(resolved.status, "dismissed")
+        self.assertEqual(resolved.resolved_by, "admin1")
+        self.assertIsNotNone(resolved.resolved_at)
+
+    def test_resolve_report_with_takedown(self):
+        report = self.store.report_listing(self.listing.listing_id, "u2", "malware")
+        self.store.resolve_report(report.report_id, "admin1", "resolved", takedown=True)
+        self.assertFalse(self.listing.is_active)
+
+    def test_resolve_invalid_action_raises(self):
+        report = self.store.report_listing(self.listing.listing_id, "u2", "spam")
+        with self.assertRaises(ValueError):
+            self.store.resolve_report(report.report_id, "admin1", "ignore")
+
+    def test_resolve_unknown_report_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.resolve_report("no-such-id", "admin1", "dismissed")
+
+    def test_report_stats(self):
+        self.store.report_listing(self.listing.listing_id, "u2", "spam")
+        self.store.report_listing(self.listing.listing_id, "u3", "copyright")
+        stats = self.store.get_report_stats()
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["by_status"]["pending"], 2)
+        self.assertEqual(stats["by_reason"]["spam"], 1)
+
+    def test_report_to_dict_fields(self):
+        report = self.store.report_listing(self.listing.listing_id, "u2", "spam", "bad")
+        d = report.to_dict()
+        for key in ("report_id", "listing_id", "reporter_id", "reason", "details", "status", "created_at"):
+            self.assertIn(key, d)
+
+    def test_can_report_again_after_resolution(self):
+        r1 = self.store.report_listing(self.listing.listing_id, "u2", "spam")
+        self.store.resolve_report(r1.report_id, "admin1", "dismissed")
+        # Now a new pending report from same user should be allowed
+        r2 = self.store.report_listing(self.listing.listing_id, "u2", "inappropriate")
+        self.assertEqual(r2.status, "pending")
 
 
 class TestReviews(unittest.TestCase):

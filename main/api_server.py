@@ -1090,6 +1090,17 @@ class ReviewRequest(BaseModel):
     text: str = ""
 
 
+class ReportRequest(BaseModel):
+    reason: str  # inappropriate | spam | copyright | misleading | malware | other
+    details: str = ""
+
+
+class ResolveReportRequest(BaseModel):
+    action: str  # resolved | dismissed
+    note: str = ""
+    takedown: bool = False
+
+
 @app.post("/api/marketplace/publish", tags=["marketplace"])
 async def publish_avatar(body: PublishRequest, current_user: dict = Depends(get_current_user)):
     """アバターをマーケットプレイスに公開"""
@@ -1245,6 +1256,20 @@ async def delete_my_review(listing_id: str, current_user: dict = Depends(get_cur
     if not ok:
         raise HTTPException(status_code=404, detail="レビューが見つかりません")
     return {"status": "deleted"}
+
+
+@app.post("/api/marketplace/{listing_id}/report", tags=["marketplace"])
+async def report_listing(listing_id: str, body: ReportRequest, current_user: dict = Depends(get_current_user)):
+    """リスティングを通報（モデレーション）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        report = get_marketplace().report_listing(
+            listing_id, current_user["user_id"], body.reason, body.details
+        )
+        return {"status": "reported", "report_id": report.report_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.delete("/api/marketplace/{listing_id}", tags=["marketplace"])
@@ -1432,6 +1457,53 @@ async def reset_rate_limit(client_key: str, admin: dict = Depends(get_current_ad
         raise HTTPException(status_code=503, detail="レートリミッターが利用できません")
     get_rate_limiter().reset_client(client_key)
     return {"client_key": client_key, "status": "reset"}
+
+
+@app.get("/api/admin/reports", tags=["admin"])
+async def list_reports(
+    status: Optional[str] = Query(None, description="pending | resolved | dismissed"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(get_current_admin),
+):
+    """モデレーション通報一覧（管理者専用）"""
+    if not get_marketplace:
+        return {"total": 0, "items": []}
+    return get_marketplace().get_reports(status=status, limit=limit, offset=offset)
+
+
+@app.get("/api/admin/reports/stats", tags=["admin"])
+async def report_stats(admin: dict = Depends(get_current_admin)):
+    """通報統計（管理者専用）"""
+    if not get_marketplace:
+        return {"total": 0, "by_status": {}, "by_reason": {}}
+    return get_marketplace().get_report_stats()
+
+
+@app.post("/api/admin/reports/{report_id}/resolve", tags=["admin"])
+async def resolve_report(report_id: str, body: ResolveReportRequest, admin: dict = Depends(get_current_admin)):
+    """通報を解決（管理者専用）。takedown=True でリスティングを取り下げ"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        report = get_marketplace().resolve_report(
+            report_id, admin["user_id"], body.action, body.note, takedown=body.takedown
+        )
+        # If the listing was taken down, remove from search index and notify owner
+        if body.takedown:
+            listing = get_marketplace().get_listing(report.listing_id)
+            if get_search_index:
+                get_search_index().remove(report.listing_id)
+            if listing and get_notification_queue:
+                get_notification_queue().push(
+                    listing.owner_id, "system",
+                    "リスティングが削除されました",
+                    f"「{listing.name}」はモデレーションにより削除されました",
+                    {"listing_id": report.listing_id, "reason": report.reason},
+                )
+        return {"status": "resolved", "report": report.to_dict()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.exception_handler(HTTPException)
