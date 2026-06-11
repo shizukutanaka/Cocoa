@@ -194,6 +194,29 @@ class TestSearch(unittest.TestCase):
         self.assertEqual(len(trending), 1)
         self.assertEqual(trending[0]["listing_id"], self.l3.listing_id)
 
+    def test_trending_tags_returns_rows(self):
+        tags = self.store.get_trending_tags()
+        tag_names = {row["tag"] for row in tags}
+        # l1 and l3 both have "cute"
+        self.assertIn("cute", tag_names)
+
+    def test_trending_tags_cute_listing_count(self):
+        tags = self.store.get_trending_tags()
+        cute = next(row for row in tags if row["tag"] == "cute")
+        self.assertEqual(cute["listing_count"], 2)
+
+    def test_trending_tags_weighted_by_downloads(self):
+        self.store.download(self.l2.listing_id, "u9")  # l2 has "dragon"
+        self.store.download(self.l2.listing_id, "u10")
+        tags = self.store.get_trending_tags()
+        dragon = next(row for row in tags if row["tag"] == "dragon")
+        self.assertEqual(dragon["download_count"], 2)
+        self.assertGreaterEqual(dragon["score"], 3)  # 1 listing + 2 downloads
+
+    def test_trending_tags_limit(self):
+        tags = self.store.get_trending_tags(limit=1)
+        self.assertEqual(len(tags), 1)
+
     def test_get_stats(self):
         stats = self.store.get_stats()
         self.assertEqual(stats["total_listings"], 3)

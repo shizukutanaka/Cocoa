@@ -341,6 +341,33 @@ async def health_check():
         logger.error(f"ヘルスチェックエラー: {e}")
         raise HTTPException(status_code=500, detail="ヘルスチェックに失敗しました") from e
 
+
+@app.get("/live", tags=["health"])
+async def liveness_probe():
+    """Liveness probe — プロセスが応答可能かのみを確認（依存チェックなし）"""
+    return {"status": "alive", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/ready", tags=["health"])
+async def readiness_probe():
+    """Readiness probe — 依存サブシステムが利用可能かを確認"""
+    checks = {
+        "auth": get_auth_manager is not None,
+        "marketplace": get_marketplace is not None,
+        "search": get_search_index is not None,
+        "rate_limiter": get_rate_limiter is not None,
+    }
+    ready = all(checks.values())
+    status_code = 200 if ready else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ready" if ready else "not_ready",
+            "checks": checks,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
 # システムメトリクスエンドポイント
 @app.get("/metrics", response_model=PerformanceReport)
 async def get_metrics(current_user: dict = Depends(get_current_user)):
@@ -1180,6 +1207,14 @@ async def trending_avatars(limit: int = Query(10, ge=1, le=50)):
     if not get_marketplace:
         return {"items": []}
     return {"items": get_marketplace().get_trending(limit)}
+
+
+@app.get("/api/marketplace/trending-tags", tags=["marketplace"])
+async def trending_tags(limit: int = Query(20, ge=1, le=100)):
+    """人気タグを集計して取得（ダウンロード数で重み付け）"""
+    if not get_marketplace:
+        return {"tags": []}
+    return {"tags": get_marketplace().get_trending_tags(limit)}
 
 
 @app.get("/api/marketplace/{listing_id}", tags=["marketplace"])

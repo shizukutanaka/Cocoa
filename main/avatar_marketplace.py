@@ -353,6 +353,33 @@ class MarketplaceStore:
         active.sort(key=lambda x: x.download_count, reverse=True)
         return [lst.to_dict() for lst in active[:limit]]
 
+    def get_trending_tags(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Aggregate tag popularity across active listings, weighted by downloads.
+
+        Each tag's score = (# listings using it) + (total downloads of those listings).
+        Returns [{tag, listing_count, download_count, score}, ...] descending by score.
+        """
+        from collections import defaultdict
+        with self._lock:
+            active = [lst for lst in self._listings.values() if lst.is_active]
+        listing_counts: Dict[str, int] = defaultdict(int)
+        download_counts: Dict[str, int] = defaultdict(int)
+        for lst in active:
+            for tag in lst.tags:
+                listing_counts[tag] += 1
+                download_counts[tag] += lst.download_count
+        rows = [
+            {
+                "tag": tag,
+                "listing_count": listing_counts[tag],
+                "download_count": download_counts[tag],
+                "score": listing_counts[tag] + download_counts[tag],
+            }
+            for tag in listing_counts
+        ]
+        rows.sort(key=lambda r: (r["score"], r["listing_count"]), reverse=True)
+        return rows[:limit]
+
     def get_stats(self) -> Dict[str, Any]:
         with self._lock:
             active = [lst for lst in self._listings.values() if lst.is_active]
