@@ -719,5 +719,130 @@ class TestSocialLinks(unittest.TestCase):
         self.assertIn("twitter", user.social_links)
 
 
+class TestCreatorApplications(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.auth.register("creator1", "c1@x.com", "Creator1!")
+        self.auth.register("creator2", "c2@x.com", "Creator2!")
+        self.uid1 = self.auth.store.get_by_username("creator1").user_id
+        self.uid2 = self.auth.store.get_by_username("creator2").user_id
+        self.auth.register("admin_u", "admin@x.com", "Admin123!")
+        admin_user = self.auth.store.get_by_username("admin_u")
+        admin_user.role = "admin"
+        self.admin_id = admin_user.user_id
+        self.admin_payload = {"sub": self.admin_id, "role": "admin"}
+
+    def test_submit_application_succeeds(self):
+        app = self.auth.submit_creator_application(self.uid1, "I make great avatars", "https://portfolio.example")
+        self.assertEqual(app.user_id, self.uid1)
+        self.assertEqual(app.status, "pending")
+        self.assertIsNotNone(app.application_id)
+
+    def test_submit_application_empty_reason_raises(self):
+        with self.assertRaises(ValueError):
+            self.auth.submit_creator_application(self.uid1, "   ")
+
+    def test_submit_duplicate_pending_raises(self):
+        self.auth.submit_creator_application(self.uid1, "First application")
+        with self.assertRaises(ValueError):
+            self.auth.submit_creator_application(self.uid1, "Second application")
+
+    def test_already_verified_raises(self):
+        user = self.auth.store.get_by_id(self.uid1)
+        user.is_creator_verified = True
+        with self.assertRaises(ValueError):
+            self.auth.submit_creator_application(self.uid1, "Already verified")
+
+    def test_unknown_user_raises(self):
+        with self.assertRaises(AuthError):
+            self.auth.submit_creator_application("no-such-id", "reason")
+
+    def test_approve_application(self):
+        app = self.auth.submit_creator_application(self.uid1, "Great portfolio")
+        result = self.auth.review_creator_application(self.admin_payload, app.application_id, "approved", "Looks good")
+        self.assertEqual(result.status, "approved")
+        user = self.auth.store.get_by_id(self.uid1)
+        self.assertTrue(user.is_creator_verified)
+
+    def test_reject_application(self):
+        app = self.auth.submit_creator_application(self.uid1, "My work")
+        result = self.auth.review_creator_application(self.admin_payload, app.application_id, "rejected", "Not enough")
+        self.assertEqual(result.status, "rejected")
+        user = self.auth.store.get_by_id(self.uid1)
+        self.assertFalse(user.is_creator_verified)
+
+    def test_invalid_decision_raises(self):
+        app = self.auth.submit_creator_application(self.uid1, "reason")
+        with self.assertRaises(ValueError):
+            self.auth.review_creator_application(self.admin_payload, app.application_id, "maybe")
+
+    def test_review_unknown_application_raises(self):
+        with self.assertRaises(ValueError):
+            self.auth.review_creator_application(self.admin_payload, "no-such-id", "approved")
+
+    def test_review_already_decided_raises(self):
+        app = self.auth.submit_creator_application(self.uid1, "reason")
+        self.auth.review_creator_application(self.admin_payload, app.application_id, "approved")
+        with self.assertRaises(ValueError):
+            self.auth.review_creator_application(self.admin_payload, app.application_id, "rejected")
+
+    def test_non_admin_review_raises(self):
+        app = self.auth.submit_creator_application(self.uid1, "reason")
+        user_payload = {"sub": self.uid2, "role": "user"}
+        with self.assertRaises(AuthError):
+            self.auth.review_creator_application(user_payload, app.application_id, "approved")
+
+    def test_get_creator_applications_all(self):
+        self.auth.submit_creator_application(self.uid1, "reason1")
+        self.auth.submit_creator_application(self.uid2, "reason2")
+        result = self.auth.get_creator_applications()
+        self.assertEqual(result["total"], 2)
+        self.assertEqual(len(result["items"]), 2)
+
+    def test_get_creator_applications_filter_by_status(self):
+        app1 = self.auth.submit_creator_application(self.uid1, "reason1")
+        self.auth.submit_creator_application(self.uid2, "reason2")
+        self.auth.review_creator_application(self.admin_payload, app1.application_id, "approved")
+        pending = self.auth.get_creator_applications(status="pending")
+        self.assertEqual(pending["total"], 1)
+        approved = self.auth.get_creator_applications(status="approved")
+        self.assertEqual(approved["total"], 1)
+
+    def test_get_my_creator_application_none(self):
+        result = self.auth.get_my_creator_application(self.uid1)
+        self.assertIsNone(result)
+
+    def test_get_my_creator_application_returns_latest(self):
+        app = self.auth.submit_creator_application(self.uid1, "reason")
+        result = self.auth.get_my_creator_application(self.uid1)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.application_id, app.application_id)
+
+    def test_application_to_dict(self):
+        app = self.auth.submit_creator_application(self.uid1, "reason", "https://port.io")
+        d = app.to_dict()
+        self.assertIn("application_id", d)
+        self.assertIn("status", d)
+        self.assertIn("created_at", d)
+        self.assertIsNone(d["reviewed_at"])
+
+    def test_after_rejection_can_reapply(self):
+        app = self.auth.submit_creator_application(self.uid1, "first attempt")
+        self.auth.review_creator_application(self.admin_payload, app.application_id, "rejected")
+        new_app = self.auth.submit_creator_application(self.uid1, "second attempt")
+        self.assertEqual(new_app.status, "pending")
+
+    def test_pagination_offset(self):
+        self.auth.submit_creator_application(self.uid1, "reason1")
+        self.auth.submit_creator_application(self.uid2, "reason2")
+        page1 = self.auth.get_creator_applications(limit=1, offset=0)
+        page2 = self.auth.get_creator_applications(limit=1, offset=1)
+        self.assertEqual(page1["total"], 2)
+        self.assertTrue(page1["has_more"])
+        self.assertFalse(page2["has_more"])
+        ids = {page1["items"][0]["application_id"], page2["items"][0]["application_id"]}
+        self.assertEqual(len(ids), 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

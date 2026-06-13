@@ -1168,14 +1168,19 @@ async def creator_feed(
 
 @app.get("/api/users/search", tags=["auth"])
 async def search_users(
-    q: str = Query("", min_length=1),
+    q: str = Query(""),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    creator_verified: Optional[bool] = Query(None, description="trueで認定クリエイターのみ"),
+    role: Optional[str] = Query(None, description="ロールフィルタ (user|moderator|admin)"),
 ):
     """ユーザー名・表示名でユーザーを検索（公開プロフィールのみ）"""
     if not get_auth_manager:
         raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
-    return get_auth_manager().search_users(q, limit=limit, offset=offset)
+    return get_auth_manager().search_users(
+        q, limit=limit, offset=offset,
+        creator_verified=creator_verified, role=role,
+    )
 
 
 @app.get("/api/users/{user_id}/stats", tags=["auth"])
@@ -2866,6 +2871,83 @@ async def delete_own_account(current_user: dict = Depends(get_current_user)):
     # Soft-delete: deactivate rather than remove, so listings/reviews stay
     user.is_active = False
     return {"status": "deleted", "user_id": current_user["user_id"]}
+
+
+# --- Creator application endpoints ---
+
+class CreatorApplicationRequest(BaseModel):
+    reason: str
+    portfolio_url: str = ""
+
+
+class ReviewApplicationRequest(BaseModel):
+    decision: str  # "approved" | "rejected"
+    note: str = ""
+
+
+@app.post("/api/auth/creator-application", tags=["auth"], status_code=201)
+async def submit_creator_application(
+    body: CreatorApplicationRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """クリエイター認定申請を提出する"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    try:
+        app = auth.submit_creator_application(
+            current_user["user_id"], body.reason, body.portfolio_url
+        )
+        return app.to_dict()
+    except AuthError as e:
+        raise HTTPException(status_code=404 if e.code == "not_found" else 400, detail=e.message) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/auth/creator-application/me", tags=["auth"])
+async def get_my_creator_application(current_user: dict = Depends(get_current_user)):
+    """自分のクリエイター認定申請状況を取得する"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    app = auth.get_my_creator_application(current_user["user_id"])
+    if app is None:
+        raise HTTPException(status_code=404, detail="申請が見つかりません")
+    return app.to_dict()
+
+
+@app.get("/api/admin/creator-applications", tags=["admin"])
+async def list_creator_applications(
+    status: Optional[str] = Query(None, description="pending | approved | rejected"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(get_current_admin),
+):
+    """クリエイター認定申請一覧（管理者専用）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    return auth.get_creator_applications(status=status, limit=limit, offset=offset)
+
+
+@app.post("/api/admin/creator-applications/{application_id}/review", tags=["admin"])
+async def review_creator_application(
+    application_id: str,
+    body: ReviewApplicationRequest,
+    admin: dict = Depends(get_current_admin),
+):
+    """クリエイター認定申請を承認または却下する（管理者専用）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    try:
+        app = auth.review_creator_application(admin, application_id, body.decision, body.note)
+        return app.to_dict()
+    except AuthError as e:
+        raise HTTPException(status_code=403, detail=e.message) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400 if "見つかりません" not in str(e) else 404, detail=str(e)) from e
 
 
 @app.exception_handler(HTTPException)

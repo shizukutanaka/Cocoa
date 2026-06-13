@@ -60,6 +60,34 @@ _ALLOWED_SOCIAL_KEYS = frozenset({"twitter", "vrchat", "github", "website", "you
 
 
 @dataclass
+class CreatorApplication:
+    application_id: str
+    user_id: str
+    username: str
+    reason: str          # why they want to become a creator
+    portfolio_url: str
+    status: str = "pending"   # pending | approved | rejected
+    reviewed_by: str = ""
+    review_note: str = ""
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    reviewed_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "application_id": self.application_id,
+            "user_id": self.user_id,
+            "username": self.username,
+            "reason": self.reason,
+            "portfolio_url": self.portfolio_url,
+            "status": self.status,
+            "reviewed_by": self.reviewed_by,
+            "review_note": self.review_note,
+            "created_at": self.created_at.isoformat(),
+            "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
+        }
+
+
+@dataclass
 class UserRecord:
     user_id: str
     username: str
@@ -230,6 +258,7 @@ class UserStore:
         self._reset_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
         self._verify_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
         self._api_keys: Dict[str, Dict] = {}     # key_prefix+hash → {user_id, name, key_id, created_at}
+        self._applications: Dict[str, CreatorApplication] = {}  # application_id → CreatorApplication
 
     # --- CRUD ---
 
@@ -651,6 +680,93 @@ class AuthManager:
         logger.info("Creator verification revoked: %s (by admin %s)", user_id, admin_payload.get("username"))
         return user
 
+    # --- Creator applications ---
+
+    def submit_creator_application(
+        self, user_id: str, reason: str, portfolio_url: str = ""
+    ) -> CreatorApplication:
+        """User submits a creator verification application. One pending application at a time."""
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        if user.is_creator_verified:
+            raise ValueError("すでにクリエイター認定済みです")
+        reason = reason.strip()[:1000]
+        if not reason:
+            raise ValueError("申請理由を入力してください")
+        # Check for existing pending application
+        for app in self.store._applications.values():
+            if app.user_id == user_id and app.status == "pending":
+                raise ValueError("すでに審査中の申請があります")
+        application = CreatorApplication(
+            application_id=secrets.token_hex(10),
+            user_id=user_id,
+            username=user.username,
+            reason=reason,
+            portfolio_url=portfolio_url.strip()[:512],
+        )
+        self.store._applications[application.application_id] = application
+        logger.info("Creator application submitted by %s", user.username)
+        return application
+
+    def review_creator_application(
+        self,
+        admin_payload: Dict[str, Any],
+        application_id: str,
+        decision: str,  # "approved" | "rejected"
+        note: str = "",
+    ) -> CreatorApplication:
+        """Admin approves or rejects a creator application."""
+        self.require_role(admin_payload, "admin")
+        if decision not in ("approved", "rejected"):
+            raise ValueError("decision は 'approved' または 'rejected' のいずれかです")
+        app = self.store._applications.get(application_id)
+        if not app:
+            raise ValueError("申請が見つかりません")
+        if app.status != "pending":
+            raise ValueError("この申請はすでに審査済みです")
+        app.status = decision
+        app.reviewed_by = admin_payload.get("sub", "")
+        app.review_note = note.strip()[:500]
+        app.reviewed_at = datetime.now(timezone.utc)
+        if decision == "approved":
+            user = self.store.get_by_id(app.user_id)
+            if user:
+                user.is_creator_verified = True
+        logger.info("Creator application %s: %s by admin %s", application_id, decision, app.reviewed_by)
+        return app
+
+    def get_creator_applications(
+        self,
+        status: Optional[str] = None,  # pending | approved | rejected | None (all)
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Admin: list creator applications."""
+        items = list(self.store._applications.values())
+        if status:
+            items = [a for a in items if a.status == status]
+        items.sort(key=lambda a: a.created_at, reverse=True)
+        total = len(items)
+        page = items[offset: offset + limit]
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": [a.to_dict() for a in page],
+        }
+
+    def get_my_creator_application(self, user_id: str) -> Optional[CreatorApplication]:
+        """Return the most recent application submitted by user_id."""
+        apps = [
+            a for a in self.store._applications.values()
+            if a.user_id == user_id
+        ]
+        return max(apps, key=lambda a: a.created_at, default=None)
+
     # --- User search ---
 
     def search_users(
@@ -658,13 +774,19 @@ class AuthManager:
         query: str,
         limit: int = 20,
         offset: int = 0,
+        creator_verified: Optional[bool] = None,
+        role: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Search public user profiles by username or display_name (case-insensitive)."""
         q = query.lower().strip()
         results = [
             u for u in self.store.list_users()
-            if u.is_active and (q in u.username.lower() or q in (u.display_name or "").lower())
+            if u.is_active and (not q or q in u.username.lower() or q in (u.display_name or "").lower())
         ]
+        if creator_verified is not None:
+            results = [u for u in results if u.is_creator_verified == creator_verified]
+        if role is not None:
+            results = [u for u in results if u.role == role]
         results.sort(key=lambda u: u.username.lower())
         total = len(results)
         page = results[offset: offset + limit]
