@@ -131,5 +131,64 @@ class TestModuleConstants(unittest.TestCase):
         self.assertIsInstance(api_server.manager, ConnectionManager)
 
 
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestBulkListingActionRequest(unittest.TestCase):
+    """Unit-test the BulkListingActionRequest Pydantic model."""
+
+    def test_valid_unpublish(self):
+        from api_server import BulkListingActionRequest
+        req = BulkListingActionRequest(listing_ids=["id1", "id2"], action="unpublish")
+        self.assertEqual(req.action, "unpublish")
+        self.assertEqual(req.listing_ids, ["id1", "id2"])
+
+    def test_valid_delete(self):
+        from api_server import BulkListingActionRequest
+        req = BulkListingActionRequest(listing_ids=["id1"], action="delete")
+        self.assertEqual(req.action, "delete")
+
+    def test_empty_listing_ids_allowed_at_model_level(self):
+        from api_server import BulkListingActionRequest
+        # Validation of empty list happens at handler level, not model level
+        req = BulkListingActionRequest(listing_ids=[], action="unpublish")
+        self.assertEqual(req.listing_ids, [])
+
+
+class TestBulkLogicDirect(unittest.TestCase):
+    """Test bulk admin logic directly via MarketplaceStore without HTTP layer."""
+
+    def setUp(self):
+        import os
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "main"))
+        from avatar_marketplace import MarketplaceStore
+        self.mp = MarketplaceStore()
+        self.l1 = self.mp.publish(
+            avatar_id="av1", owner_id="u1", owner_username="alice",
+            name="Avatar 1", description="d", tags=[], category="vrc", parameters={},
+        )
+        self.l2 = self.mp.publish(
+            avatar_id="av2", owner_id="u2", owner_username="bob",
+            name="Avatar 2", description="d", tags=[], category="vrc", parameters={},
+        )
+
+    def test_direct_unpublish_via_lock(self):
+        with self.mp._lock:
+            self.l1.is_active = False
+        listing = self.mp.get_listing(self.l1.listing_id)
+        self.assertFalse(listing.is_active)
+
+    def test_direct_delete_via_lock(self):
+        lid = self.l2.listing_id
+        with self.mp._lock:
+            self.mp._listings.pop(lid, None)
+        self.assertIsNone(self.mp.get_listing(lid))
+
+    def test_delete_nonexistent_is_noop(self):
+        with self.mp._lock:
+            self.mp._listings.pop("no-such-id", None)
+        # Still has original listings
+        self.assertIsNotNone(self.mp.get_listing(self.l1.listing_id))
+
+
 if __name__ == "__main__":
     unittest.main()

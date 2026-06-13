@@ -89,7 +89,16 @@ class NotificationQueue:
         items.sort(key=lambda n: n.created_at, reverse=True)
         total = len(items)
         page = items[offset: offset + limit]
-        return {"total": total, "unread_count": sum(1 for n in items if not n.is_read), "items": [n.to_dict() for n in page]}
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "unread_count": sum(1 for n in items if not n.is_read),
+            "items": [n.to_dict() for n in page],
+        }
 
     def mark_read(self, user_id: str, notification_id: str) -> bool:
         with self._lock:

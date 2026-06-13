@@ -287,7 +287,15 @@ class MarketplaceStore:
             items = sorted(self._reviews[listing_id].values(), key=lambda r: r.created_at, reverse=True)
         total = len(items)
         page = items[offset: offset + limit]
-        return {"total": total, "items": [r.to_dict() for r in page]}
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": [r.to_dict() for r in page],
+        }
 
     def delete_review(self, listing_id: str, user_id: str) -> bool:
         """Allow a user to delete their own review (stars are kept)."""
@@ -333,10 +341,13 @@ class MarketplaceStore:
 
         total = len(results)
         page = results[offset: offset + limit]
+        has_more = offset + limit < total
         return {
             "total": total,
             "offset": offset,
             "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
             "items": [lst.to_dict() for lst in page],
         }
 
@@ -462,7 +473,15 @@ class MarketplaceStore:
         items.sort(key=lambda r: r.created_at, reverse=True)
         total = len(items)
         page = items[offset: offset + limit]
-        return {"total": total, "items": [r.to_dict() for r in page]}
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": [r.to_dict() for r in page],
+        }
 
     def resolve_report(self, report_id: str, moderator_id: str, action: str, note: str = "", *, takedown: bool = False) -> ListingReport:
         """Resolve a report. action: 'resolved' | 'dismissed'. If takedown, unpublish the listing."""

@@ -94,6 +94,26 @@ class TestNotificationQueue(unittest.TestCase):
         self.assertEqual(len(p2["items"]), 5)
         self.assertEqual(p1["total"], 10)
 
+    def test_pagination_has_more_true(self):
+        for i in range(10):
+            self.q.push("u1", "system", f"T{i}", "B")
+        result = self.q.get_notifications("u1", limit=5, offset=0)
+        self.assertTrue(result["has_more"])
+        self.assertEqual(result["next_offset"], 5)
+
+    def test_pagination_has_more_false_last_page(self):
+        for i in range(10):
+            self.q.push("u1", "system", f"T{i}", "B")
+        result = self.q.get_notifications("u1", limit=5, offset=5)
+        self.assertFalse(result["has_more"])
+        self.assertIsNone(result["next_offset"])
+
+    def test_pagination_fields_present(self):
+        self.q.push("u1", "system", "T", "B")
+        result = self.q.get_notifications("u1", limit=10, offset=0)
+        for key in ("total", "offset", "limit", "has_more", "next_offset", "unread_count", "items"):
+            self.assertIn(key, result)
+
     def test_max_queue_size_enforced(self):
         q = NotificationQueue(max_per_user=5)
         for i in range(8):

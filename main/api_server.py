@@ -144,10 +144,37 @@ logger = logging.getLogger(__name__)
 if FASTAPI_AVAILABLE:
     app = FastAPI(
         title="Cocoa Avatar Management API",
-        description="Production-grade REST API for avatar management system",
+        description=(
+            "Production-grade REST API for the Cocoa avatar management platform.\n\n"
+            "## Authentication\n"
+            "Most endpoints require a **Bearer JWT** token obtained from `POST /api/auth/login`.\n\n"
+            "## Rate Limiting\n"
+            "Rate limits are applied per authenticated user (or IP for anonymous requests). "
+            "Limits are returned in `X-RateLimit-*` response headers.\n\n"
+            "## Pagination\n"
+            "All list endpoints return `total`, `offset`, `limit`, `has_more`, and "
+            "`next_offset` (null when there are no more items)."
+        ),
         version="2.0.0",
         docs_url="/docs",
-        redoc_url="/redoc"
+        redoc_url="/redoc",
+        openapi_tags=[
+            {"name": "auth", "description": "Registration, login, token refresh, and profile management"},
+            {"name": "marketplace", "description": "Avatar publishing, search, download, ratings, and reviews"},
+            {"name": "search", "description": "Full-text search and autocomplete across the avatar catalog"},
+            {"name": "collections", "description": "User-curated avatar collections (public or private)"},
+            {"name": "notifications", "description": "In-app notification queue per user"},
+            {"name": "admin", "description": "Administrative operations — requires admin role"},
+            {"name": "system", "description": "Liveness, readiness, and monitoring probes"},
+        ],
+        contact={
+            "name": "Cocoa Platform Team",
+            "url": "https://github.com/shizukutanaka/Cocoa",
+        },
+        license_info={
+            "name": "MIT",
+            "url": "https://opensource.org/licenses/MIT",
+        },
     )
 
     # セキュリティ設定
@@ -359,13 +386,13 @@ async def health_check():
         raise HTTPException(status_code=500, detail="ヘルスチェックに失敗しました") from e
 
 
-@app.get("/live", tags=["health"])
+@app.get("/live", tags=["system"])
 async def liveness_probe():
     """Liveness probe — プロセスが応答可能かのみを確認（依存チェックなし）"""
     return {"status": "alive", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
-@app.get("/ready", tags=["health"])
+@app.get("/ready", tags=["system"])
 async def readiness_probe():
     """Readiness probe — 依存サブシステムが利用可能かを確認"""
     checks = {
@@ -1038,7 +1065,17 @@ async def creator_feed(
     mp = get_marketplace()
     all_listings = mp.search("", sort_by="newest", limit=1000)["items"]
     feed = [lst for lst in all_listings if lst["owner_id"] in following_ids]
-    return {"total": len(feed), "items": feed[offset: offset + limit]}
+    total = len(feed)
+    page = feed[offset: offset + limit]
+    has_more = offset + limit < total
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": has_more,
+        "next_offset": offset + limit if has_more else None,
+        "items": page,
+    }
 
 
 @app.get("/api/users/{user_id}/profile", tags=["auth"])
@@ -1160,6 +1197,11 @@ class ResolveReportRequest(BaseModel):
     action: str  # resolved | dismissed
     note: str = ""
     takedown: bool = False
+
+
+class BulkListingActionRequest(BaseModel):
+    listing_ids: List[str]
+    action: str  # unpublish | delete
 
 
 @app.post("/api/marketplace/publish", tags=["marketplace"])
@@ -1688,6 +1730,57 @@ async def resolve_report(report_id: str, body: ResolveReportRequest, admin: dict
         return {"status": "resolved", "report": report.to_dict()}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/admin/listings/bulk", tags=["admin"])
+async def bulk_listing_action(body: BulkListingActionRequest, admin: dict = Depends(get_current_admin)):
+    """複数リスティングへの一括操作（管理者専用）。action: unpublish | delete"""
+    if body.action not in ("unpublish", "delete"):
+        raise HTTPException(status_code=400, detail="action は 'unpublish' または 'delete' である必要があります")
+    if not body.listing_ids:
+        raise HTTPException(status_code=400, detail="listing_ids は1件以上必要です")
+    if len(body.listing_ids) > 200:
+        raise HTTPException(status_code=400, detail="一度に処理できるのは最大200件です")
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+
+    mp = get_marketplace()
+    succeeded: List[str] = []
+    failed: List[Dict[str, str]] = []
+
+    for lid in body.listing_ids:
+        try:
+            listing = mp.get_listing(lid)
+            if listing is None:
+                failed.append({"listing_id": lid, "reason": "not_found"})
+                continue
+            if body.action == "unpublish":
+                with mp._lock:
+                    listing.is_active = False
+            else:
+                with mp._lock:
+                    mp._listings.pop(lid, None)
+                if get_search_index:
+                    get_search_index().remove(lid)
+            if get_notification_queue and listing:
+                verb = "削除" if body.action == "delete" else "非公開化"
+                get_notification_queue().push(
+                    listing.owner_id, "system",
+                    f"リスティングが管理者により{verb}されました",
+                    f"「{listing.name}」が管理者操作により{verb}されました",
+                    {"listing_id": lid, "action": body.action},
+                )
+            succeeded.append(lid)
+        except Exception as exc:
+            failed.append({"listing_id": lid, "reason": str(exc)})
+
+    return {
+        "action": body.action,
+        "succeeded": succeeded,
+        "failed": failed,
+        "success_count": len(succeeded),
+        "failure_count": len(failed),
+    }
 
 
 @app.exception_handler(HTTPException)

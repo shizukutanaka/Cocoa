@@ -175,6 +175,21 @@ class TestSearch(unittest.TestCase):
         results2 = self.store.search(limit=2, offset=2)
         self.assertLessEqual(len(results2["items"]), 1)
 
+    def test_search_has_more_true(self):
+        results = self.store.search(limit=2, offset=0)
+        self.assertTrue(results["has_more"])
+        self.assertEqual(results["next_offset"], 2)
+
+    def test_search_has_more_false_on_last_page(self):
+        results = self.store.search(limit=2, offset=2)
+        self.assertFalse(results["has_more"])
+        self.assertIsNone(results["next_offset"])
+
+    def test_search_pagination_fields_present(self):
+        results = self.store.search(limit=10, offset=0)
+        for key in ("total", "offset", "limit", "has_more", "next_offset", "items"):
+            self.assertIn(key, results)
+
     def test_empty_query_returns_all(self):
         results = self.store.search("")
         self.assertEqual(results["total"], 3)
@@ -357,6 +372,27 @@ class TestModeration(unittest.TestCase):
         r2 = self.store.report_listing(self.listing.listing_id, "u2", "inappropriate")
         self.assertEqual(r2.status, "pending")
 
+    def test_get_reports_pagination_fields(self):
+        self.store.report_listing(self.listing.listing_id, "u2", "spam")
+        result = self.store.get_reports(limit=10, offset=0)
+        for key in ("total", "offset", "limit", "has_more", "next_offset", "items"):
+            self.assertIn(key, result)
+
+    def test_get_reports_has_more_true(self):
+        for i in range(5):
+            extra = _listing(self.store, avatar_id=f"av_extra{i}", owner_id=f"ux{i}", owner_username=f"u{i}",
+                             name=f"Extra {i}", description="d", tags=[], category="vrc", parameters={})
+            self.store.report_listing(extra.listing_id, "u2", "spam")
+        result = self.store.get_reports(limit=3, offset=0)
+        self.assertTrue(result["has_more"])
+        self.assertEqual(result["next_offset"], 3)
+
+    def test_get_reports_has_more_false(self):
+        self.store.report_listing(self.listing.listing_id, "u2", "spam")
+        result = self.store.get_reports(limit=10, offset=0)
+        self.assertFalse(result["has_more"])
+        self.assertIsNone(result["next_offset"])
+
 
 class TestReviews(unittest.TestCase):
     def setUp(self):
@@ -410,6 +446,25 @@ class TestReviews(unittest.TestCase):
         self.assertEqual(len(page1["items"]), 3)
         self.assertEqual(len(page2["items"]), 2)
         self.assertEqual(page1["total"], 5)
+
+    def test_get_reviews_has_more_true(self):
+        for i in range(5):
+            self.store.review(self.listing.listing_id, f"user{i}", f"u{i}", 4, f"rev{i}")
+        result = self.store.get_reviews(self.listing.listing_id, limit=3, offset=0)
+        self.assertTrue(result["has_more"])
+        self.assertEqual(result["next_offset"], 3)
+
+    def test_get_reviews_has_more_false_on_last_page(self):
+        for i in range(5):
+            self.store.review(self.listing.listing_id, f"user{i}", f"u{i}", 4, f"rev{i}")
+        result = self.store.get_reviews(self.listing.listing_id, limit=3, offset=3)
+        self.assertFalse(result["has_more"])
+        self.assertIsNone(result["next_offset"])
+
+    def test_get_reviews_pagination_fields_present(self):
+        result = self.store.get_reviews(self.listing.listing_id, limit=10, offset=0)
+        for key in ("total", "offset", "limit", "has_more", "next_offset", "items"):
+            self.assertIn(key, result)
 
     def test_delete_review(self):
         self.store.review(self.listing.listing_id, "u2", "bob", 4, "OK")
