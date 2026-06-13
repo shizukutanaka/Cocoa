@@ -8,7 +8,7 @@ for _p in (str(ROOT), str(ROOT / "main")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from avatar_marketplace import ListingReport, MarketplaceStore, Review
+from avatar_marketplace import ListingReport, MarketplaceStore, Review, ReviewReply
 
 
 def _store():
@@ -763,6 +763,60 @@ class TestCreatorAnalyticsExtended(unittest.TestCase):
         a = self.store.get_creator_analytics("u1")
         self.assertEqual(a["downloads_by_tag"], {})
         self.assertEqual(a["total_credits_earned"], 0)
+
+
+class TestReviewReplies(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        listing = _listing(self.store)
+        _, self.review = self.store.review(listing.listing_id, "u2", "bob", 4, "Great!")
+        self.review_id = self.review.review_id
+
+    def test_add_reply_returns_review_reply(self):
+        reply = self.store.add_review_reply(self.review_id, "u1", "alice", "Thank you!")
+        self.assertIsInstance(reply, ReviewReply)
+
+    def test_add_reply_fields(self):
+        reply = self.store.add_review_reply(self.review_id, "u1", "alice", "Thank you!")
+        self.assertEqual(reply.review_id, self.review_id)
+        self.assertEqual(reply.user_id, "u1")
+        self.assertEqual(reply.text, "Thank you!")
+
+    def test_get_replies_returns_list(self):
+        self.store.add_review_reply(self.review_id, "u1", "alice", "Reply 1")
+        self.store.add_review_reply(self.review_id, "u1", "alice", "Reply 2")
+        replies = self.store.get_review_replies(self.review_id)
+        self.assertEqual(len(replies), 2)
+
+    def test_get_replies_empty_for_no_replies(self):
+        replies = self.store.get_review_replies(self.review_id)
+        self.assertEqual(replies, [])
+
+    def test_add_reply_empty_text_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.add_review_reply(self.review_id, "u1", "alice", "  ")
+
+    def test_add_reply_unknown_review_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.add_review_reply("no-such-review", "u1", "alice", "Hello")
+
+    def test_delete_reply_own(self):
+        reply = self.store.add_review_reply(self.review_id, "u1", "alice", "My reply")
+        ok = self.store.delete_review_reply(self.review_id, reply.reply_id, "u1")
+        self.assertTrue(ok)
+        self.assertEqual(self.store.get_review_replies(self.review_id), [])
+
+    def test_delete_reply_wrong_user_fails(self):
+        reply = self.store.add_review_reply(self.review_id, "u1", "alice", "My reply")
+        ok = self.store.delete_review_reply(self.review_id, reply.reply_id, "u999")
+        self.assertFalse(ok)
+        self.assertEqual(len(self.store.get_review_replies(self.review_id)), 1)
+
+    def test_reply_to_dict_fields(self):
+        reply = self.store.add_review_reply(self.review_id, "u1", "alice", "Nice work!")
+        d = reply.to_dict()
+        for key in ("reply_id", "review_id", "user_id", "username", "text", "created_at"):
+            self.assertIn(key, d)
 
 
 if __name__ == "__main__":

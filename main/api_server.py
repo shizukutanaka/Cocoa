@@ -1620,6 +1620,48 @@ async def delete_my_review(listing_id: str, current_user: dict = Depends(get_cur
     return {"status": "deleted"}
 
 
+class ReviewReplyRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/marketplace/reviews/{review_id}/replies", tags=["marketplace"], status_code=201)
+async def add_review_reply(
+    review_id: str, body: ReviewReplyRequest, current_user: dict = Depends(get_current_user)
+):
+    """レビューへの返信を追加（クリエイターまたは他ユーザー）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        reply = get_marketplace().add_review_reply(
+            review_id, current_user["user_id"], current_user["username"], body.text
+        )
+        return reply.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/marketplace/reviews/{review_id}/replies", tags=["marketplace"])
+async def get_review_replies(review_id: str, current_user: dict = Depends(get_current_user)):
+    """レビューの返信一覧"""
+    if not get_marketplace:
+        return {"items": [], "total": 0}
+    replies = get_marketplace().get_review_replies(review_id)
+    return {"items": [r.to_dict() for r in replies], "total": len(replies)}
+
+
+@app.delete("/api/marketplace/reviews/{review_id}/replies/{reply_id}", tags=["marketplace"])
+async def delete_review_reply(
+    review_id: str, reply_id: str, current_user: dict = Depends(get_current_user)
+):
+    """自分の返信を削除"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    ok = get_marketplace().delete_review_reply(review_id, reply_id, current_user["user_id"])
+    if not ok:
+        raise HTTPException(status_code=404, detail="返信が見つかりません")
+    return {"status": "deleted", "reply_id": reply_id}
+
+
 @app.post("/api/marketplace/{listing_id}/report", tags=["marketplace"])
 async def report_listing(listing_id: str, body: ReportRequest, current_user: dict = Depends(get_current_user)):
     """リスティングを通報（モデレーション）"""

@@ -100,6 +100,26 @@ class Review:
         }
 
 
+@dataclass
+class ReviewReply:
+    reply_id: str
+    review_id: str
+    user_id: str
+    username: str
+    text: str
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "reply_id": self.reply_id,
+            "review_id": self.review_id,
+            "user_id": self.user_id,
+            "username": self.username,
+            "text": self.text,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
 _REPORT_REASONS = frozenset({
     "inappropriate", "spam", "copyright", "misleading", "malware", "other"
 })
@@ -145,6 +165,7 @@ class MarketplaceStore:
         self._reports: Dict[str, ListingReport] = {}  # report_id → ListingReport
         self._credits: Dict[str, int] = {}  # user_id → credit balance
         self._quotas: Dict[str, int] = {}  # user_id → max active listings (None/missing = unlimited)
+        self._review_replies: Dict[str, List[ReviewReply]] = {}  # review_id → [Reply]
         self._lock = threading.Lock()
 
     # --- Credits ledger ---
@@ -408,6 +429,49 @@ class MarketplaceStore:
         with self._lock:
             rv = self._reviews.get(listing_id, {}).pop(user_id, None)
         return rv is not None
+
+    # --- Review replies ---
+
+    def _find_review(self, review_id: str) -> Optional[Review]:
+        """Return the Review object for a given review_id (O(n) scan)."""
+        for rv_map in self._reviews.values():
+            for rv in rv_map.values():
+                if rv.review_id == review_id:
+                    return rv
+        return None
+
+    def add_review_reply(
+        self, review_id: str, user_id: str, username: str, text: str
+    ) -> ReviewReply:
+        text = text.strip()[:1000]
+        if not text:
+            raise ValueError("返信内容を入力してください")
+        with self._lock:
+            if self._find_review(review_id) is None:
+                raise ValueError("レビューが見つかりません")
+            reply = ReviewReply(
+                reply_id=secrets.token_hex(8),
+                review_id=review_id,
+                user_id=user_id,
+                username=username,
+                text=text,
+            )
+            self._review_replies.setdefault(review_id, []).append(reply)
+        return reply
+
+    def get_review_replies(self, review_id: str) -> List[ReviewReply]:
+        with self._lock:
+            return list(self._review_replies.get(review_id, []))
+
+    def delete_review_reply(self, review_id: str, reply_id: str, requester_id: str) -> bool:
+        """Delete a reply if the requester is the reply author."""
+        with self._lock:
+            replies = self._review_replies.get(review_id, [])
+            for i, r in enumerate(replies):
+                if r.reply_id == reply_id and r.user_id == requester_id:
+                    del replies[i]
+                    return True
+        return False
 
     # --- Queries ---
 
