@@ -914,5 +914,107 @@ class TestTagFollowing(unittest.TestCase):
             self.auth.get_public_profile("no-such-id")
 
 
+class TestUserBan(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager(UserStore())
+        self.auth.register("alice", "alice@x.com", "Alice123!")
+        self.alice_id = self.auth.store.get_by_username("alice").user_id
+        self.auth.register("admin", "admin@x.com", "Admin123!")
+        admin_user = self.auth.store.get_by_username("admin")
+        admin_user.role = "admin"
+        self.admin_id = admin_user.user_id
+        self.admin_payload = {"sub": self.admin_id, "role": "admin"}
+
+    def test_ban_user_sets_flags(self):
+        user = self.auth.ban_user(self.admin_payload, self.alice_id, "spam")
+        self.assertTrue(user.is_banned)
+        self.assertEqual(user.ban_reason, "spam")
+        self.assertIsNotNone(user.banned_at)
+        self.assertEqual(user.banned_by, self.admin_id)
+
+    def test_ban_user_non_admin_raises(self):
+        user_payload = {"sub": self.alice_id, "role": "user"}
+        with self.assertRaises(AuthError):
+            self.auth.ban_user(user_payload, self.alice_id, "test")
+
+    def test_ban_self_raises(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.ban_user(self.admin_payload, self.admin_id)
+        self.assertEqual(ctx.exception.code, "forbidden")
+
+    def test_ban_unknown_user_raises(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.ban_user(self.admin_payload, "no-such-id")
+        self.assertEqual(ctx.exception.code, "not_found")
+
+    def test_banned_user_cannot_login(self):
+        self.auth.ban_user(self.admin_payload, self.alice_id, "test ban")
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.login("alice", "Alice123!")
+        self.assertEqual(ctx.exception.code, "account_banned")
+
+    def test_unban_user_clears_flags(self):
+        self.auth.ban_user(self.admin_payload, self.alice_id)
+        user = self.auth.unban_user(self.admin_payload, self.alice_id)
+        self.assertFalse(user.is_banned)
+        self.assertEqual(user.ban_reason, "")
+        self.assertIsNone(user.banned_at)
+
+    def test_unban_unknown_user_raises(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.unban_user(self.admin_payload, "no-such-id")
+        self.assertEqual(ctx.exception.code, "not_found")
+
+    def test_unban_non_admin_raises(self):
+        self.auth.ban_user(self.admin_payload, self.alice_id)
+        user_payload = {"sub": self.alice_id, "role": "user"}
+        with self.assertRaises(AuthError):
+            self.auth.unban_user(user_payload, self.alice_id)
+
+    def test_unbanned_user_can_login_again(self):
+        self.auth.ban_user(self.admin_payload, self.alice_id)
+        self.auth.unban_user(self.admin_payload, self.alice_id)
+        tokens = self.auth.login("alice", "Alice123!")
+        self.assertIsNotNone(tokens.access_token)
+
+    def test_get_banned_users_lists_banned(self):
+        self.auth.ban_user(self.admin_payload, self.alice_id, "spam")
+        result = self.auth.get_banned_users(self.admin_payload)
+        self.assertEqual(result["total"], 1)
+        item = result["items"][0]
+        self.assertEqual(item["user_id"], self.alice_id)
+        self.assertTrue(item["is_banned"])
+
+    def test_get_banned_users_empty_when_none(self):
+        result = self.auth.get_banned_users(self.admin_payload)
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(result["items"], [])
+
+    def test_get_banned_users_non_admin_raises(self):
+        user_payload = {"sub": self.alice_id, "role": "user"}
+        with self.assertRaises(AuthError):
+            self.auth.get_banned_users(user_payload)
+
+    def test_get_banned_users_pagination(self):
+        for i in range(3):
+            self.auth.register(f"u{i}", f"u{i}@x.com", "User1234!")
+            uid = self.auth.store.get_by_username(f"u{i}").user_id
+            self.auth.ban_user(self.admin_payload, uid)
+        result = self.auth.get_banned_users(self.admin_payload, limit=2, offset=0)
+        self.assertEqual(result["total"], 3)
+        self.assertEqual(len(result["items"]), 2)
+        self.assertTrue(result["has_more"])
+        self.assertEqual(result["next_offset"], 2)
+
+    def test_ban_reason_truncated_at_500(self):
+        long_reason = "x" * 600
+        user = self.auth.ban_user(self.admin_payload, self.alice_id, long_reason)
+        self.assertEqual(len(user.ban_reason), 500)
+
+    def test_ban_reason_stripped(self):
+        user = self.auth.ban_user(self.admin_payload, self.alice_id, "  spam  ")
+        self.assertEqual(user.ban_reason, "spam")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

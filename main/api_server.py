@@ -3503,6 +3503,72 @@ async def get_user_public_tips(
     return result
 
 
+class BanUserRequest(BaseModel):
+    reason: str = ""
+
+
+@app.post("/api/admin/users/{user_id}/ban", tags=["admin"], status_code=200)
+async def ban_user(
+    user_id: str,
+    body: BanUserRequest,
+    admin: dict = Depends(get_current_admin),
+):
+    """ユーザーを停止する（管理者専用）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証サービスが利用できません")
+    try:
+        user = get_auth_manager().ban_user(admin, user_id, body.reason)
+        return {
+            "user_id": user.user_id,
+            "is_banned": user.is_banned,
+            "ban_reason": user.ban_reason,
+            "banned_at": user.banned_at.isoformat() if user.banned_at else None,
+            "banned_by": user.banned_by,
+        }
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except Exception as e:
+        code = getattr(e, "code", None)
+        if code == "not_found":
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        if code == "forbidden":
+            raise HTTPException(status_code=403, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/admin/users/{user_id}/ban", tags=["admin"], status_code=200)
+async def unban_user(
+    user_id: str,
+    admin: dict = Depends(get_current_admin),
+):
+    """ユーザーの停止を解除する（管理者専用）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証サービスが利用できません")
+    try:
+        user = get_auth_manager().unban_user(admin, user_id)
+        return {"user_id": user.user_id, "is_banned": user.is_banned}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except Exception as e:
+        code = getattr(e, "code", None)
+        if code == "not_found":
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/admin/users/banned", tags=["admin"])
+async def list_banned_users(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(get_current_admin),
+):
+    """停止中ユーザーの一覧を取得（管理者専用）"""
+    if not get_auth_manager:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_auth_manager().get_banned_users(admin, limit=limit, offset=offset)
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """HTTP例外ハンドラー"""

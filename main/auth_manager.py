@@ -109,6 +109,10 @@ class UserRecord:
     bookmarks: List[str] = field(default_factory=list)  # list of doc_ids / listing_ids
     following: List[str] = field(default_factory=list)   # list of user_ids this user follows
     followed_tags: List[str] = field(default_factory=list)  # tag strings user follows
+    is_banned: bool = False
+    ban_reason: str = ""
+    banned_at: Optional[datetime] = None
+    banned_by: str = ""
 
     def is_locked(self) -> bool:
         return bool(self.locked_until and datetime.now(timezone.utc) < self.locked_until)
@@ -436,6 +440,9 @@ class AuthManager:
 
         if not user.is_active:
             raise AuthError("account_disabled", "アカウントが無効です")
+
+        if user.is_banned:
+            raise AuthError("account_banned", f"アカウントが停止されています: {user.ban_reason}" if user.ban_reason else "アカウントが停止されています")
 
         if user.is_locked():
             remaining = int((user.locked_until - datetime.now(timezone.utc)).total_seconds())
@@ -842,6 +849,63 @@ class AuthManager:
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
             "items": [u.public_profile() for u in page],
+        }
+
+    # --- User ban management ---
+
+    def ban_user(self, admin_payload: Dict[str, Any], user_id: str, reason: str = "") -> UserRecord:
+        """Ban a user account. Admin only."""
+        self.require_role(admin_payload, "admin")
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        admin_id = admin_payload.get("sub", "")
+        if user_id == admin_id:
+            raise AuthError("forbidden", "自分自身を停止することはできません")
+        user.is_banned = True
+        user.ban_reason = reason.strip()[:500]
+        user.banned_at = datetime.now(timezone.utc)
+        user.banned_by = admin_id
+        logger.info("User banned: %s by admin: %s reason: %s", user_id, admin_id, reason)
+        return user
+
+    def unban_user(self, admin_payload: Dict[str, Any], user_id: str) -> UserRecord:
+        """Lift a ban from a user account. Admin only."""
+        self.require_role(admin_payload, "admin")
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        user.is_banned = False
+        user.ban_reason = ""
+        user.banned_at = None
+        user.banned_by = ""
+        logger.info("User unbanned: %s by admin: %s", user_id, admin_payload.get("sub", ""))
+        return user
+
+    def get_banned_users(self, admin_payload: Dict[str, Any], limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """List all banned users. Admin only."""
+        self.require_role(admin_payload, "admin")
+        banned = [u for u in self.store.list_users() if u.is_banned]
+        banned.sort(key=lambda u: u.banned_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        total = len(banned)
+        page = banned[offset: offset + limit]
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": [
+                {
+                    **u.public_profile(),
+                    "is_banned": u.is_banned,
+                    "ban_reason": u.ban_reason,
+                    "banned_at": u.banned_at.isoformat() if u.banned_at else None,
+                    "banned_by": u.banned_by,
+                }
+                for u in page
+            ],
         }
 
     # --- API key management ---
