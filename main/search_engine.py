@@ -164,13 +164,27 @@ class SearchIndex:
             query_tokens = _tokenize(query)
             scored = []
             with self._lock:
+                # Build prefix expansions for tokens without exact index match
+                # Exact match weight = 1.0, prefix match weight = 0.6
+                effective_tokens: List[Dict[str, float]] = []
+                for qt in query_tokens:
+                    if qt in self._inverted:
+                        effective_tokens.append({qt: 1.0})
+                    else:
+                        # Prefix match: find all indexed tokens starting with this token
+                        prefix_matches = {
+                            tok: 0.6 for tok in self._inverted if tok.startswith(qt) and len(tok) > len(qt)
+                        }
+                        if prefix_matches:
+                            effective_tokens.append(prefix_matches)
+
+                import copy
                 for doc in candidates:
                     score = 0.0
-                    for tok in query_tokens:
-                        if tok in self._inverted:
-                            score += self._inverted[tok].get(doc.doc_id, 0)
+                    for tok_weights in effective_tokens:
+                        for tok, weight in tok_weights.items():
+                            score += self._inverted[tok].get(doc.doc_id, 0) * weight
                     if score > 0:
-                        import copy
                         d = copy.copy(doc)
                         d.score = score
                         scored.append(d)
@@ -196,11 +210,14 @@ class SearchIndex:
         # --- Paginate ---
         total = len(candidates)
         page = candidates[offset: offset + limit]
+        has_more = offset + limit < total
 
         return {
             "total": total,
             "offset": offset,
             "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
             "query": query,
             "items": [d.to_dict() for d in page],
             "facets": facets,

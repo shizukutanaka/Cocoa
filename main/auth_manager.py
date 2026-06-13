@@ -64,6 +64,7 @@ class UserRecord:
     password_hash: str
     role: str = "user"
     is_active: bool = True
+    is_email_verified: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_login: Optional[datetime] = None
     failed_attempts: int = 0
@@ -85,6 +86,7 @@ class UserRecord:
             "bio": self.bio,
             "avatar_url": self.avatar_url,
             "role": self.role,
+            "is_email_verified": self.is_email_verified,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -217,6 +219,7 @@ class UserStore:
         self._by_email: Dict[str, str] = {}      # email → user_id
         self._revoked_jtis: set = set()           # revoked token JTI values
         self._reset_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
+        self._verify_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
 
     # --- CRUD ---
 
@@ -281,6 +284,22 @@ class UserStore:
 
     def consume_reset_token(self, token: str) -> Optional[str]:
         entry = self._reset_tokens.pop(token, None)
+        if entry and entry[1] > time.time():
+            return entry[0]
+        return None
+
+    # --- Email verification ---
+
+    _VERIFY_TOKEN_EXPIRE_MINUTES: int = 24 * 60  # 24 hours
+
+    def create_verify_token(self, user_id: str) -> str:
+        token = secrets.token_urlsafe(32)
+        exp = time.time() + self._VERIFY_TOKEN_EXPIRE_MINUTES * 60
+        self._verify_tokens[token] = (user_id, exp)
+        return token
+
+    def consume_verify_token(self, token: str) -> Optional[str]:
+        entry = self._verify_tokens.pop(token, None)
         if entry and entry[1] > time.time():
             return entry[0]
         return None
@@ -406,6 +425,22 @@ class AuthManager:
         self._validate_password_strength(new_password)
         user.password_hash = hash_password(new_password)
         logger.info("Password reset for user_id: %s", user_id)
+        return True
+
+    # --- Email verification ---
+
+    def create_email_verification_token(self, user_id: str) -> str:
+        return self.store.create_verify_token(user_id)
+
+    def verify_email(self, token: str) -> bool:
+        user_id = self.store.consume_verify_token(token)
+        if not user_id:
+            return False
+        user = self.store.get_by_id(user_id)
+        if not user:
+            return False
+        user.is_email_verified = True
+        logger.info("Email verified for user_id: %s", user_id)
         return True
 
     # --- Role management ---

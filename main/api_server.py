@@ -814,17 +814,54 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
-@app.post("/api/auth/register", tags=["auth"])
+@app.post("/api/auth/register", tags=["auth"], status_code=201)
 async def register(body: RegisterRequest):
-    """新規ユーザー登録"""
+    """新規ユーザー登録。email_verification_token を使って POST /api/auth/verify-email でメール確認を完了してください"""
     if not get_auth_manager:
         raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     try:
         auth = get_auth_manager()
         user = auth.register(body.username, body.email, body.password, body.role)
-        return {"user_id": user.user_id, "username": user.username, "role": user.role, "status": "created"}
+        verification_token = auth.create_email_verification_token(user.user_id)
+        return {
+            "user_id": user.user_id,
+            "username": user.username,
+            "role": user.role,
+            "status": "created",
+            "is_email_verified": user.is_email_verified,
+            "email_verification_token": verification_token,
+        }
     except (ValueError, AuthError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/auth/verify-email", tags=["auth"])
+async def verify_email(body: dict):
+    """メールアドレスを確認する。body: {\"token\": \"...\"}"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    token = body.get("token", "").strip() if isinstance(body, dict) else ""
+    if not token:
+        raise HTTPException(status_code=400, detail="token が必要です")
+    ok = get_auth_manager().verify_email(token)
+    if not ok:
+        raise HTTPException(status_code=400, detail="トークンが無効または期限切れです")
+    return {"status": "verified"}
+
+
+@app.post("/api/auth/resend-verification", tags=["auth"])
+async def resend_verification(current_user: dict = Depends(get_current_user)):
+    """メール確認トークンを再送信（新しいトークンを発行）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    user = auth.store.get_by_id(current_user["user_id"])
+    if not user:
+        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
+    if user.is_email_verified:
+        raise HTTPException(status_code=400, detail="メールアドレスは既に確認済みです")
+    token = auth.create_email_verification_token(user.user_id)
+    return {"status": "sent", "email_verification_token": token}
 
 
 @app.post("/api/auth/login", tags=["auth"])
@@ -1293,7 +1330,10 @@ async def download_avatar(listing_id: str, current_user: dict = Depends(get_curr
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     mp = get_marketplace()
-    data = mp.download(listing_id, current_user["user_id"])
+    try:
+        data = mp.download(listing_id, current_user["user_id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
     if not data:
         raise HTTPException(status_code=404, detail="リスティングが見つかりません")
     listing = mp.get_listing(listing_id)
@@ -1397,6 +1437,36 @@ async def unpublish_avatar(listing_id: str, current_user: dict = Depends(get_cur
         return {"status": "unpublished"}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+# ===========================================================================
+# CREDITS ENDPOINTS
+# ===========================================================================
+
+@app.get("/api/credits/balance", tags=["marketplace"])
+async def get_credits_balance(current_user: dict = Depends(get_current_user)):
+    """自分のクレジット残高を取得"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    balance = get_marketplace().get_balance(current_user["user_id"])
+    return {"user_id": current_user["user_id"], "balance": balance}
+
+
+class GrantCreditsRequest(BaseModel):
+    user_id: str
+    amount: int
+
+
+@app.post("/api/admin/credits/grant", tags=["admin"])
+async def grant_credits(body: GrantCreditsRequest, admin: dict = Depends(get_current_admin)):
+    """ユーザーにクレジットを付与（管理者専用）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        new_balance = get_marketplace().add_credits(body.user_id, body.amount)
+        return {"user_id": body.user_id, "granted": body.amount, "new_balance": new_balance}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 # ===========================================================================

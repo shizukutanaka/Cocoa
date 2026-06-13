@@ -97,6 +97,58 @@ class TestDownload(unittest.TestCase):
         self.assertIsNone(store.download("bad-id", "u1"))
 
 
+class TestCredits(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.free_listing = _listing(self.store, is_free=True, price_credits=0)
+        self.paid_listing = _listing(self.store, avatar_id="av_paid", owner_id="u_seller",
+                                     owner_username="seller", name="Paid Avatar",
+                                     description="Premium", tags=[], category="vrc",
+                                     parameters={}, is_free=False, price_credits=50)
+
+    def test_initial_balance_zero(self):
+        self.assertEqual(self.store.get_balance("u99"), 0)
+
+    def test_add_credits_increases_balance(self):
+        self.store.add_credits("u2", 100)
+        self.assertEqual(self.store.get_balance("u2"), 100)
+
+    def test_add_credits_accumulates(self):
+        self.store.add_credits("u2", 30)
+        self.store.add_credits("u2", 20)
+        self.assertEqual(self.store.get_balance("u2"), 50)
+
+    def test_add_zero_or_negative_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.add_credits("u2", 0)
+        with self.assertRaises(ValueError):
+            self.store.add_credits("u2", -10)
+
+    def test_free_listing_downloads_without_credits(self):
+        data = self.store.download(self.free_listing.listing_id, "u2")
+        self.assertIsNotNone(data)
+
+    def test_paid_listing_requires_credits(self):
+        with self.assertRaises(ValueError):
+            self.store.download(self.paid_listing.listing_id, "u_buyer")
+
+    def test_paid_listing_deducts_credits(self):
+        self.store.add_credits("u_buyer", 100)
+        self.store.download(self.paid_listing.listing_id, "u_buyer")
+        self.assertEqual(self.store.get_balance("u_buyer"), 50)
+
+    def test_owner_downloads_own_paid_listing_free(self):
+        data = self.store.download(self.paid_listing.listing_id, "u_seller")
+        self.assertIsNotNone(data)
+        self.assertEqual(self.store.get_balance("u_seller"), 0)
+
+    def test_insufficient_credits_raises(self):
+        self.store.add_credits("u_buyer", 20)
+        with self.assertRaises(ValueError):
+            self.store.download(self.paid_listing.listing_id, "u_buyer")
+        self.assertEqual(self.store.get_balance("u_buyer"), 20)
+
+
 class TestRating(unittest.TestCase):
     def test_rate_valid(self):
         store = _store()

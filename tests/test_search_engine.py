@@ -164,6 +164,43 @@ class TestSearchIndex(unittest.TestCase):
         idx2 = get_search_index()
         self.assertIs(idx1, idx2)
 
+    def test_pagination_has_more_fields(self):
+        r = self.idx.search("", limit=2, offset=0)
+        self.assertIn("has_more", r)
+        self.assertIn("next_offset", r)
+
+    def test_pagination_has_more_true(self):
+        r = self.idx.search("", limit=2, offset=0)
+        self.assertTrue(r["has_more"])
+        self.assertEqual(r["next_offset"], 2)
+
+    def test_pagination_has_more_false_last_page(self):
+        r = self.idx.search("", limit=2, offset=2)
+        self.assertFalse(r["has_more"])
+        self.assertIsNone(r["next_offset"])
+
+    def test_prefix_search_finds_partial_token(self):
+        # "cut" is a prefix of "cute" — should find d1 (name="Cute Cat")
+        r = self.idx.search("cut")
+        self.assertGreater(r["total"], 0)
+        doc_ids = [item["doc_id"] for item in r["items"]]
+        self.assertIn("d1", doc_ids)
+
+    def test_prefix_search_lower_score_than_exact(self):
+        # exact match "cute" should score higher than prefix match "cut"
+        r_exact = self.idx.search("cute")
+        r_prefix = self.idx.search("cut")
+        # Both find d1; exact should score >= prefix
+        exact_score = next(it["score"] for it in r_exact["items"] if it["doc_id"] == "d1")
+        prefix_score = next(it["score"] for it in r_prefix["items"] if it["doc_id"] == "d1")
+        self.assertGreaterEqual(exact_score, prefix_score)
+
+    def test_prefix_search_no_exact_index_match(self):
+        # "robotic" is not indexed; "rob" is a prefix of no indexed token from d3 ("Robot Dog")
+        # this test just ensures no crash on non-matching prefix
+        r = self.idx.search("xyz_notaword_prefix")
+        self.assertEqual(r["total"], 0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

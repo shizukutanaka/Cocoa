@@ -139,7 +139,29 @@ class MarketplaceStore:
         self._reviews: Dict[str, Dict[str, Review]] = {}  # listing_id → {user_id: Review}
         self._download_log: List[Tuple[str, str, datetime]] = []  # (listing_id, downloader_id, ts)
         self._reports: Dict[str, ListingReport] = {}  # report_id → ListingReport
+        self._credits: Dict[str, int] = {}  # user_id → credit balance
         self._lock = threading.Lock()
+
+    # --- Credits ledger ---
+
+    def get_balance(self, user_id: str) -> int:
+        with self._lock:
+            return self._credits.get(user_id, 0)
+
+    def add_credits(self, user_id: str, amount: int) -> int:
+        """Add credits to a user's balance (admin grant or purchase). Returns new balance."""
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        with self._lock:
+            self._credits[user_id] = self._credits.get(user_id, 0) + amount
+            return self._credits[user_id]
+
+    def _deduct_credits(self, user_id: str, amount: int) -> None:
+        """Deduct credits; raises ValueError if insufficient balance. Call within lock."""
+        balance = self._credits.get(user_id, 0)
+        if balance < amount:
+            raise ValueError(f"残高不足 (残高: {balance}, 必要: {amount})")
+        self._credits[user_id] = balance - amount
 
     # --- Publish ---
 
@@ -198,11 +220,17 @@ class MarketplaceStore:
     # --- Download / Clone ---
 
     def download(self, listing_id: str, downloader_id: str) -> Optional[Dict[str, Any]]:
-        """Increment download counter and return the avatar parameters for cloning."""
+        """Increment download counter and return the avatar parameters for cloning.
+
+        Raises ValueError if the listing is not free and the downloader has insufficient credits.
+        The owner downloading their own listing is always free.
+        """
         with self._lock:
             listing = self._listings.get(listing_id)
             if not listing or not listing.is_active:
                 return None
+            if not listing.is_free and listing.owner_id != downloader_id:
+                self._deduct_credits(downloader_id, listing.price_credits)
             now = datetime.now(timezone.utc)
             listing.download_count += 1
             listing.updated_at = now

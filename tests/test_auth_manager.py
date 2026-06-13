@@ -384,5 +384,55 @@ class TestFollowing(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "not_found")
 
 
+class TestEmailVerification(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.user = self.auth.register("alice", "alice@example.com", "Passw0rd!")
+
+    def test_new_user_not_verified(self):
+        self.assertFalse(self.user.is_email_verified)
+
+    def test_create_token_returns_string(self):
+        token = self.auth.create_email_verification_token(self.user.user_id)
+        self.assertIsInstance(token, str)
+        self.assertGreater(len(token), 10)
+
+    def test_verify_email_marks_verified(self):
+        token = self.auth.create_email_verification_token(self.user.user_id)
+        ok = self.auth.verify_email(token)
+        self.assertTrue(ok)
+        self.assertTrue(self.user.is_email_verified)
+
+    def test_token_consumed_on_use(self):
+        token = self.auth.create_email_verification_token(self.user.user_id)
+        self.auth.verify_email(token)
+        # Second use fails
+        ok = self.auth.verify_email(token)
+        self.assertFalse(ok)
+
+    def test_invalid_token_returns_false(self):
+        ok = self.auth.verify_email("invalid-token-xyz")
+        self.assertFalse(ok)
+
+    def test_public_profile_includes_verified_field(self):
+        profile = self.user.public_profile()
+        self.assertIn("is_email_verified", profile)
+        self.assertFalse(profile["is_email_verified"])
+
+    def test_public_profile_verified_after_confirm(self):
+        token = self.auth.create_email_verification_token(self.user.user_id)
+        self.auth.verify_email(token)
+        profile = self.user.public_profile()
+        self.assertTrue(profile["is_email_verified"])
+
+    def test_multiple_tokens_can_be_created(self):
+        t1 = self.auth.create_email_verification_token(self.user.user_id)
+        t2 = self.auth.create_email_verification_token(self.user.user_id)
+        self.assertNotEqual(t1, t2)
+        # Either token should work
+        ok = self.auth.verify_email(t2)
+        self.assertTrue(ok)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
