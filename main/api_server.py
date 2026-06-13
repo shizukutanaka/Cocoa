@@ -3046,6 +3046,28 @@ async def transfer_listing(
         raise HTTPException(status_code=404 if "見つかりません" in str(e) else 400, detail=str(e)) from e
 
 
+class StockLimitRequest(BaseModel):
+    stock_limit: Optional[int] = None  # null = unlimited
+
+
+@app.put("/api/marketplace/{listing_id}/stock", tags=["marketplace"])
+async def set_stock_limit(
+    listing_id: str,
+    body: StockLimitRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """リスティングの在庫数を設定する（オーナー専用）。null で無制限に戻す"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        listing = get_marketplace().set_stock_limit(listing_id, current_user["user_id"], body.stock_limit)
+        return listing.to_dict()
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404 if "見つかりません" in str(e) else 400, detail=str(e)) from e
+
+
 class PromoCodeCreateRequest(BaseModel):
     code: str
     discount_percent: int

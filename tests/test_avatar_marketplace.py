@@ -2142,5 +2142,80 @@ class TestListingAnalytics(unittest.TestCase):
         self.assertEqual(result["downloads_by_day"], {})
 
 
+class TestStockLimit(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.store.add_credits("buyer", 1000)
+        self.store.add_credits("buyer2", 1000)
+        lst = _listing(self.store, owner_id="creator", owner_username="cr",
+                       is_free=False, price_credits=50)
+        self.listing_id = lst.listing_id
+
+    def test_set_stock_limit(self):
+        listing = self.store.set_stock_limit(self.listing_id, "creator", 5)
+        self.assertEqual(listing.stock_limit, 5)
+        self.assertEqual(listing.stock_remaining, 5)
+
+    def test_stock_remaining_in_to_dict(self):
+        self.store.set_stock_limit(self.listing_id, "creator", 3)
+        d = self.store._listings[self.listing_id].to_dict()
+        self.assertEqual(d["stock_limit"], 3)
+        self.assertEqual(d["stock_remaining"], 3)
+        self.assertFalse(d["is_sold_out"])
+
+    def test_download_decrements_stock(self):
+        self.store.set_stock_limit(self.listing_id, "creator", 2)
+        self.store.download(self.listing_id, "buyer")
+        listing = self.store._listings[self.listing_id]
+        self.assertEqual(listing.stock_remaining, 1)
+
+    def test_sold_out_blocks_download(self):
+        self.store.set_stock_limit(self.listing_id, "creator", 1)
+        self.store.download(self.listing_id, "buyer")
+        with self.assertRaises(ValueError):
+            self.store.download(self.listing_id, "buyer2")
+
+    def test_owner_can_download_even_when_sold_out(self):
+        self.store.set_stock_limit(self.listing_id, "creator", 0)
+        result = self.store.download(self.listing_id, "creator")
+        self.assertIsNotNone(result)
+
+    def test_is_sold_out_flag(self):
+        self.store.set_stock_limit(self.listing_id, "creator", 1)
+        self.store.download(self.listing_id, "buyer")
+        d = self.store._listings[self.listing_id].to_dict()
+        self.assertTrue(d["is_sold_out"])
+
+    def test_set_unlimited_clears_stock(self):
+        self.store.set_stock_limit(self.listing_id, "creator", 5)
+        self.store.set_stock_limit(self.listing_id, "creator", None)
+        listing = self.store._listings[self.listing_id]
+        self.assertIsNone(listing.stock_limit)
+        self.assertIsNone(listing.stock_remaining)
+
+    def test_unlimited_listing_no_sold_out(self):
+        d = self.store._listings[self.listing_id].to_dict()
+        self.assertFalse(d["is_sold_out"])
+        self.assertIsNone(d["stock_limit"])
+
+    def test_non_owner_cannot_set_stock(self):
+        with self.assertRaises(PermissionError):
+            self.store.set_stock_limit(self.listing_id, "other-user", 5)
+
+    def test_negative_stock_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.set_stock_limit(self.listing_id, "creator", -1)
+
+    def test_stock_remaining_accounts_for_existing_downloads(self):
+        self.store.download(self.listing_id, "buyer")
+        self.store.set_stock_limit(self.listing_id, "creator", 3)
+        listing = self.store._listings[self.listing_id]
+        self.assertEqual(listing.stock_remaining, 2)
+
+    def test_stock_missing_listing_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.set_stock_limit("no-such-id", "creator", 5)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -73,6 +73,8 @@ class MarketplaceListing:
     published_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     is_active: bool = True
+    stock_limit: Optional[int] = None      # None = unlimited copies
+    stock_remaining: Optional[int] = None  # decremented on each download
 
     @property
     def average_rating(self) -> float:
@@ -101,6 +103,9 @@ class MarketplaceListing:
             "current_version": self.current_version,
             "published_at": self.published_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
+            "stock_limit": self.stock_limit,
+            "stock_remaining": self.stock_remaining,
+            "is_sold_out": self.stock_remaining is not None and self.stock_remaining <= 0,
         }
 
 
@@ -584,6 +589,9 @@ class MarketplaceStore:
             listing = self._listings.get(listing_id)
             if not listing or not listing.is_active:
                 return None
+            # Stock enforcement: owner can always re-download their own listing
+            if listing.stock_remaining is not None and listing.stock_remaining <= 0 and listing.owner_id != downloader_id:
+                raise ValueError("在庫がありません (sold out)")
             paid = not listing.is_free and listing.owner_id != downloader_id
 
             actual_price = listing.price_credits
@@ -613,6 +621,10 @@ class MarketplaceStore:
             now = datetime.now(timezone.utc)
             listing.download_count += 1
             listing.updated_at = now
+            if listing.stock_remaining is not None and listing.owner_id != downloader_id:
+                listing.stock_remaining -= 1
+                if listing.stock_remaining <= 0:
+                    logger.info("Listing sold out: %s", listing_id)
             self._download_log.append((listing_id, downloader_id, now))
             result: Dict[str, Any] = {
                 "source_listing_id": listing_id,
@@ -1370,6 +1382,35 @@ class MarketplaceStore:
             listing.owner_id = new_owner_id
             listing.owner_username = new_owner_username
         logger.info("Listing %s transferred from %s to %s", listing_id, requester_id, new_owner_id)
+        return listing
+
+    def set_stock_limit(
+        self, listing_id: str, owner_id: str, stock_limit: Optional[int]
+    ) -> "MarketplaceListing":
+        """Set or clear a stock limit for a listing.
+
+        Pass stock_limit=None to make the listing unlimited again.
+        Pass a positive integer to cap the number of copies sold.
+        Only the listing owner may call this.
+        """
+        if stock_limit is not None and stock_limit < 0:
+            raise ValueError("在庫数は0以上の値を指定してください")
+        with self._lock:
+            listing = self._listings.get(listing_id)
+            if not listing:
+                raise ValueError("リスティングが見つかりません")
+            if listing.owner_id != owner_id:
+                raise PermissionError("このリスティングの所有者のみが在庫を設定できます")
+            if stock_limit is None:
+                listing.stock_limit = None
+                listing.stock_remaining = None
+            else:
+                already_sold = listing.download_count
+                remaining = max(0, stock_limit - already_sold)
+                listing.stock_limit = stock_limit
+                listing.stock_remaining = remaining
+            listing.updated_at = datetime.now(timezone.utc)
+        logger.info("Stock limit set for listing %s: %s", listing_id, stock_limit)
         return listing
 
     def get_stats(self) -> Dict[str, Any]:
