@@ -158,5 +158,53 @@ class TestSingleton(unittest.TestCase):
         self.assertIs(s1, s2)
 
 
+class TestBrowsePublic(unittest.TestCase):
+    def setUp(self):
+        from avatar_collections import CollectionStore
+        self.store = CollectionStore()
+        self.store.create("u1", "Public Alpha", "desc1", is_public=True)
+        self.store.create("u1", "Public Beta", "desc2", is_public=True)
+        self.store.create("u2", "Private One", "secret", is_public=False)
+
+    def test_browse_returns_only_public(self):
+        result = self.store.browse_public()
+        self.assertEqual(result["total"], 2)
+
+    def test_browse_excludes_private(self):
+        result = self.store.browse_public()
+        for item in result["items"]:
+            self.assertTrue(item["is_public"])
+
+    def test_browse_query_filter(self):
+        result = self.store.browse_public(query="alpha")
+        self.assertEqual(result["total"], 1)
+        self.assertIn("Alpha", result["items"][0]["name"])
+
+    def test_browse_query_case_insensitive(self):
+        result = self.store.browse_public(query="BETA")
+        self.assertEqual(result["total"], 1)
+
+    def test_browse_empty_query_returns_all_public(self):
+        result = self.store.browse_public(query="")
+        self.assertEqual(result["total"], 2)
+
+    def test_browse_pagination(self):
+        p1 = self.store.browse_public(limit=1, offset=0)
+        p2 = self.store.browse_public(limit=1, offset=1)
+        self.assertEqual(len(p1["items"]), 1)
+        self.assertEqual(len(p2["items"]), 1)
+        self.assertTrue(p1["has_more"])
+        self.assertFalse(p2["has_more"])
+
+    def test_browse_has_pagination_fields(self):
+        result = self.store.browse_public()
+        for key in ("total", "offset", "limit", "has_more", "next_offset", "items"):
+            self.assertIn(key, result)
+
+    def test_browse_query_no_match_returns_empty(self):
+        result = self.store.browse_public(query="zzznomatch")
+        self.assertEqual(result["total"], 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

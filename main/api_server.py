@@ -827,6 +827,8 @@ class UpdateProfileRequest(BaseModel):
     display_name: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    website_url: Optional[str] = None
+    social_links: Optional[dict] = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -954,6 +956,8 @@ async def update_profile(body: UpdateProfileRequest, current_user: dict = Depend
             display_name=body.display_name,
             bio=body.bio,
             avatar_url=body.avatar_url,
+            website_url=body.website_url,
+            social_links=body.social_links,
         )
         return user.public_profile()
     except AuthError as e:
@@ -1557,6 +1561,7 @@ async def browse_marketplace(
     max_price: Optional[int] = Query(None, ge=0),
     license_type: Optional[str] = Query(None, description="ライセンス種別フィルタ"),
     owner_id: Optional[str] = Query(None, description="クリエイターIDフィルタ"),
+    facets: bool = Query(False, description="カテゴリ・タグ・ライセンスのファセット集計を返す"),
 ):
     """マーケットプレイスを閲覧（認証不要）"""
     if not get_marketplace:
@@ -1568,6 +1573,7 @@ async def browse_marketplace(
         limit=limit, offset=offset,
         is_free=is_free, min_price=min_price, max_price=max_price,
         license_type=license_type, owner_id=owner_id,
+        include_facets=facets,
     )
 
 
@@ -2301,6 +2307,19 @@ async def user_public_collections(user_id: str, current_user: dict = Depends(get
     if not get_collection_store:
         return {"collections": []}
     return {"collections": get_collection_store().list_user_collections(user_id, requester_id=current_user["user_id"])}
+
+
+@app.get("/api/collections/public", tags=["collections"])
+async def browse_public_collections(
+    q: str = Query("", description="コレクション名・説明の検索"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """公開コレクションを閲覧（認証不要）"""
+    if not get_collection_store:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_collection_store().browse_public(query=q, limit=limit, offset=offset)
 
 
 # ===========================================================================

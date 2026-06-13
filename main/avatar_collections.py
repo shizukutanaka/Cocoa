@@ -137,6 +137,31 @@ class CollectionStore:
             return col
         return None
 
+    def browse_public(
+        self,
+        query: str = "",
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Return paginated public collections, optionally filtered by name/description query."""
+        with self._lock:
+            items = [c for c in self._collections.values() if c.is_public]
+        if query:
+            q = query.lower()
+            items = [c for c in items if q in c.name.lower() or q in c.description.lower()]
+        items.sort(key=lambda c: c.updated_at, reverse=True)
+        total = len(items)
+        page = items[offset : offset + limit]
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": [c.to_dict() for c in page],
+        }
+
     def stats(self) -> Dict[str, Any]:
         with self._lock:
             cols = list(self._collections.values())

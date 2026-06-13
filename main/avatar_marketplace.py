@@ -783,6 +783,7 @@ class MarketplaceStore:
         max_price: Optional[int] = None,        # inclusive maximum price_credits
         license_type: Optional[str] = None,     # filter by license_type exact match
         owner_id: Optional[str] = None,         # filter by owner
+        include_facets: bool = False,            # if True, include category/tag/license breakdowns
     ) -> Dict[str, Any]:
         with self._lock:
             results = [lst for lst in self._listings.values() if lst.is_active]
@@ -830,7 +831,7 @@ class MarketplaceStore:
         total = len(results)
         page = results[offset: offset + limit]
         has_more = offset + limit < total
-        return {
+        response: Dict[str, Any] = {
             "total": total,
             "offset": offset,
             "limit": limit,
@@ -838,6 +839,19 @@ class MarketplaceStore:
             "next_offset": offset + limit if has_more else None,
             "items": [lst.to_dict() for lst in page],
         }
+        if include_facets:
+            from collections import Counter
+            cat_counts: Counter = Counter(lst.category for lst in results)
+            lic_counts: Counter = Counter(lst.license_type for lst in results)
+            tag_counts: Counter = Counter(
+                tag for lst in results for tag in lst.tags
+            )
+            response["facets"] = {
+                "categories": dict(cat_counts.most_common()),
+                "license_types": dict(lic_counts.most_common()),
+                "top_tags": dict(tag_counts.most_common(20)),
+            }
+        return response
 
     def get_listing(self, listing_id: str) -> Optional[MarketplaceListing]:
         return self._listings.get(listing_id)

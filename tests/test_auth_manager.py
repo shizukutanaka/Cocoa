@@ -637,5 +637,52 @@ class TestGetFollowers(unittest.TestCase):
         self.assertEqual(carol_followers, [])
 
 
+class TestSocialLinks(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.user = self.auth.register("alice", "alice@x.com", "Alice1234!")
+        self.uid = self.user.user_id
+
+    def test_website_url_saved(self):
+        user = self.auth.update_profile(self.uid, website_url="https://example.com")
+        self.assertEqual(user.website_url, "https://example.com")
+
+    def test_social_links_saved(self):
+        user = self.auth.update_profile(self.uid, social_links={"twitter": "@alice"})
+        self.assertEqual(user.social_links["twitter"], "@alice")
+
+    def test_social_links_unknown_key_filtered(self):
+        user = self.auth.update_profile(self.uid, social_links={"discord": "alice#1234"})
+        self.assertNotIn("discord", user.social_links)
+
+    def test_social_links_replaces_previous(self):
+        self.auth.update_profile(self.uid, social_links={"twitter": "@alice"})
+        user = self.auth.update_profile(self.uid, social_links={"github": "alice-gh"})
+        self.assertNotIn("twitter", user.social_links)
+        self.assertIn("github", user.social_links)
+
+    def test_social_links_empty_clears(self):
+        self.auth.update_profile(self.uid, social_links={"twitter": "@alice"})
+        user = self.auth.update_profile(self.uid, social_links={})
+        self.assertEqual(user.social_links, {})
+
+    def test_social_links_in_public_profile(self):
+        self.auth.update_profile(self.uid, social_links={"vrchat": "alice_vrc"})
+        profile = self.user.public_profile()
+        self.assertIn("social_links", profile)
+        self.assertEqual(profile["social_links"]["vrchat"], "alice_vrc")
+
+    def test_website_url_in_public_profile(self):
+        self.auth.update_profile(self.uid, website_url="https://alice.dev")
+        profile = self.user.public_profile()
+        self.assertIn("website_url", profile)
+        self.assertEqual(profile["website_url"], "https://alice.dev")
+
+    def test_none_social_links_does_not_clear(self):
+        self.auth.update_profile(self.uid, social_links={"twitter": "@alice"})
+        user = self.auth.update_profile(self.uid, bio="Hello")  # social_links not passed
+        self.assertIn("twitter", user.social_links)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

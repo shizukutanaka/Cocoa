@@ -1167,6 +1167,48 @@ class TestListingVersions(unittest.TestCase):
         self.assertEqual(len(versions2), 1)  # only v1 (initial)
 
 
+class TestSearchFacets(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.store.publish("av1", "u1", "alice", "Cat", "d", ["cute", "cat"], "vrc", {},
+                           license_type="cc_by", is_free=True)
+        self.store.publish("av2", "u2", "bob", "Dog", "d", ["cute", "dog"], "vrchat", {},
+                           license_type="personal", is_free=False, price_credits=50)
+        self.store.publish("av3", "u1", "alice", "Fox", "d", ["animal"], "vrc", {},
+                           license_type="cc_by", is_free=True)
+
+    def test_facets_not_in_response_by_default(self):
+        r = self.store.search()
+        self.assertNotIn("facets", r)
+
+    def test_facets_included_when_requested(self):
+        r = self.store.search(include_facets=True)
+        self.assertIn("facets", r)
+
+    def test_facets_category_counts(self):
+        r = self.store.search(include_facets=True)
+        cats = r["facets"]["categories"]
+        self.assertEqual(cats.get("vrc"), 2)
+        self.assertEqual(cats.get("vrchat"), 1)
+
+    def test_facets_license_type_counts(self):
+        r = self.store.search(include_facets=True)
+        lics = r["facets"]["license_types"]
+        self.assertEqual(lics.get("cc_by"), 2)
+        self.assertEqual(lics.get("personal"), 1)
+
+    def test_facets_top_tags(self):
+        r = self.store.search(include_facets=True)
+        tags = r["facets"]["top_tags"]
+        self.assertIn("cute", tags)
+        self.assertEqual(tags["cute"], 2)
+
+    def test_facets_reflect_applied_filters(self):
+        # Filter by category=vrc; facet should only count vrc listings
+        r = self.store.search(category="vrc", include_facets=True)
+        self.assertEqual(r["facets"]["categories"].get("vrchat", 0), 0)
+
+
 class TestSearchLicenseAndOwner(unittest.TestCase):
     def setUp(self):
         self.store = _store()

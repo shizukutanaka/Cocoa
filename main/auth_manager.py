@@ -56,6 +56,9 @@ _RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("RESET_TOKEN_EXPIRE_MINUTES", "15"))
 ROLES = ("user", "moderator", "admin")
 
 
+_ALLOWED_SOCIAL_KEYS = frozenset({"twitter", "vrchat", "github", "website", "youtube", "twitch"})
+
+
 @dataclass
 class UserRecord:
     user_id: str
@@ -73,6 +76,8 @@ class UserRecord:
     display_name: str = ""
     bio: str = ""
     avatar_url: str = ""
+    website_url: str = ""
+    social_links: Dict[str, str] = field(default_factory=dict)  # e.g. {"twitter": "@alice"}
     bookmarks: List[str] = field(default_factory=list)  # list of doc_ids / listing_ids
     following: List[str] = field(default_factory=list)   # list of user_ids this user follows
 
@@ -86,6 +91,8 @@ class UserRecord:
             "display_name": self.display_name or self.username,
             "bio": self.bio,
             "avatar_url": self.avatar_url,
+            "website_url": self.website_url,
+            "social_links": dict(self.social_links),
             "role": self.role,
             "is_email_verified": self.is_email_verified,
             "is_creator_verified": self.is_creator_verified,
@@ -517,7 +524,15 @@ class AuthManager:
 
     # --- Profile management ---
 
-    def update_profile(self, user_id: str, display_name: Optional[str] = None, bio: Optional[str] = None, avatar_url: Optional[str] = None) -> UserRecord:
+    def update_profile(
+        self,
+        user_id: str,
+        display_name: Optional[str] = None,
+        bio: Optional[str] = None,
+        avatar_url: Optional[str] = None,
+        website_url: Optional[str] = None,
+        social_links: Optional[Dict[str, str]] = None,
+    ) -> UserRecord:
         user = self.store.get_by_id(user_id)
         if not user:
             raise AuthError("not_found", "ユーザーが見つかりません")
@@ -527,6 +542,15 @@ class AuthManager:
             user.bio = bio[:500].strip()
         if avatar_url is not None:
             user.avatar_url = avatar_url[:512].strip()
+        if website_url is not None:
+            user.website_url = website_url[:512].strip()
+        if social_links is not None:
+            sanitized = {
+                k: str(v)[:200].strip()
+                for k, v in social_links.items()
+                if k in _ALLOWED_SOCIAL_KEYS
+            }
+            user.social_links = sanitized
         logger.info("Profile updated for user_id: %s", user_id)
         return user
 
