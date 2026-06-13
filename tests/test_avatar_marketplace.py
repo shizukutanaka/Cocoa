@@ -97,6 +97,94 @@ class TestDownload(unittest.TestCase):
         self.assertIsNone(store.download("bad-id", "u1"))
 
 
+class TestUpdateListing(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.listing = _listing(self.store)
+
+    def test_owner_can_update_name(self):
+        updated = self.store.update_listing(self.listing.listing_id, "u1", name="New Name")
+        self.assertEqual(updated.name, "New Name")
+
+    def test_owner_can_update_tags(self):
+        updated = self.store.update_listing(self.listing.listing_id, "u1", tags=["fox", "fluffy"])
+        self.assertEqual(updated.tags, ["fox", "fluffy"])
+
+    def test_owner_can_update_parameters(self):
+        updated = self.store.update_listing(self.listing.listing_id, "u1", parameters={"y": 2})
+        self.assertEqual(updated.parameters, {"y": 2})
+
+    def test_owner_can_update_price(self):
+        updated = self.store.update_listing(self.listing.listing_id, "u1", is_free=False, price_credits=25)
+        self.assertFalse(updated.is_free)
+        self.assertEqual(updated.price_credits, 25)
+
+    def test_non_owner_raises_permission_error(self):
+        with self.assertRaises(PermissionError):
+            self.store.update_listing(self.listing.listing_id, "u_stranger", name="Hacked")
+
+    def test_unknown_listing_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.update_listing("no-such-id", "u1", name="x")
+
+    def test_negative_price_credits_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.update_listing(self.listing.listing_id, "u1", price_credits=-5)
+
+    def test_none_fields_are_ignored(self):
+        original_name = self.listing.name
+        self.store.update_listing(self.listing.listing_id, "u1", description="Updated desc")
+        self.assertEqual(self.listing.name, original_name)
+
+    def test_updated_at_changes(self):
+        original_ts = self.listing.updated_at
+        import time as _time
+        _time.sleep(0.01)
+        self.store.update_listing(self.listing.listing_id, "u1", name="Changed")
+        self.assertGreater(self.listing.updated_at, original_ts)
+
+
+class TestDownloadHistory(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.listing = _listing(self.store)
+
+    def test_empty_history_for_new_user(self):
+        result = self.store.get_user_download_history("u_new")
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(result["items"], [])
+
+    def test_history_after_download(self):
+        self.store.download(self.listing.listing_id, "u2")
+        result = self.store.get_user_download_history("u2")
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["listing_id"], self.listing.listing_id)
+
+    def test_history_includes_listing_name(self):
+        self.store.download(self.listing.listing_id, "u2")
+        result = self.store.get_user_download_history("u2")
+        self.assertEqual(result["items"][0]["name"], self.listing.name)
+
+    def test_history_pagination_fields(self):
+        for _ in range(5):
+            self.store.download(self.listing.listing_id, "u2")
+        result = self.store.get_user_download_history("u2", limit=3, offset=0)
+        for key in ("total", "offset", "limit", "has_more", "next_offset", "items"):
+            self.assertIn(key, result)
+
+    def test_history_has_more_true(self):
+        for _ in range(5):
+            self.store.download(self.listing.listing_id, "u2")
+        result = self.store.get_user_download_history("u2", limit=3, offset=0)
+        self.assertTrue(result["has_more"])
+        self.assertEqual(result["next_offset"], 3)
+
+    def test_history_isolates_by_user(self):
+        self.store.download(self.listing.listing_id, "u2")
+        result_u3 = self.store.get_user_download_history("u3")
+        self.assertEqual(result_u3["total"], 0)
+
+
 class TestCredits(unittest.TestCase):
     def setUp(self):
         self.store = _store()

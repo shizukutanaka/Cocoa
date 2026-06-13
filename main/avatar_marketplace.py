@@ -205,6 +205,47 @@ class MarketplaceStore:
             logger.info("Marketplace listing created: %s by %s", name, owner_username)
             return listing
 
+    # --- Update listing ---
+
+    def update_listing(
+        self,
+        listing_id: str,
+        requester_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+        thumbnail_url: Optional[str] = None,
+        is_free: Optional[bool] = None,
+        price_credits: Optional[int] = None,
+    ) -> "MarketplaceListing":
+        """Update a published listing. Only the owner may update it."""
+        with self._lock:
+            listing = self._listings.get(listing_id)
+            if not listing or not listing.is_active:
+                raise ValueError("Listing not found or inactive")
+            if listing.owner_id != requester_id:
+                raise PermissionError("Only the owner can update a listing")
+            if name is not None:
+                listing.name = name.strip()[:200]
+            if description is not None:
+                listing.description = description.strip()[:2000]
+            if tags is not None:
+                listing.tags = [t.lower().strip() for t in tags[:20]]
+            if parameters is not None:
+                listing.parameters = parameters
+            if thumbnail_url is not None:
+                listing.thumbnail_url = thumbnail_url.strip()[:500]
+            if is_free is not None:
+                listing.is_free = is_free
+            if price_credits is not None:
+                if price_credits < 0:
+                    raise ValueError("price_credits must be ≥ 0")
+                listing.price_credits = price_credits
+            listing.updated_at = datetime.now(timezone.utc)
+            return listing
+
     # --- Unpublish ---
 
     def unpublish(self, listing_id: str, requester_id: str) -> bool:
@@ -464,6 +505,39 @@ class MarketplaceStore:
             "rating_distribution": rating_dist,
             "downloads_by_day": dict(day_counts),
             "top_listing": top.to_dict() if top else None,
+        }
+
+    # --- Download history ---
+
+    def get_user_download_history(
+        self,
+        user_id: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Return paginated list of listings this user has downloaded, newest first."""
+        with self._lock:
+            entries = [(lid, ts) for lid, did, ts in self._download_log if did == user_id]
+        entries.sort(key=lambda x: x[1], reverse=True)
+        total = len(entries)
+        page = entries[offset: offset + limit]
+        items = []
+        for lid, ts in page:
+            listing = self._listings.get(lid)
+            row: Dict[str, Any] = {"listing_id": lid, "downloaded_at": ts.isoformat()}
+            if listing:
+                row["name"] = listing.name
+                row["owner_username"] = listing.owner_username
+                row["is_active"] = listing.is_active
+            items.append(row)
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": items,
         }
 
     # --- Moderation / reports ---

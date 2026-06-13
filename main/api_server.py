@@ -65,6 +65,7 @@ except ImportError:
         def get(self, *a, **kw): return lambda f: f
         def post(self, *a, **kw): return lambda f: f
         def put(self, *a, **kw): return lambda f: f
+        def patch(self, *a, **kw): return lambda f: f
         def delete(self, *a, **kw): return lambda f: f
         def websocket(self, *a, **kw): return lambda f: f
         def middleware(self, *a, **kw): return lambda f: f
@@ -1241,6 +1242,16 @@ class BulkListingActionRequest(BaseModel):
     action: str  # unpublish | delete
 
 
+class UpdateListingRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+    parameters: Optional[Dict[str, Any]] = None
+    thumbnail_url: Optional[str] = None
+    is_free: Optional[bool] = None
+    price_credits: Optional[int] = None
+
+
 @app.post("/api/marketplace/publish", tags=["marketplace"])
 async def publish_avatar(body: PublishRequest, current_user: dict = Depends(get_current_user)):
     """アバターをマーケットプレイスに公開"""
@@ -1439,6 +1450,52 @@ async def unpublish_avatar(listing_id: str, current_user: dict = Depends(get_cur
         raise HTTPException(status_code=403, detail=str(e)) from e
 
 
+@app.patch("/api/marketplace/{listing_id}", tags=["marketplace"])
+async def update_listing(listing_id: str, body: UpdateListingRequest, current_user: dict = Depends(get_current_user)):
+    """リスティングを更新（名前・説明・タグ・パラメータ・価格）。オーナーのみ可"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        listing = get_marketplace().update_listing(
+            listing_id, current_user["user_id"],
+            name=body.name,
+            description=body.description,
+            tags=body.tags,
+            parameters=body.parameters,
+            thumbnail_url=body.thumbnail_url,
+            is_free=body.is_free,
+            price_credits=body.price_credits,
+        )
+        # Re-index if name/description/tags changed
+        if get_search_index and any(v is not None for v in [body.name, body.description, body.tags]):
+            idx = get_search_index()
+            idx.index_from_dict({
+                "doc_id": listing.listing_id,
+                "name": listing.name,
+                "description": listing.description,
+                "tags": listing.tags,
+                "category": listing.category,
+                "owner_id": listing.owner_id,
+                "is_public": listing.is_active,
+            })
+        return {"status": "updated", "listing": listing.to_dict()}
+    except (ValueError, PermissionError) as e:
+        code = 403 if isinstance(e, PermissionError) else 400
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@app.get("/api/marketplace/downloads/history", tags=["marketplace"])
+async def my_download_history(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分のダウンロード履歴を取得（新しい順）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    return get_marketplace().get_user_download_history(current_user["user_id"], limit=limit, offset=offset)
+
+
 # ===========================================================================
 # CREDITS ENDPOINTS
 # ===========================================================================
@@ -1466,6 +1523,31 @@ async def grant_credits(body: GrantCreditsRequest, admin: dict = Depends(get_cur
         new_balance = get_marketplace().add_credits(body.user_id, body.amount)
         return {"user_id": body.user_id, "granted": body.amount, "new_balance": new_balance}
     except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# ===========================================================================
+# VRCHAT TOOLS ENDPOINTS
+# ===========================================================================
+
+class VRChatBudgetRequest(BaseModel):
+    parameters: List[Dict[str, Any]]
+
+
+@app.post("/api/tools/vrchat/budget", tags=["search"])
+async def analyze_vrchat_budget(body: VRChatBudgetRequest):
+    """VRChat 同期パラメータ予算の分析と最適化提案。認証不要"""
+    try:
+        from vrchat_parameter_budget import analyze_budget, suggest_optimizations
+        analysis = analyze_budget(body.parameters)
+        suggestions = suggest_optimizations(body.parameters)
+        return {
+            **analysis,
+            "suggestions": suggestions,
+        }
+    except ImportError:
+        raise HTTPException(status_code=503, detail="VRChat ツールが利用できません")  # noqa: B904
+    except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
