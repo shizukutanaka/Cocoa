@@ -2217,5 +2217,62 @@ class TestStockLimit(unittest.TestCase):
             self.store.set_stock_limit("no-such-id", "creator", 5)
 
 
+class TestEarningsSummary(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.store.add_credits("buyer", 1000)
+        self.store.add_credits("tipper", 500)
+        self.store.add_credits("gifter", 500)
+        lst = _listing(self.store, owner_id="creator", owner_username="cr",
+                       is_free=False, price_credits=100)
+        self.listing_id = lst.listing_id
+
+    def test_empty_earnings(self):
+        result = self.store.get_earnings_summary("creator")
+        self.assertEqual(result["total_earned"], 0)
+        self.assertEqual(result["sales"], 0)
+
+    def test_sale_shows_in_earnings(self):
+        self.store.download(self.listing_id, "buyer")
+        result = self.store.get_earnings_summary("creator")
+        self.assertEqual(result["sales"], 100)
+        self.assertEqual(result["total_earned"], 100)
+
+    def test_tip_shows_in_earnings(self):
+        self.store.send_tip("tipper", "tipper_name", "creator", 50)
+        result = self.store.get_earnings_summary("creator")
+        self.assertEqual(result["tips_and_gifts_received"], 50)
+        self.assertEqual(result["total_earned"], 50)
+
+    def test_gift_shows_in_earnings(self):
+        self.store.gift_credits("gifter", "creator", 75)
+        result = self.store.get_earnings_summary("creator")
+        self.assertEqual(result["tips_and_gifts_received"], 75)
+        self.assertEqual(result["total_earned"], 75)
+
+    def test_earnings_combined(self):
+        self.store.download(self.listing_id, "buyer")
+        self.store.send_tip("tipper", "tipper_name", "creator", 50)
+        self.store.gift_credits("gifter", "creator", 25)
+        result = self.store.get_earnings_summary("creator")
+        self.assertEqual(result["sales"], 100)
+        self.assertEqual(result["tips_and_gifts_received"], 75)
+        self.assertEqual(result["total_earned"], 175)
+
+    def test_earnings_by_day_key(self):
+        self.store.download(self.listing_id, "buyer")
+        result = self.store.get_earnings_summary("creator")
+        self.assertIn("by_day", result)
+        self.assertEqual(len(result["by_day"]), 1)
+
+    def test_period_days_returned(self):
+        result = self.store.get_earnings_summary("creator", days=7)
+        self.assertEqual(result["period_days"], 7)
+
+    def test_user_id_in_result(self):
+        result = self.store.get_earnings_summary("creator")
+        self.assertEqual(result["user_id"], "creator")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

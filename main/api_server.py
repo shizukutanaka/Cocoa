@@ -2654,6 +2654,19 @@ async def my_creator_analytics(current_user: dict = Depends(get_current_user)):
     return get_marketplace().get_creator_analytics(current_user["user_id"])
 
 
+@app.get("/api/marketplace/earnings/me", tags=["marketplace"])
+async def my_earnings_summary(
+    days: int = Query(30, ge=1, le=365),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分の収益サマリー（販売・チップ・ギフト）を取得する"""
+    if not get_marketplace:
+        return {"user_id": current_user["user_id"], "period_days": days,
+                "total_earned": 0, "sales": 0, "tips_received": 0,
+                "gifts_received": 0, "by_day": {}}
+    return get_marketplace().get_earnings_summary(current_user["user_id"], days=days)
+
+
 @app.get("/api/marketplace/{listing_id}/analytics", tags=["marketplace"])
 async def listing_analytics(listing_id: str, current_user: dict = Depends(get_current_user)):
     """リスティング個別の分析情報（オーナー専用）：日別ダウンロード数・ユニークDL数・評価内訳"""

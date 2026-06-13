@@ -1522,6 +1522,53 @@ class MarketplaceStore:
             "top_listing": top.to_dict() if top else None,
         }
 
+    # --- Earnings summary ---
+
+    def get_earnings_summary(self, user_id: str, days: int = 30) -> Dict[str, Any]:
+        """Aggregate credit earnings from sales and tips for the given window.
+
+        Returns totals by source (sales, tips_received, gifts_received) and a
+        day-by-day breakdown for charting.  Uses the credit ledger as the source
+        of truth so amounts are always consistent with actual credit movements.
+        """
+        from collections import defaultdict
+        cutoff = datetime.now(timezone.utc).timestamp() - days * 86400
+
+        with self._lock:
+            entries = list(self._credit_ledger.get(user_id, []))
+
+        total_sales = 0
+        total_tips = 0
+        by_day: Dict[str, int] = defaultdict(int)
+
+        for entry in entries:
+            amount = entry["amount"]
+            kind = entry["kind"]
+            ts_str = entry.get("ts", "")
+            try:
+                ts = datetime.fromisoformat(ts_str)
+            except (ValueError, TypeError):
+                continue
+            if ts.timestamp() < cutoff:
+                continue
+
+            day = ts.strftime("%Y-%m-%d")
+            if kind == "sale" and amount > 0:
+                total_sales += amount
+                by_day[day] += amount
+            elif kind in ("tip_received", "gift_received") and amount > 0:
+                total_tips += amount
+                by_day[day] += amount
+
+        return {
+            "user_id": user_id,
+            "period_days": days,
+            "total_earned": total_sales + total_tips,
+            "sales": total_sales,
+            "tips_and_gifts_received": total_tips,
+            "by_day": dict(sorted(by_day.items())),
+        }
+
     # --- Download history ---
 
     def get_user_download_history(
