@@ -144,6 +144,7 @@ class SearchIndex:
         sort_by: str = "relevance",  # relevance | name | newest | oldest
         limit: int = 20,
         offset: int = 0,
+        boost_owner_ids: Optional[List[str]] = None,  # personalization: followed creator IDs
     ) -> Dict[str, Any]:
         with self._lock:
             candidates = list(self._docs.values())
@@ -202,6 +203,20 @@ class SearchIndex:
             # No query — return all (score=0)
             for doc in candidates:
                 doc.score = 0.0
+
+        # --- Personalization boost (relevance sort only) ---
+        if boost_owner_ids and sort_by == "relevance":
+            boosted = set(boost_owner_ids)
+            import copy as _copy
+            boosted_candidates = []
+            for d in candidates:
+                if d.owner_id in boosted:
+                    bd = _copy.copy(d)
+                    bd.score = d.score * 1.5 + 0.1
+                    boosted_candidates.append(bd)
+                else:
+                    boosted_candidates.append(d)
+            candidates = boosted_candidates
 
         # --- Sort ---
         if sort_by == "name":

@@ -120,6 +120,7 @@ try:
     from .avatar_collections import get_collection_store
     from .avatar_marketplace import get_marketplace
     from .rate_limiter import get_client_ip, get_rate_limiter
+    from .saved_searches import get_saved_search_store
     from .search_engine import get_search_index
     from .user_notifications import get_notification_queue
     _NEW_MODULES_AVAILABLE = True
@@ -132,6 +133,7 @@ except ImportError:
     get_client_ip = None
     get_notification_queue = None
     get_collection_store = None
+    get_saved_search_store = None
     AuthError = Exception
 
 # ロギング設定
@@ -1258,11 +1260,20 @@ async def search_avatars(
     offset: int = Query(0, ge=0),
     current_user: dict = Depends(get_current_user),
 ):
-    """アバターの全文検索"""
+    """アバターの全文検索（フォロー中クリエーターのアバターを優先表示）"""
     if not get_search_index:
         return {"total": 0, "items": [], "facets": {}}
     idx = get_search_index()
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
+    # Personalization: boost results from creators the user follows
+    boost_ids: Optional[List[str]] = None
+    if get_auth_manager and sort_by == "relevance":
+        try:
+            user_rec = get_auth_manager().store.get_by_id(current_user["user_id"])
+            if user_rec and user_rec.following:
+                boost_ids = list(user_rec.following)
+        except Exception:
+            pass
     results = idx.search(
         query=q,
         owner_id=current_user["user_id"],
@@ -1273,7 +1284,9 @@ async def search_avatars(
         sort_by=sort_by,
         limit=limit,
         offset=offset,
+        boost_owner_ids=boost_ids,
     )
+    results["personalized"] = boost_ids is not None and len(boost_ids) > 0
     return results
 
 
@@ -1287,6 +1300,89 @@ async def search_suggest(
         return {"suggestions": []}
     idx = get_search_index()
     return {"suggestions": idx.suggest(prefix, limit)}
+
+
+# ---------------------------------------------------------------------------
+# Saved search presets
+# ---------------------------------------------------------------------------
+
+class SavedSearchCreateRequest(BaseModel):
+    name: str
+    query: str = ""
+    filters: Dict[str, Any] = {}
+
+
+class SavedSearchUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    query: Optional[str] = None
+    filters: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/search/saved", tags=["search"], status_code=201)
+async def create_saved_search(body: SavedSearchCreateRequest, current_user: dict = Depends(get_current_user)):
+    """検索プリセットを保存"""
+    if not get_saved_search_store:
+        raise HTTPException(status_code=503, detail="保存検索モジュールが利用できません")
+    try:
+        ss = get_saved_search_store().create(
+            current_user["user_id"], body.name, body.query, body.filters
+        )
+        return ss.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/search/saved", tags=["search"])
+async def list_saved_searches(current_user: dict = Depends(get_current_user)):
+    """保存済み検索プリセット一覧"""
+    if not get_saved_search_store:
+        return {"items": [], "total": 0}
+    searches = get_saved_search_store().list(current_user["user_id"])
+    return {"items": [s.to_dict() for s in searches], "total": len(searches)}
+
+
+@app.patch("/api/search/saved/{search_id}", tags=["search"])
+async def update_saved_search(
+    search_id: str, body: SavedSearchUpdateRequest, current_user: dict = Depends(get_current_user)
+):
+    """保存済み検索プリセットを更新"""
+    if not get_saved_search_store:
+        raise HTTPException(status_code=503, detail="保存検索モジュールが利用できません")
+    ss = get_saved_search_store().update(
+        current_user["user_id"], search_id,
+        name=body.name, query=body.query, filters=body.filters,
+    )
+    if ss is None:
+        raise HTTPException(status_code=404, detail="保存検索が見つかりません")
+    return ss.to_dict()
+
+
+@app.delete("/api/search/saved/{search_id}", tags=["search"])
+async def delete_saved_search(search_id: str, current_user: dict = Depends(get_current_user)):
+    """保存済み検索プリセットを削除"""
+    if not get_saved_search_store:
+        raise HTTPException(status_code=503, detail="保存検索モジュールが利用できません")
+    ok = get_saved_search_store().delete(current_user["user_id"], search_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="保存検索が見つかりません")
+    return {"status": "deleted", "search_id": search_id}
+
+
+@app.post("/api/search/saved/{search_id}/use", tags=["search"])
+async def use_saved_search(search_id: str, current_user: dict = Depends(get_current_user)):
+    """保存済み検索プリセットを適用（last_used / use_count を更新し検索パラメータを返す）"""
+    if not get_saved_search_store:
+        raise HTTPException(status_code=503, detail="保存検索モジュールが利用できません")
+    store = get_saved_search_store()
+    ss = store.get(current_user["user_id"], search_id)
+    if ss is None:
+        raise HTTPException(status_code=404, detail="保存検索が見つかりません")
+    store.record_use(current_user["user_id"], search_id)
+    return {
+        "search_id": search_id,
+        "query": ss.query,
+        "filters": ss.filters,
+    }
 
 
 # ===========================================================================

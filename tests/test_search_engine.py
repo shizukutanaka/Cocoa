@@ -246,5 +246,72 @@ class TestQueryAnalytics(unittest.TestCase):
         self.assertLessEqual(len(result["top_queries"]), 2)
 
 
+class TestPersonalizedSearch(unittest.TestCase):
+    """boost_owner_ids lifts results from followed creators."""
+
+    def setUp(self):
+        self.idx = SearchIndex()
+        # u1 publishes doc d1 and d2; u2 publishes d3
+        self.idx.index_from_dict({
+            "doc_id": "d1", "owner_id": "u1", "name": "Cute Cat",
+            "description": "adorable cute cat", "tags": ["cute"], "is_public": True,
+        })
+        self.idx.index_from_dict({
+            "doc_id": "d2", "owner_id": "u1", "name": "Fancy Fox",
+            "description": "fancy fox avatar", "tags": ["fancy"], "is_public": True,
+        })
+        self.idx.index_from_dict({
+            "doc_id": "d3", "owner_id": "u2", "name": "Dark Dragon",
+            "description": "dark dragon avatar", "tags": ["dark"], "is_public": True,
+        })
+
+    def test_boost_moves_followed_creator_higher(self):
+        # Without boost, d3 (dark dragon) should appear first for query "dark"
+        r_no_boost = self.idx.search("dark")
+        self.assertEqual(r_no_boost["items"][0]["doc_id"], "d3")
+        # Boost u1 — even though d1/d2 don't match "dark", they shouldn't appear;
+        # but if we query "cute" while boosting u1, u1's doc should outrank equivalent
+        # Add a competing "cute" doc from u2 to verify boost effect
+        self.idx.index_from_dict({
+            "doc_id": "d4", "owner_id": "u2", "name": "Cute Dog",
+            "description": "cute dog avatar", "tags": ["cute"], "is_public": True,
+        })
+        r_boosted = self.idx.search("cute", boost_owner_ids=["u1"])
+        # d1 (u1, exact match) must score higher than d4 (u2, same match) due to boost
+        ids = [it["doc_id"] for it in r_boosted["items"]]
+        self.assertLess(ids.index("d1"), ids.index("d4"))
+
+    def test_boost_does_not_affect_non_relevance_sort(self):
+        # When sort_by=name, boost_owner_ids should have no effect on order
+        r = self.idx.search("", sort_by="name", boost_owner_ids=["u1"])
+        names = [it["name"] for it in r["items"]]
+        self.assertEqual(names, sorted(names))
+
+    def test_boost_none_unchanged(self):
+        r1 = self.idx.search("cute")
+        r2 = self.idx.search("cute", boost_owner_ids=None)
+        self.assertEqual(
+            [it["doc_id"] for it in r1["items"]],
+            [it["doc_id"] for it in r2["items"]],
+        )
+
+    def test_boost_empty_query_followed_creator_first(self):
+        # Empty query + boost: followed creators appear before non-followed
+        r = self.idx.search("", sort_by="relevance", boost_owner_ids=["u2"])
+        ids = [it["doc_id"] for it in r["items"]]
+        # d3 belongs to u2 — must appear before d1/d2 (u1)
+        self.assertLess(ids.index("d3"), ids.index("d1"))
+        self.assertLess(ids.index("d3"), ids.index("d2"))
+
+    def test_boost_does_not_include_private_results(self):
+        self.idx.index_from_dict({
+            "doc_id": "d5", "owner_id": "u1", "name": "Private Cat",
+            "description": "secret cat", "tags": [], "is_public": False,
+        })
+        r = self.idx.search("", public_only=True, boost_owner_ids=["u1"])
+        ids = [it["doc_id"] for it in r["items"]]
+        self.assertNotIn("d5", ids)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
