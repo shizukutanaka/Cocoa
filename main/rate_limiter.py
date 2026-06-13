@@ -82,6 +82,12 @@ _ENDPOINT_OVERRIDES: Dict[str, EndpointLimit] = {
     "/api/auth/reset-password": EndpointLimit(5),
     "/api/auth/refresh": EndpointLimit(30),
     "/ws/monitoring": EndpointLimit(5),  # WS upgrades per minute
+    # Financial / abuse-prone endpoints get auth-tier limits so they cannot be
+    # brute-forced or used as enumeration oracles at the generous default rate.
+    "/api/gift-cards/lookup": EndpointLimit(_AUTH_RATE),   # unauth validity/amount oracle
+    "/api/gift-cards/redeem": EndpointLimit(_AUTH_RATE),   # gift-card code brute-force
+    "/api/gift-cards": EndpointLimit(_AUTH_RATE),          # purchase (moves credits)
+    "/api/refunds": EndpointLimit(_AUTH_RATE),             # refund-request spam
 }
 
 

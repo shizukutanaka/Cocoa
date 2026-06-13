@@ -120,6 +120,25 @@ class TestRateLimiter(unittest.TestCase):
         lim2 = get_rate_limiter()
         self.assertIs(lim1, lim2)
 
+    def test_financial_endpoints_use_strict_limit(self):
+        # gift-card lookup/redeem/purchase and refunds must NOT get the
+        # generous default rate (enumeration / brute-force / spam protection).
+        from rate_limiter import _AUTH_RATE, _DEFAULT_RATE, _ENDPOINT_OVERRIDES
+        self.assertGreater(_DEFAULT_RATE, _AUTH_RATE)  # premise: default is looser
+        for path in ("/api/gift-cards/lookup", "/api/gift-cards/redeem",
+                     "/api/gift-cards", "/api/refunds"):
+            self.assertIn(path, _ENDPOINT_OVERRIDES)
+            self.assertEqual(_ENDPOINT_OVERRIDES[path].max_requests, _AUTH_RATE)
+
+    def test_gift_card_lookup_blocks_after_strict_limit(self):
+        from rate_limiter import _AUTH_RATE
+        path = "/api/gift-cards/lookup"
+        for _ in range(_AUTH_RATE):
+            ok, _ = self.limiter.check("ip-x", path)
+            self.assertTrue(ok)
+        ok, _ = self.limiter.check("ip-x", path)
+        self.assertFalse(ok)  # blocked at the auth-tier limit, not 60
+
 
 class TestClientIpExtraction(unittest.TestCase):
     def test_extract_forwarded_for(self):
