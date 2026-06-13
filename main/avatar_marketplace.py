@@ -112,6 +112,8 @@ class Review:
     username: str
     stars: int
     text: str
+    helpful_count: int = 0
+    unhelpful_count: int = 0
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -123,6 +125,8 @@ class Review:
             "username": self.username,
             "stars": self.stars,
             "text": self.text,
+            "helpful_count": self.helpful_count,
+            "unhelpful_count": self.unhelpful_count,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -230,10 +234,12 @@ class MarketplaceStore:
         self._credits: Dict[str, int] = {}  # user_id → credit balance
         self._quotas: Dict[str, int] = {}  # user_id → max active listings (None/missing = unlimited)
         self._review_replies: Dict[str, List[ReviewReply]] = {}  # review_id → [Reply]
+        self._review_votes: Dict[str, Dict[str, bool]] = {}  # review_id → {user_id: helpful?}
         self._featured: List[str] = []  # ordered list of featured listing_ids
         self._price_history: Dict[str, List[Dict[str, Any]]] = {}  # listing_id → [{price_credits, is_free, changed_at}]
         self._disputes: Dict[str, PurchaseDispute] = {}  # dispute_id → PurchaseDispute
         self._versions: Dict[str, List[ListingVersion]] = {}  # listing_id → [ListingVersion], oldest first
+        self._credit_ledger: Dict[str, List[Dict[str, Any]]] = {}  # user_id → [{amount, kind, ref_id, balance_after, ts}]
         self._lock = threading.Lock()
 
     # --- Credits ledger ---
@@ -242,13 +248,51 @@ class MarketplaceStore:
         with self._lock:
             return self._credits.get(user_id, 0)
 
+    def _append_ledger(
+        self,
+        user_id: str,
+        amount: int,
+        kind: str,
+        ref_id: str = "",
+        balance_after: int = 0,
+    ) -> None:
+        """Append one credit ledger entry (must be called while holding self._lock)."""
+        entry = {
+            "amount": amount,
+            "kind": kind,
+            "ref_id": ref_id,
+            "balance_after": balance_after,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+        self._credit_ledger.setdefault(user_id, []).append(entry)
+
+    def get_credit_history(
+        self, user_id: str, limit: int = 50, offset: int = 0
+    ) -> Dict[str, Any]:
+        """Return paginated credit transaction history for a user (newest first)."""
+        with self._lock:
+            all_entries = list(reversed(self._credit_ledger.get(user_id, [])))
+        total = len(all_entries)
+        page = all_entries[offset : offset + limit]
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": page,
+        }
+
     def add_credits(self, user_id: str, amount: int) -> int:
         """Add credits to a user's balance (admin grant or purchase). Returns new balance."""
         if amount <= 0:
             raise ValueError("amount must be positive")
         with self._lock:
             self._credits[user_id] = self._credits.get(user_id, 0) + amount
-            return self._credits[user_id]
+            bal = self._credits[user_id]
+            self._append_ledger(user_id, amount, "grant", balance_after=bal)
+            return bal
 
     def _deduct_credits(self, user_id: str, amount: int) -> None:
         """Deduct credits; raises ValueError if insufficient balance. Call within lock."""
@@ -266,9 +310,15 @@ class MarketplaceStore:
         with self._lock:
             self._deduct_credits(sender_id, amount)
             self._credits[recipient_id] = self._credits.get(recipient_id, 0) + amount
+            sender_bal = self._credits.get(sender_id, 0)
+            recipient_bal = self._credits[recipient_id]
+            self._append_ledger(sender_id, -amount, "gift_sent",
+                                 ref_id=recipient_id, balance_after=sender_bal)
+            self._append_ledger(recipient_id, amount, "gift_received",
+                                 ref_id=sender_id, balance_after=recipient_bal)
             return {
-                "sender_balance": self._credits.get(sender_id, 0),
-                "recipient_balance": self._credits[recipient_id],
+                "sender_balance": sender_bal,
+                "recipient_balance": recipient_bal,
             }
 
     # --- Creator quota ---
@@ -440,8 +490,19 @@ class MarketplaceStore:
             listing = self._listings.get(listing_id)
             if not listing or not listing.is_active:
                 return None
-            if not listing.is_free and listing.owner_id != downloader_id:
+            paid = not listing.is_free and listing.owner_id != downloader_id
+            if paid:
                 self._deduct_credits(downloader_id, listing.price_credits)
+                buyer_bal = self._credits.get(downloader_id, 0)
+                self._append_ledger(downloader_id, -listing.price_credits, "purchase",
+                                     ref_id=listing_id, balance_after=buyer_bal)
+                # Credit seller
+                self._credits[listing.owner_id] = (
+                    self._credits.get(listing.owner_id, 0) + listing.price_credits
+                )
+                seller_bal = self._credits[listing.owner_id]
+                self._append_ledger(listing.owner_id, listing.price_credits, "sale",
+                                     ref_id=listing_id, balance_after=seller_bal)
             now = datetime.now(timezone.utc)
             listing.download_count += 1
             listing.updated_at = now
@@ -584,6 +645,84 @@ class MarketplaceStore:
                     del replies[i]
                     return True
         return False
+
+    def vote_review_helpful(
+        self, review_id: str, user_id: str, helpful: bool
+    ) -> Dict[str, Any]:
+        """Cast or change a helpfulness vote on a review. Returns updated counts.
+
+        Users cannot vote on their own review. Changing vote is allowed.
+        Returns None if review not found.
+        """
+        with self._lock:
+            review = self._find_review(review_id)
+            if review is None:
+                raise ValueError("レビューが見つかりません")
+            if review.user_id == user_id:
+                raise ValueError("自分のレビューには投票できません")
+            votes = self._review_votes.setdefault(review_id, {})
+            previous = votes.get(user_id)
+            if previous is not None:
+                # Undo previous vote
+                if previous:
+                    review.helpful_count -= 1
+                else:
+                    review.unhelpful_count -= 1
+            if previous == helpful:
+                # Toggling off: remove vote
+                del votes[user_id]
+            else:
+                votes[user_id] = helpful
+                if helpful:
+                    review.helpful_count += 1
+                else:
+                    review.unhelpful_count += 1
+            return {
+                "review_id": review_id,
+                "helpful_count": review.helpful_count,
+                "unhelpful_count": review.unhelpful_count,
+                "user_vote": votes.get(user_id),
+            }
+
+    def get_user_listings_page(
+        self,
+        owner_id: str,
+        include_inactive: bool = False,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Return paginated listings for a creator (newest first)."""
+        with self._lock:
+            items = [
+                lst for lst in self._listings.values()
+                if lst.owner_id == owner_id and (include_inactive or lst.is_active)
+            ]
+        items.sort(key=lambda x: x.published_at, reverse=True)
+        total = len(items)
+        page = items[offset : offset + limit]
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": [lst.to_dict() for lst in page],
+        }
+
+    def get_categories(self) -> List[Dict[str, Any]]:
+        """Return all categories that have at least one active listing, with counts."""
+        from collections import Counter
+        with self._lock:
+            counts: Counter = Counter(
+                lst.category
+                for lst in self._listings.values()
+                if lst.is_active
+            )
+        return [
+            {"category": cat, "count": cnt}
+            for cat, cnt in sorted(counts.items(), key=lambda x: (-x[1], x[0]))
+        ]
 
     # --- Queries ---
 

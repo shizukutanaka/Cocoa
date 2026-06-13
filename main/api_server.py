@@ -1916,6 +1916,70 @@ async def gift_credits(body: GiftCreditsRequest, current_user: dict = Depends(ge
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@app.get("/api/credits/history", tags=["marketplace"])
+async def my_credit_history(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分のクレジット取引履歴を取得（新しい順）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    return get_marketplace().get_credit_history(
+        current_user["user_id"], limit=limit, offset=offset
+    )
+
+
+@app.get("/api/marketplace/mine", tags=["marketplace"])
+async def my_listings(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    include_inactive: bool = Query(False),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分のリスティング一覧を取得（クリエイター向け）"""
+    if not get_marketplace:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_marketplace().get_user_listings_page(
+        current_user["user_id"],
+        include_inactive=include_inactive,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get("/api/marketplace/categories", tags=["marketplace"])
+async def list_categories():
+    """カテゴリ一覧と各カテゴリのリスティング数を取得"""
+    if not get_marketplace:
+        return {"items": []}
+    cats = get_marketplace().get_categories()
+    return {"items": cats, "total": len(cats)}
+
+
+class ReviewHelpfulRequest(BaseModel):
+    helpful: bool
+
+
+@app.post("/api/marketplace/reviews/{review_id}/helpful", tags=["marketplace"])
+async def vote_review_helpful(
+    review_id: str,
+    body: ReviewHelpfulRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """レビューの役立ち度に投票（再度押すと取り消し）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        result = get_marketplace().vote_review_helpful(
+            review_id, current_user["user_id"], body.helpful
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 class GrantCreditsRequest(BaseModel):
     user_id: str
     amount: int
