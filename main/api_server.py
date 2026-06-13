@@ -119,6 +119,7 @@ try:
     from .auth_manager import AuthError, get_auth_manager
     from .avatar_collections import get_collection_store
     from .avatar_marketplace import get_marketplace
+    from .commissions import get_commission_store
     from .rate_limiter import get_client_ip, get_rate_limiter
     from .saved_searches import get_saved_search_store
     from .search_engine import get_search_index
@@ -134,6 +135,7 @@ except ImportError:
     get_notification_queue = None
     get_collection_store = None
     get_saved_search_store = None
+    get_commission_store = None
     AuthError = Exception
 
 # ロギング設定
@@ -3240,6 +3242,173 @@ async def review_creator_application(
         raise HTTPException(status_code=403, detail=e.message) from e
     except ValueError as e:
         raise HTTPException(status_code=400 if "見つかりません" not in str(e) else 404, detail=str(e)) from e
+
+
+# --- Commission endpoints ---
+
+class CommissionCreateRequest(BaseModel):
+    creator_id: str
+    title: str
+    description: str
+    budget_credits: int = 0
+
+
+class CommissionRespondRequest(BaseModel):
+    accept: bool
+    note: str = ""
+
+
+class CommissionDeliverRequest(BaseModel):
+    delivery_note: str
+    delivery_listing_id: str = ""
+
+
+@app.post("/api/commissions", tags=["commissions"], status_code=201)
+async def create_commission(
+    body: CommissionCreateRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """クリエイターにコミッションを依頼する"""
+    if not get_commission_store:
+        raise HTTPException(status_code=503, detail="コミッションモジュールが利用できません")
+    try:
+        req = get_commission_store().create(
+            requester_id=current_user["user_id"],
+            requester_username=current_user.get("username", ""),
+            creator_id=body.creator_id,
+            title=body.title,
+            description=body.description,
+            budget_credits=body.budget_credits,
+        )
+        if get_notification_queue:
+            get_notification_queue().push(
+                body.creator_id, "commission_received",
+                title="新しいコミッション依頼",
+                body=f"{current_user.get('username', 'ユーザー')} から「{req.title}」の依頼が届きました",
+                payload={"request_id": req.request_id},
+            )
+        return req.to_dict()
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/commissions/received", tags=["commissions"])
+async def list_commissions_received(
+    status: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """受け取ったコミッション一覧を取得（クリエイター用）"""
+    if not get_commission_store:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_commission_store().list_received(
+        current_user["user_id"], status=status, limit=limit, offset=offset
+    )
+
+
+@app.get("/api/commissions/sent", tags=["commissions"])
+async def list_commissions_sent(
+    status: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """送ったコミッション一覧を取得"""
+    if not get_commission_store:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_commission_store().list_sent(
+        current_user["user_id"], status=status, limit=limit, offset=offset
+    )
+
+
+@app.get("/api/commissions/{request_id}", tags=["commissions"])
+async def get_commission(request_id: str, current_user: dict = Depends(get_current_user)):
+    """コミッション詳細を取得（依頼者またはクリエイターのみ）"""
+    if not get_commission_store:
+        raise HTTPException(status_code=503, detail="コミッションモジュールが利用できません")
+    req = get_commission_store().get(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="コミッションが見つかりません")
+    uid = current_user["user_id"]
+    if req.requester_id != uid and req.creator_id != uid:
+        raise HTTPException(status_code=403, detail="このコミッションへのアクセス権がありません")
+    return req.to_dict()
+
+
+@app.post("/api/commissions/{request_id}/respond", tags=["commissions"])
+async def respond_to_commission(
+    request_id: str,
+    body: CommissionRespondRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """コミッションを承認または辞退する（クリエイターのみ）"""
+    if not get_commission_store:
+        raise HTTPException(status_code=503, detail="コミッションモジュールが利用できません")
+    try:
+        req = get_commission_store().respond(
+            current_user["user_id"], request_id, body.accept, body.note
+        )
+        if get_notification_queue:
+            status_jp = "承認" if body.accept else "辞退"
+            get_notification_queue().push(
+                req.requester_id, "commission_response",
+                title=f"コミッションが{status_jp}されました",
+                body=f"「{req.title}」が{status_jp}されました",
+                payload={"request_id": request_id, "accepted": body.accept},
+            )
+        return req.to_dict()
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404 if "見つかりません" in str(e) else 400, detail=str(e)) from e
+
+
+@app.post("/api/commissions/{request_id}/deliver", tags=["commissions"])
+async def deliver_commission(
+    request_id: str,
+    body: CommissionDeliverRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """コミッションの成果物を納品する（クリエイターのみ）"""
+    if not get_commission_store:
+        raise HTTPException(status_code=503, detail="コミッションモジュールが利用できません")
+    try:
+        req = get_commission_store().deliver(
+            current_user["user_id"], request_id,
+            body.delivery_note, body.delivery_listing_id
+        )
+        if get_notification_queue:
+            get_notification_queue().push(
+                req.requester_id, "commission_delivered",
+                title="コミッションが納品されました",
+                body=f"「{req.title}」の成果物が届きました",
+                payload={"request_id": request_id, "listing_id": body.delivery_listing_id},
+            )
+        return req.to_dict()
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404 if "見つかりません" in str(e) else 400, detail=str(e)) from e
+
+
+@app.post("/api/commissions/{request_id}/close", tags=["commissions"])
+async def close_commission(
+    request_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """コミッションをクローズする（依頼者のみ）"""
+    if not get_commission_store:
+        raise HTTPException(status_code=503, detail="コミッションモジュールが利用できません")
+    try:
+        req = get_commission_store().close(current_user["user_id"], request_id)
+        return req.to_dict()
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404 if "見つかりません" in str(e) else 400, detail=str(e)) from e
 
 
 @app.exception_handler(HTTPException)
