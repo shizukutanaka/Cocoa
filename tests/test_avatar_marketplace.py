@@ -1145,6 +1145,42 @@ class TestPurchaseDisputes(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.resolve_dispute(dispute.dispute_id, "admin1", "release")
 
+    def test_dispute_amount_reflects_promo_discounted_price(self):
+        # Buyer pays a discounted price via promo; the dispute (and thus the
+        # refund) must be for what they actually paid, not the list price.
+        listing = _listing(
+            self.store, avatar_id="av_promo", owner_id="u_seller2",
+            owner_username="seller2", name="Promo Avatar", description="",
+            tags=[], category="vrc", parameters={}, is_free=False,
+            price_credits=100,
+        )
+        self.store.create_promo_code("u_seller2", "HALF", 50,
+                                     listing_id=listing.listing_id)
+        self.store.add_credits("u_promo_buyer", 200)
+        self.store.download(listing.listing_id, "u_promo_buyer", promo_code="HALF")
+        dispute = self.store.open_dispute(listing.listing_id, "u_promo_buyer", "other")
+        self.assertEqual(dispute.amount_credits, 50)  # paid 50, not the 100 list price
+
+    def test_dispute_refund_promo_conserves_credits(self):
+        listing = _listing(
+            self.store, avatar_id="av_promo2", owner_id="u_seller3",
+            owner_username="seller3", name="Promo2", description="",
+            tags=[], category="vrc", parameters={}, is_free=False,
+            price_credits=100,
+        )
+        self.store.create_promo_code("u_seller3", "SAVE60", 60,
+                                     listing_id=listing.listing_id)
+        self.store.add_credits("u_pb", 200)
+        self.store.download(listing.listing_id, "u_pb", promo_code="SAVE60")
+        # Buyer paid 40, seller earned 40.
+        self.assertEqual(self.store.get_balance("u_pb"), 160)
+        self.assertEqual(self.store.get_balance("u_seller3"), 40)
+        dispute = self.store.open_dispute(listing.listing_id, "u_pb", "other")
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        # Refund only the 40 paid: buyer back to 200, seller clawed to 0.
+        self.assertEqual(self.store.get_balance("u_pb"), 200)
+        self.assertEqual(self.store.get_balance("u_seller3"), 0)
+
     def test_get_disputes_returns_paginated(self):
         self.store.open_dispute(self.paid_listing.listing_id, "u_buyer", "other")
         result = self.store.get_disputes()

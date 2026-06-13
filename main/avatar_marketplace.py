@@ -1265,12 +1265,23 @@ class MarketplaceStore:
             for d in self._disputes.values():
                 if d.listing_id == listing_id and d.buyer_id == buyer_id and d.status == "open":
                     raise ValueError("既に争議が開いています")
+            # Dispute the amount the buyer ACTUALLY paid (the most recent
+            # purchase ledger entry for this listing), not the list price —
+            # a promo/bundle discount means they paid less, and refunding the
+            # full price would over-compensate the buyer and over-charge the
+            # seller on clawback.  Fall back to the list price if no purchase
+            # entry is found.
+            paid = listing.price_credits
+            for entry in reversed(self._credit_ledger.get(buyer_id, [])):
+                if entry.get("kind") == "purchase" and entry.get("ref_id") == listing_id:
+                    paid = -entry["amount"]
+                    break
             dispute = PurchaseDispute(
                 dispute_id=secrets.token_hex(8),
                 listing_id=listing_id,
                 buyer_id=buyer_id,
                 seller_id=listing.owner_id,
-                amount_credits=listing.price_credits,
+                amount_credits=paid,
                 reason=reason,
                 details=details,
             )
