@@ -1016,6 +1016,56 @@ class TestPurchaseDisputes(unittest.TestCase):
         after_balance = self.store.get_balance("u_buyer")
         self.assertEqual(after_balance - before_balance, 50)
 
+    def test_resolve_dispute_refund_claws_back_from_seller(self):
+        # Seller earned 50 from the sale; a dispute refund must reclaim it.
+        seller_before = self.store.get_balance("u_seller")
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        self.assertEqual(self.store.get_balance("u_seller"), seller_before - 50)
+
+    def test_resolve_dispute_refund_conserves_credits(self):
+        total_before = self.store.get_balance("u_buyer") + self.store.get_balance("u_seller")
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        total_after = self.store.get_balance("u_buyer") + self.store.get_balance("u_seller")
+        self.assertEqual(total_before, total_after)
+
+    def test_resolve_dispute_refund_records_ledger_both_sides(self):
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        buyer_kinds = [e["kind"] for e in self.store.get_credit_history("u_buyer")["items"]]
+        seller_kinds = [e["kind"] for e in self.store.get_credit_history("u_seller")["items"]]
+        self.assertIn("dispute_refund", buyer_kinds)
+        self.assertIn("dispute_reversal", seller_kinds)
+
+    def test_resolve_dispute_release_does_not_move_credits(self):
+        buyer_before = self.store.get_balance("u_buyer")
+        seller_before = self.store.get_balance("u_seller")
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "release")
+        self.assertEqual(self.store.get_balance("u_buyer"), buyer_before)
+        self.assertEqual(self.store.get_balance("u_seller"), seller_before)
+
+    def test_resolve_dispute_clawback_clamped_when_seller_spent(self):
+        # Seller spends their proceeds before the dispute resolves.
+        self.store.debit("u_seller", self.store.get_balance("u_seller"),
+                         "withdrawal")
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        # Seller balance clamped at 0 (never negative); buyer still refunded.
+        self.assertEqual(self.store.get_balance("u_seller"), 0)
+        self.assertEqual(self.store.get_balance("u_buyer"), 500)  # 500 - 50 + 50 (sale then refund)
+
     def test_resolve_dispute_status_updated(self):
         dispute = self.store.open_dispute(
             self.paid_listing.listing_id, "u_buyer", "not_as_described"

@@ -1280,9 +1280,27 @@ class MarketplaceStore:
             dispute.resolution_note = note.strip()[:500]
             dispute.resolved_at = datetime.now(timezone.utc)
             if decision == "refund":
-                self._credits[dispute.buyer_id] = (
-                    self._credits.get(dispute.buyer_id, 0) + dispute.amount_credits
-                )
+                # Refund the buyer AND claw the proceeds back from the seller so
+                # the dispute does not mint credits, recording both sides in the
+                # ledger.  The clawback is clamped to the seller's balance (the
+                # platform absorbs any shortfall) to keep balances non-negative.
+                amount = dispute.amount_credits
+                buyer_bal = self._credits.get(dispute.buyer_id, 0) + amount
+                self._credits[dispute.buyer_id] = buyer_bal
+                self._append_ledger(dispute.buyer_id, amount, "dispute_refund",
+                                    ref_id=dispute.listing_id, balance_after=buyer_bal)
+                seller_avail = self._credits.get(dispute.seller_id, 0)
+                claw = min(seller_avail, amount)
+                if claw > 0:
+                    seller_bal = seller_avail - claw
+                    self._credits[dispute.seller_id] = seller_bal
+                    self._append_ledger(dispute.seller_id, -claw, "dispute_reversal",
+                                        ref_id=dispute.listing_id, balance_after=seller_bal)
+                if claw < amount:
+                    logger.warning(
+                        "Dispute clawback shortfall: dispute=%s seller=%s owed=%d clawed=%d",
+                        dispute_id, dispute.seller_id, amount, claw,
+                    )
         logger.info("Dispute %s resolved: %s by admin %s", dispute_id, decision, admin_id)
         return dispute
 
