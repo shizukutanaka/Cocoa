@@ -254,6 +254,27 @@ class TestBundlePurchase(unittest.TestCase):
         for item in result["skipped"]:
             self.assertIn(item["reason"], ["insufficient_credits", "already_owned"])
 
+    def test_sold_out_listing_skipped_not_oversold(self):
+        # Regression: a stock-exhausted listing must not be sold via a bundle.
+        self.mp._listings["lst1"].stock_remaining = 0
+        buyer_before = self.mp._credits["buyer"]
+        result = self.mgr.purchase_bundle(self.bundle_id, "buyer", self.mp)
+        skipped = {s["listing_id"]: s["reason"] for s in result["skipped"]}
+        self.assertEqual(skipped.get("lst1"), "sold_out")
+        # lst1 was never charged for or download-logged
+        purchased_ids = [p["listing_id"] for p in result["purchased"]]
+        self.assertNotIn("lst1", purchased_ids)
+        logged = [lid for lid, did, _ in self.mp._download_log if lid == "lst1"]
+        self.assertEqual(logged, [])
+        # Buyer charged only for the other two items, not the sold-out one
+        self.assertEqual(self.mp._credits["buyer"], buyer_before - result["total_charged"])
+
+    def test_limited_stock_decrements_via_bundle(self):
+        # A listing with remaining stock still sells and decrements.
+        self.mp._listings["lst2"].stock_remaining = 5
+        self.mgr.purchase_bundle(self.bundle_id, "buyer", self.mp)
+        self.assertEqual(self.mp._listings["lst2"].stock_remaining, 4)
+
 
 # ---------------------------------------------------------------------------
 # Singleton

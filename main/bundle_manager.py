@@ -324,6 +324,11 @@ class BundleManager:
             # since we can't pass an arbitrary price to download().
             # Instead, we perform the transaction manually within the lock:
             with marketplace_store._lock:
+                # Sold-out enforcement (mirror download()): a stock-limited
+                # listing that is exhausted must not be oversold via a bundle.
+                if lst.stock_remaining is not None and lst.stock_remaining <= 0:
+                    skipped.append({"listing_id": listing_id, "reason": "sold_out"})
+                    continue
                 if final_price > 0:
                     # Check balance
                     balance = marketplace_store._credits.get(buyer_id, 0)
