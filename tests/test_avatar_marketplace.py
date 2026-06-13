@@ -1167,6 +1167,88 @@ class TestListingVersions(unittest.TestCase):
         self.assertEqual(len(versions2), 1)  # only v1 (initial)
 
 
+class TestSearchLicenseAndOwner(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.store.publish("av1", "u1", "alice", "CC", "d", [], "vrc", {},
+                           license_type="cc_by")
+        self.store.publish("av2", "u2", "bob", "Personal", "d", [], "vrc", {},
+                           license_type="personal")
+        self.store.publish("av3", "u1", "alice", "CC2", "d", [], "vrc", {},
+                           license_type="cc_by")
+
+    def test_filter_by_license_type(self):
+        r = self.store.search(license_type="cc_by")
+        self.assertEqual(r["total"], 2)
+        self.assertTrue(all(it["license_type"] == "cc_by" for it in r["items"]))
+
+    def test_filter_by_license_type_no_match(self):
+        r = self.store.search(license_type="commercial")
+        self.assertEqual(r["total"], 0)
+
+    def test_filter_by_owner_id(self):
+        r = self.store.search(owner_id="u1")
+        self.assertEqual(r["total"], 2)
+        self.assertTrue(all(it["owner_id"] == "u1" for it in r["items"]))
+
+    def test_owner_and_license_combined(self):
+        r = self.store.search(owner_id="u1", license_type="cc_by")
+        self.assertEqual(r["total"], 2)
+
+    def test_owner_filter_no_match(self):
+        r = self.store.search(owner_id="u999")
+        self.assertEqual(r["total"], 0)
+
+
+class TestCreatorLeaderboard(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.l1 = _listing(self.store, owner_id="u1", owner_username="alice")
+        self.l2 = _listing(self.store, avatar_id="av2", owner_id="u2",
+                           owner_username="bob")
+        self.store.add_credits("buyer", 1000)
+        for _ in range(5):
+            self.store.download(self.l1.listing_id, "buyer")
+        for _ in range(2):
+            self.store.download(self.l2.listing_id, "buyer")
+
+    def test_leaderboard_by_downloads_order(self):
+        board = self.store.get_leaderboard(by="downloads")
+        self.assertEqual(board[0]["owner_id"], "u1")
+        self.assertEqual(board[1]["owner_id"], "u2")
+
+    def test_leaderboard_by_listings(self):
+        _listing(self.store, avatar_id="av3", owner_id="u2", owner_username="bob")
+        board = self.store.get_leaderboard(by="listings")
+        self.assertEqual(board[0]["owner_id"], "u2")
+
+    def test_leaderboard_by_rating(self):
+        self.store.review(self.l1.listing_id, "u_rev", "reviewer", 5, "Perfect!")
+        self.store.review(self.l2.listing_id, "u_rev2", "reviewer2", 2, "Meh")
+        board = self.store.get_leaderboard(by="rating")
+        self.assertEqual(board[0]["owner_id"], "u1")
+
+    def test_leaderboard_limit(self):
+        board = self.store.get_leaderboard(limit=1)
+        self.assertEqual(len(board), 1)
+
+    def test_leaderboard_entry_has_fields(self):
+        board = self.store.get_leaderboard()
+        for entry in board:
+            for key in ("owner_id", "owner_username", "total_downloads",
+                        "listing_count", "average_rating"):
+                self.assertIn(key, entry)
+
+    def test_leaderboard_does_not_include_inactive(self):
+        lst3 = _listing(self.store, avatar_id="av3", owner_id="u3", owner_username="carol")
+        for _ in range(10):
+            self.store.download(lst3.listing_id, "buyer")
+        self.store.unpublish(lst3.listing_id, "u3")
+        board = self.store.get_leaderboard(by="downloads")
+        owner_ids = [e["owner_id"] for e in board]
+        self.assertNotIn("u3", owner_ids)
+
+
 class TestCreditHistory(unittest.TestCase):
     def setUp(self):
         self.store = _store()

@@ -1211,6 +1211,45 @@ async def get_user_profile(user_id: str):
     return profile
 
 
+@app.get("/api/users/{user_id}/followers", tags=["auth"])
+async def get_user_followers(user_id: str):
+    """ユーザーのフォロワー一覧（公開プロフィールのみ）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        followers = get_auth_manager().get_followers(user_id)
+        return {"user_id": user_id, "items": followers, "total": len(followers)}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get("/api/users/{user_id}/following", tags=["auth"])
+async def get_user_following(user_id: str):
+    """ユーザーのフォロー中一覧（公開プロフィールのみ）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        following = get_auth_manager().get_following(user_id)
+        return {"user_id": user_id, "items": following, "total": len(following)}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get("/api/users/{user_id}/listings", tags=["marketplace"])
+async def get_user_public_listings(
+    user_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """クリエイターの公開リスティング一覧"""
+    if not get_marketplace:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_marketplace().get_user_listings_page(
+        user_id, include_inactive=False, limit=limit, offset=offset
+    )
+
+
 @app.post("/api/auth/password-reset", tags=["auth"])
 async def request_password_reset(body: PasswordResetRequest):
     """パスワードリセットトークンを送信"""
@@ -1516,6 +1555,8 @@ async def browse_marketplace(
     is_free: Optional[bool] = Query(None, description="true=無料のみ、false=有料のみ"),
     min_price: Optional[int] = Query(None, ge=0),
     max_price: Optional[int] = Query(None, ge=0),
+    license_type: Optional[str] = Query(None, description="ライセンス種別フィルタ"),
+    owner_id: Optional[str] = Query(None, description="クリエイターIDフィルタ"),
 ):
     """マーケットプレイスを閲覧（認証不要）"""
     if not get_marketplace:
@@ -1526,6 +1567,7 @@ async def browse_marketplace(
         query=q, tags=tag_list, category=category, sort_by=sort_by,
         limit=limit, offset=offset,
         is_free=is_free, min_price=min_price, max_price=max_price,
+        license_type=license_type, owner_id=owner_id,
     )
 
 
@@ -1547,6 +1589,20 @@ async def trending_avatars(
     if not get_marketplace:
         return {"items": []}
     return {"items": get_marketplace().get_trending(limit, days=days)}
+
+
+@app.get("/api/marketplace/leaderboard", tags=["marketplace"])
+async def creator_leaderboard(
+    by: str = Query("downloads", description="downloads | rating | listings"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """クリエイターランキング（ダウンロード数・平均評価・リスティング数）"""
+    if not get_marketplace:
+        return {"items": [], "by": by}
+    if by not in ("downloads", "rating", "listings"):
+        raise HTTPException(status_code=400, detail="by は downloads, rating, listings のいずれかです")
+    items = get_marketplace().get_leaderboard(by=by, limit=limit)
+    return {"items": items, "by": by, "total": len(items)}
 
 
 @app.get("/api/marketplace/trending-tags", tags=["marketplace"])

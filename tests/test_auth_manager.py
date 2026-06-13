@@ -589,5 +589,53 @@ class TestApiKeyManagement(unittest.TestCase):
             self.auth.create_api_key("no-such-user", "Key")
 
 
+class TestGetFollowers(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.auth.register("alice", "alice@x.com", "Alice1234!")
+        self.auth.register("bob", "bob@x.com", "Bob12345!")
+        self.auth.register("carol", "carol@x.com", "Carol123!")
+        self.alice = self.auth.store.get_by_username("alice").user_id
+        self.bob = self.auth.store.get_by_username("bob").user_id
+        self.carol = self.auth.store.get_by_username("carol").user_id
+
+    def test_no_followers_initially(self):
+        followers = self.auth.get_followers(self.alice)
+        self.assertEqual(followers, [])
+
+    def test_followers_after_follow(self):
+        self.auth.follow(self.bob, self.alice)
+        followers = self.auth.get_followers(self.alice)
+        self.assertEqual(len(followers), 1)
+        self.assertEqual(followers[0]["username"], "bob")
+
+    def test_multiple_followers(self):
+        self.auth.follow(self.bob, self.alice)
+        self.auth.follow(self.carol, self.alice)
+        followers = self.auth.get_followers(self.alice)
+        self.assertEqual(len(followers), 2)
+
+    def test_unfollow_removes_from_followers(self):
+        self.auth.follow(self.bob, self.alice)
+        self.auth.unfollow(self.bob, self.alice)
+        followers = self.auth.get_followers(self.alice)
+        self.assertEqual(followers, [])
+
+    def test_followers_returns_public_profiles(self):
+        self.auth.follow(self.bob, self.alice)
+        followers = self.auth.get_followers(self.alice)
+        for key in ("user_id", "username"):
+            self.assertIn(key, followers[0])
+
+    def test_get_followers_unknown_user_raises(self):
+        with self.assertRaises(AuthError):
+            self.auth.get_followers("no-such-id")
+
+    def test_followers_independent_per_user(self):
+        self.auth.follow(self.bob, self.alice)
+        carol_followers = self.auth.get_followers(self.carol)
+        self.assertEqual(carol_followers, [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

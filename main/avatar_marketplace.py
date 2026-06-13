@@ -724,6 +724,50 @@ class MarketplaceStore:
             for cat, cnt in sorted(counts.items(), key=lambda x: (-x[1], x[0]))
         ]
 
+    def get_leaderboard(
+        self,
+        by: str = "downloads",   # downloads | rating | listings
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Return top creators ranked by total downloads, average rating, or listing count."""
+        from collections import defaultdict
+        with self._lock:
+            active = [lst for lst in self._listings.values() if lst.is_active]
+
+        stats: Dict[str, Any] = defaultdict(lambda: {
+            "total_downloads": 0,
+            "total_rating_sum": 0,
+            "total_rating_count": 0,
+            "listing_count": 0,
+            "owner_id": "",
+            "owner_username": "",
+        })
+        for lst in active:
+            s = stats[lst.owner_id]
+            s["owner_id"] = lst.owner_id
+            s["owner_username"] = lst.owner_username
+            s["total_downloads"] += lst.download_count
+            s["total_rating_sum"] += lst.rating_sum
+            s["total_rating_count"] += lst.rating_count
+            s["listing_count"] += 1
+
+        entries = list(stats.values())
+        for s in entries:
+            rc = s["total_rating_count"]
+            s["average_rating"] = round(s["total_rating_sum"] / rc, 2) if rc else 0.0
+
+        if by == "rating":
+            entries.sort(key=lambda x: (x["average_rating"], x["total_rating_count"]), reverse=True)
+        elif by == "listings":
+            entries.sort(key=lambda x: x["listing_count"], reverse=True)
+        else:  # downloads
+            entries.sort(key=lambda x: x["total_downloads"], reverse=True)
+
+        return [
+            {k: v for k, v in e.items() if k not in ("total_rating_sum",)}
+            for e in entries[:limit]
+        ]
+
     # --- Queries ---
 
     def search(
@@ -734,9 +778,11 @@ class MarketplaceStore:
         sort_by: str = "newest",   # newest | downloads | rating | price_asc | price_desc
         limit: int = 20,
         offset: int = 0,
-        is_free: Optional[bool] = None,     # True = free only, False = paid only
-        min_price: Optional[int] = None,    # inclusive minimum price_credits
-        max_price: Optional[int] = None,    # inclusive maximum price_credits
+        is_free: Optional[bool] = None,         # True = free only, False = paid only
+        min_price: Optional[int] = None,        # inclusive minimum price_credits
+        max_price: Optional[int] = None,        # inclusive maximum price_credits
+        license_type: Optional[str] = None,     # filter by license_type exact match
+        owner_id: Optional[str] = None,         # filter by owner
     ) -> Dict[str, Any]:
         with self._lock:
             results = [lst for lst in self._listings.values() if lst.is_active]
@@ -754,6 +800,12 @@ class MarketplaceStore:
 
         if category:
             results = [lst for lst in results if lst.category.lower() == category.lower()]
+
+        if owner_id:
+            results = [lst for lst in results if lst.owner_id == owner_id]
+
+        if license_type:
+            results = [lst for lst in results if lst.license_type == license_type]
 
         # Price filters
         if is_free is not None:

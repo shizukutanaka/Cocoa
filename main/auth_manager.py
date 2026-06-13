@@ -591,6 +591,16 @@ class AuthManager:
     def get_followers_count(self, user_id: str) -> int:
         return sum(1 for u in self.store.list_users() if user_id in u.following)
 
+    def get_followers(self, user_id: str) -> List[Dict[str, Any]]:
+        """Return public profiles of all users who follow user_id."""
+        if not self.store.get_by_id(user_id):
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        return [
+            u.public_profile()
+            for u in self.store.list_users()
+            if user_id in u.following
+        ]
+
     # --- Creator verification ---
 
     def verify_creator(self, admin_payload: Dict[str, Any], user_id: str) -> UserRecord:
