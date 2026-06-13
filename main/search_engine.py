@@ -98,6 +98,8 @@ class SearchIndex:
     def __init__(self):
         self._docs: Dict[str, SearchDocument] = {}
         self._inverted: Dict[str, Dict[str, float]] = {}  # token → {doc_id: weight}
+        self._query_log: List[str] = []  # raw queries, newest first (capped at 10_000)
+        self._query_log_max = 10_000
         self._lock = threading.Lock()
 
     # --- Indexing ---
@@ -158,6 +160,13 @@ class SearchIndex:
             candidates = [d for d in candidates if d.category.lower() == category.lower()]
         if platform:
             candidates = [d for d in candidates if d.platform.lower() == platform.lower()]
+
+        # Log non-empty queries for analytics
+        if query:
+            with self._lock:
+                self._query_log.insert(0, query.strip().lower())
+                if len(self._query_log) > self._query_log_max:
+                    del self._query_log[self._query_log_max:]
 
         # --- Score ---
         if query:
@@ -254,6 +263,19 @@ class SearchIndex:
                 "total_documents": len(self._docs),
                 "total_tokens": len(self._inverted),
             }
+
+    def query_analytics(self, top_n: int = 20) -> Dict[str, Any]:
+        """Return top-N most searched queries and total query volume."""
+        from collections import Counter
+        with self._lock:
+            counts = Counter(self._query_log)
+            total_queries = len(self._query_log)
+        top = [{"query": q, "count": c} for q, c in counts.most_common(top_n)]
+        return {
+            "total_queries": total_queries,
+            "unique_queries": len(counts),
+            "top_queries": top,
+        }
 
     # --- Batch indexing ---
 

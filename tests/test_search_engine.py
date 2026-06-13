@@ -202,5 +202,49 @@ class TestSearchIndex(unittest.TestCase):
         self.assertEqual(r["total"], 0)
 
 
+class TestQueryAnalytics(unittest.TestCase):
+    def setUp(self):
+        from search_engine import SearchDocument
+        self.idx = SearchIndex()
+        self.idx.index(SearchDocument("d1", "u1", name="Cute Cat", description="", tags=["cute"], category="vrc"))
+
+    def test_no_queries_returns_zero_total(self):
+        result = self.idx.query_analytics()
+        self.assertEqual(result["total_queries"], 0)
+        self.assertEqual(result["top_queries"], [])
+
+    def test_queries_are_logged(self):
+        self.idx.search("cute")
+        self.idx.search("cute")
+        self.idx.search("cat")
+        result = self.idx.query_analytics()
+        self.assertEqual(result["total_queries"], 3)
+
+    def test_top_queries_sorted_by_count(self):
+        for _ in range(3):
+            self.idx.search("cute")
+        self.idx.search("cat")
+        result = self.idx.query_analytics()
+        self.assertEqual(result["top_queries"][0]["query"], "cute")
+        self.assertEqual(result["top_queries"][0]["count"], 3)
+
+    def test_unique_queries_counted(self):
+        self.idx.search("cute")
+        self.idx.search("cat")
+        result = self.idx.query_analytics(top_n=10)
+        self.assertEqual(result["unique_queries"], 2)
+
+    def test_empty_query_not_logged(self):
+        self.idx.search("")
+        result = self.idx.query_analytics()
+        self.assertEqual(result["total_queries"], 0)
+
+    def test_top_n_respected(self):
+        for q in ["alpha", "beta", "gamma", "delta"]:
+            self.idx.search(q)
+        result = self.idx.query_analytics(top_n=2)
+        self.assertLessEqual(len(result["top_queries"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -65,6 +65,7 @@ class UserRecord:
     role: str = "user"
     is_active: bool = True
     is_email_verified: bool = False
+    is_creator_verified: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_login: Optional[datetime] = None
     failed_attempts: int = 0
@@ -87,6 +88,7 @@ class UserRecord:
             "avatar_url": self.avatar_url,
             "role": self.role,
             "is_email_verified": self.is_email_verified,
+            "is_creator_verified": self.is_creator_verified,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -535,6 +537,28 @@ class AuthManager:
 
     def get_followers_count(self, user_id: str) -> int:
         return sum(1 for u in self.store.list_users() if user_id in u.following)
+
+    # --- Creator verification ---
+
+    def verify_creator(self, admin_payload: Dict[str, Any], user_id: str) -> UserRecord:
+        """Grant creator-verified badge (admin only)."""
+        self.require_role(admin_payload, "admin")
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        user.is_creator_verified = True
+        logger.info("Creator verified: %s (by admin %s)", user_id, admin_payload.get("username"))
+        return user
+
+    def revoke_creator_verification(self, admin_payload: Dict[str, Any], user_id: str) -> UserRecord:
+        """Revoke creator-verified badge (admin only)."""
+        self.require_role(admin_payload, "admin")
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        user.is_creator_verified = False
+        logger.info("Creator verification revoked: %s (by admin %s)", user_id, admin_payload.get("username"))
+        return user
 
     # --- User search ---
 

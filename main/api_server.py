@@ -1646,6 +1646,76 @@ async def analyze_vrchat_budget(body: VRChatBudgetRequest):
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+class VRChatStatsRequest(BaseModel):
+    polygons: int = 0
+    materials: int = 0
+    bones: int = 0
+    skinned_meshes: int = 0
+    mesh_count: int = 0
+    material_slots: int = 0
+    physbones_components: int = 0
+    physbones_transforms: int = 0
+    physbones_colliders: int = 0
+    animators: int = 0
+    lights: int = 0
+    particle_systems: int = 0
+    particle_max_particles: int = 0
+    audio_sources: int = 0
+    texture_memory_mb: float = 0.0
+    platform: str = "PC"  # PC | Quest
+
+
+@app.post("/api/tools/vrchat/performance", tags=["search"])
+async def analyze_vrchat_performance(body: VRChatStatsRequest):
+    """VRChat アバター性能ランク分析（Excellent/Good/Medium/Poor/Very Poor）。認証不要"""
+    try:
+        from vrchat_performance_analyzer import (
+            AvatarStats,
+            Platform,
+            VRChatPerformanceAnalyzer,
+        )
+        platform = Platform.Quest if body.platform.lower() == "quest" else Platform.PC
+        stats = AvatarStats(
+            polygons=body.polygons,
+            materials=body.materials,
+            bones=body.bones,
+            skinned_meshes=body.skinned_meshes,
+            mesh_count=body.mesh_count,
+            material_slots=body.material_slots,
+            physbones_components=body.physbones_components,
+            physbones_transforms=body.physbones_transforms,
+            physbones_colliders=body.physbones_colliders,
+            animators=body.animators,
+            lights=body.lights,
+            particle_systems=body.particle_systems,
+            particle_max_particles=body.particle_max_particles,
+            audio_sources=body.audio_sources,
+            texture_memory_mb=body.texture_memory_mb,
+        )
+        analyzer = VRChatPerformanceAnalyzer(platform=platform)
+        result = analyzer.analyze_stats(stats)
+        return {
+            "rank": result.rank.value if hasattr(result.rank, "value") else str(result.rank),
+            "score": result.score,
+            "platform": body.platform,
+            "issues": result.issues,
+            "suggestions": [
+                {
+                    "category": s.category,
+                    "severity": s.severity,
+                    "current_value": s.current_value,
+                    "target_value": s.target_value,
+                    "suggestion": s.suggestion,
+                }
+                for s in result.suggestions
+            ],
+        }
+    except ImportError:
+        raise HTTPException(status_code=503, detail="VRChat パフォーマンス分析ツールが利用できません")  # noqa: B904
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 # ===========================================================================
 # COLLECTION ENDPOINTS
 # ===========================================================================
@@ -1808,6 +1878,30 @@ async def change_user_role(user_id: str, body: RoleChangeRequest, admin: dict = 
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@app.post("/api/admin/users/{user_id}/verify-creator", tags=["admin"])
+async def verify_creator(user_id: str, admin: dict = Depends(get_current_admin)):
+    """クリエイター認証バッジを付与（管理者専用）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        user = get_auth_manager().verify_creator(admin, user_id)
+        return {"user_id": user_id, "is_creator_verified": user.is_creator_verified, "status": "verified"}
+    except AuthError as e:
+        raise HTTPException(status_code=404 if e.code == "not_found" else 403, detail=e.message) from e
+
+
+@app.delete("/api/admin/users/{user_id}/verify-creator", tags=["admin"])
+async def revoke_creator_verification(user_id: str, admin: dict = Depends(get_current_admin)):
+    """クリエイター認証バッジを取り消し（管理者専用）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        user = get_auth_manager().revoke_creator_verification(admin, user_id)
+        return {"user_id": user_id, "is_creator_verified": user.is_creator_verified, "status": "revoked"}
+    except AuthError as e:
+        raise HTTPException(status_code=404 if e.code == "not_found" else 403, detail=e.message) from e
+
+
 @app.delete("/api/admin/users/{user_id}", tags=["admin"])
 async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
     """ユーザーを削除（管理者専用）"""
@@ -1853,6 +1947,17 @@ async def admin_stats(admin: dict = Depends(get_current_admin)):
         stats["rate_limiter"] = get_rate_limiter().get_stats()
 
     return stats
+
+
+@app.get("/api/admin/search/analytics", tags=["admin"])
+async def search_analytics(
+    top_n: int = Query(20, ge=1, le=100),
+    admin: dict = Depends(get_current_admin),
+):
+    """検索クエリの統計情報を取得（管理者専用）"""
+    if not get_search_index:
+        raise HTTPException(status_code=503, detail="検索インデックスが利用できません")
+    return get_search_index().query_analytics(top_n=top_n)
 
 
 # ===========================================================================

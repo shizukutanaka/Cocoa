@@ -434,6 +434,42 @@ class TestEmailVerification(unittest.TestCase):
         self.assertTrue(ok)
 
 
+class TestCreatorVerification(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.admin_user = self.auth.register("admin", "admin@test.com", "Admin1234!", role="admin")
+        self.admin_payload = {"sub": self.admin_user.user_id, "username": "admin", "role": "admin"}
+        self.creator = self.auth.register("alice", "alice@test.com", "Passw0rd!")
+
+    def test_new_user_not_verified(self):
+        self.assertFalse(self.creator.is_creator_verified)
+
+    def test_admin_can_verify_creator(self):
+        user = self.auth.verify_creator(self.admin_payload, self.creator.user_id)
+        self.assertTrue(user.is_creator_verified)
+
+    def test_admin_can_revoke_verification(self):
+        self.auth.verify_creator(self.admin_payload, self.creator.user_id)
+        user = self.auth.revoke_creator_verification(self.admin_payload, self.creator.user_id)
+        self.assertFalse(user.is_creator_verified)
+
+    def test_non_admin_cannot_verify(self):
+        non_admin = {"sub": self.creator.user_id, "username": "alice", "role": "user"}
+        with self.assertRaises(AuthError):
+            self.auth.verify_creator(non_admin, self.creator.user_id)
+
+    def test_verify_nonexistent_user_raises(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.verify_creator(self.admin_payload, "no-such-id")
+        self.assertEqual(ctx.exception.code, "not_found")
+
+    def test_public_profile_includes_verified_flag(self):
+        self.auth.verify_creator(self.admin_payload, self.creator.user_id)
+        profile = self.creator.public_profile()
+        self.assertIn("is_creator_verified", profile)
+        self.assertTrue(profile["is_creator_verified"])
+
+
 class TestUserSearch(unittest.TestCase):
     def setUp(self):
         self.auth = AuthManager()
