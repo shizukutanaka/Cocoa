@@ -1167,6 +1167,125 @@ class TestListingVersions(unittest.TestCase):
         self.assertEqual(len(versions2), 1)  # only v1 (initial)
 
 
+class TestOwnershipCheck(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.listing = _listing(self.store)
+        self.lid = self.listing.listing_id
+
+    def test_not_downloaded_initially(self):
+        self.assertFalse(self.store.has_downloaded(self.lid, "u2"))
+
+    def test_downloaded_after_download(self):
+        self.store.download(self.lid, "u2")
+        self.assertTrue(self.store.has_downloaded(self.lid, "u2"))
+
+    def test_other_user_not_marked_as_downloaded(self):
+        self.store.download(self.lid, "u2")
+        self.assertFalse(self.store.has_downloaded(self.lid, "u3"))
+
+    def test_false_for_nonexistent_listing(self):
+        self.assertFalse(self.store.has_downloaded("no-such-id", "u2"))
+
+    def test_owner_downloading_own_listing(self):
+        self.store.download(self.lid, "u1")
+        self.assertTrue(self.store.has_downloaded(self.lid, "u1"))
+
+
+class TestRatingDistribution(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.listing = _listing(self.store)
+        self.lid = self.listing.listing_id
+
+    def test_empty_distribution_for_no_ratings(self):
+        r = self.store.get_rating_distribution(self.lid)
+        self.assertEqual(r["total_ratings"], 0)
+        self.assertEqual(r["average_rating"], 0.0)
+
+    def test_distribution_counts_per_star(self):
+        self.store.rate(self.lid, "u2", 5)
+        self.store.rate(self.lid, "u3", 3)
+        self.store.rate(self.lid, "u4", 5)
+        r = self.store.get_rating_distribution(self.lid)
+        self.assertEqual(r["distribution"][5], 2)
+        self.assertEqual(r["distribution"][3], 1)
+        self.assertEqual(r["distribution"][1], 0)
+
+    def test_total_ratings_count(self):
+        self.store.rate(self.lid, "u2", 4)
+        self.store.rate(self.lid, "u3", 4)
+        r = self.store.get_rating_distribution(self.lid)
+        self.assertEqual(r["total_ratings"], 2)
+
+    def test_average_rating_correct(self):
+        self.store.rate(self.lid, "u2", 4)
+        self.store.rate(self.lid, "u3", 2)
+        r = self.store.get_rating_distribution(self.lid)
+        self.assertEqual(r["average_rating"], 3.0)
+
+    def test_result_has_required_keys(self):
+        r = self.store.get_rating_distribution(self.lid)
+        for key in ("listing_id", "distribution", "total_ratings", "average_rating"):
+            self.assertIn(key, r)
+
+    def test_listing_id_in_result(self):
+        r = self.store.get_rating_distribution(self.lid)
+        self.assertEqual(r["listing_id"], self.lid)
+
+
+class TestCloneListing(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.cc_listing = _listing(self.store, license_type="cc_by")
+        self.personal_listing = _listing(self.store, avatar_id="av_personal",
+                                          license_type="personal")
+
+    def test_clone_cc_by_succeeds(self):
+        cloned = self.store.clone_listing(self.cc_listing.listing_id, "u2", "bob")
+        self.assertIsNotNone(cloned)
+        self.assertEqual(cloned.owner_id, "u2")
+
+    def test_clone_personal_raises_permission_error(self):
+        with self.assertRaises(PermissionError):
+            self.store.clone_listing(self.personal_listing.listing_id, "u2", "bob")
+
+    def test_cloned_listing_is_free(self):
+        cloned = self.store.clone_listing(self.cc_listing.listing_id, "u2", "bob")
+        self.assertTrue(cloned.is_free)
+        self.assertEqual(cloned.price_credits, 0)
+
+    def test_cloned_name_has_clone_suffix(self):
+        cloned = self.store.clone_listing(self.cc_listing.listing_id, "u2", "bob")
+        self.assertIn("clone", cloned.name.lower())
+
+    def test_cloned_listing_has_same_tags(self):
+        cloned = self.store.clone_listing(self.cc_listing.listing_id, "u2", "bob")
+        self.assertEqual(sorted(cloned.tags), sorted(self.cc_listing.tags))
+
+    def test_cloned_listing_has_same_category(self):
+        cloned = self.store.clone_listing(self.cc_listing.listing_id, "u2", "bob")
+        self.assertEqual(cloned.category, self.cc_listing.category)
+
+    def test_clone_cc_by_sa_also_succeeds(self):
+        sa_listing = _listing(self.store, avatar_id="av_sa", license_type="cc_by_sa")
+        cloned = self.store.clone_listing(sa_listing.listing_id, "u2", "bob")
+        self.assertIsNotNone(cloned)
+
+    def test_clone_nonexistent_listing_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.clone_listing("no-such-id", "u2", "bob")
+
+    def test_clone_is_independent_listing(self):
+        cloned = self.store.clone_listing(self.cc_listing.listing_id, "u2", "bob")
+        self.assertNotEqual(cloned.listing_id, self.cc_listing.listing_id)
+
+    def test_clone_resets_download_count(self):
+        self.store.download(self.cc_listing.listing_id, "u3")
+        cloned = self.store.clone_listing(self.cc_listing.listing_id, "u2", "bob")
+        self.assertEqual(cloned.download_count, 0)
+
+
 class TestSearchFacets(unittest.TestCase):
     def setUp(self):
         self.store = _store()

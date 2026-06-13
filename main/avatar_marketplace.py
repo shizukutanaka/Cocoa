@@ -1104,6 +1104,63 @@ class MarketplaceStore:
         scored.sort(key=lambda x: (-x[0], -x[1].download_count))
         return [lst.to_dict() for _, lst in scored[:limit]]
 
+    def has_downloaded(self, listing_id: str, user_id: str) -> bool:
+        """Return True if user_id appears in the download log for listing_id."""
+        with self._lock:
+            return any(
+                lid == listing_id and did == user_id
+                for lid, did, _ in self._download_log
+            )
+
+    def get_rating_distribution(self, listing_id: str) -> Dict[str, Any]:
+        """Return per-star vote counts and average for a listing."""
+        with self._lock:
+            votes = dict(self._votes.get(listing_id, {}))
+        dist: Dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for stars in votes.values():
+            if 1 <= stars <= 5:
+                dist[stars] += 1
+        total = sum(dist.values())
+        avg = round(sum(k * v for k, v in dist.items()) / total, 2) if total else 0.0
+        return {
+            "listing_id": listing_id,
+            "distribution": dist,
+            "total_ratings": total,
+            "average_rating": avg,
+        }
+
+    def clone_listing(
+        self, listing_id: str, requester_id: str, requester_username: str
+    ) -> "MarketplaceListing":
+        """Clone a listing as a new published listing owned by requester.
+
+        Copies all metadata but resets download/rating counters and sets a new owner.
+        Useful for remixing a free/open-source avatar.
+        """
+        with self._lock:
+            source = self._listings.get(listing_id)
+            if not source or not source.is_active:
+                raise ValueError("リスティングが見つかりません")
+            if source.license_type not in ("cc_by", "cc_by_sa"):
+                raise PermissionError("このライセンスではクローンできません（CC BY または CC BY-SA のみ）")
+        # publish uses the lock internally — call outside to avoid deadlock
+        cloned = self.publish(
+            avatar_id=secrets.token_hex(8),
+            owner_id=requester_id,
+            owner_username=requester_username,
+            name=f"{source.name} (clone)",
+            description=source.description,
+            tags=list(source.tags),
+            category=source.category,
+            parameters=dict(source.parameters),
+            thumbnail_url=source.thumbnail_url,
+            is_free=True,  # clones are always free
+            price_credits=0,
+            license_type=source.license_type,
+            license_details=f"Cloned from listing {listing_id}. {source.license_details}".strip(),
+        )
+        return cloned
+
     def get_stats(self) -> Dict[str, Any]:
         with self._lock:
             active = [lst for lst in self._listings.values() if lst.is_active]

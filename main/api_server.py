@@ -1619,6 +1619,41 @@ async def trending_tags(limit: int = Query(20, ge=1, le=100)):
     return {"tags": get_marketplace().get_trending_tags(limit)}
 
 
+@app.get("/api/marketplace/{listing_id}/ownership", tags=["marketplace"])
+async def check_ownership(listing_id: str, current_user: dict = Depends(get_current_user)):
+    """認証済みユーザーがこのリスティングをダウンロード済みかチェック"""
+    if not get_marketplace:
+        return {"listing_id": listing_id, "owned": False}
+    owned = get_marketplace().has_downloaded(listing_id, current_user["user_id"])
+    return {"listing_id": listing_id, "owned": owned, "user_id": current_user["user_id"]}
+
+
+@app.get("/api/marketplace/{listing_id}/rating-distribution", tags=["marketplace"])
+async def rating_distribution(listing_id: str):
+    """リスティングの星別評価分布を取得"""
+    if not get_marketplace:
+        return {"listing_id": listing_id, "distribution": {}, "total_ratings": 0, "average_rating": 0}
+    return get_marketplace().get_rating_distribution(listing_id)
+
+
+@app.post("/api/marketplace/{listing_id}/clone", tags=["marketplace"], status_code=201)
+async def clone_listing(listing_id: str, current_user: dict = Depends(get_current_user)):
+    """CC BY / CC BY-SA ライセンスのリスティングをクローン（新規リスティングとして公開）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        cloned = get_marketplace().clone_listing(
+            listing_id,
+            current_user["user_id"],
+            current_user.get("username", "unknown"),
+        )
+        return {"status": "cloned", "listing": cloned.to_dict()}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @app.get("/api/marketplace/{listing_id}", tags=["marketplace"])
 async def get_listing(listing_id: str):
     """マーケットプレイスのリスティング詳細を取得"""
