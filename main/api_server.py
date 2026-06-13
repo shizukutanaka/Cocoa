@@ -130,6 +130,7 @@ try:
     from .search_engine import get_search_index
     from .user_notifications import get_notification_queue
     from .gift_card_manager import get_gift_card_manager
+    from .membership_manager import get_membership_manager
     from .refund_manager import get_refund_manager
     from .wishlist_manager import get_wishlist_manager
     _NEW_MODULES_AVAILABLE = True
@@ -149,6 +150,7 @@ except ImportError:
     get_gift_card_manager = None
     get_license_manager = None
     get_moderation_queue = None
+    get_membership_manager = None
     get_referral_manager = None
     get_refund_manager = None
     get_wishlist_manager = None
@@ -4194,6 +4196,76 @@ async def set_moderation_priority(
         raise HTTPException(
             status_code=404 if "見つかりません" in msg else 400, detail=msg
         ) from e
+
+
+# ---------------------------------------------------------------------------
+# Membership / loyalty tier endpoints
+# ---------------------------------------------------------------------------
+
+class MembershipAdjustRequest(BaseModel):
+    user_id: str
+    lifetime_credits: int
+
+
+@app.get("/api/membership")
+async def get_my_membership(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """自分の会員ティアと特典を取得する"""
+    if not get_membership_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    return get_membership_manager().get_membership(payload["sub"])
+
+
+@app.get("/api/admin/membership")
+async def admin_list_membership(
+    tier: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """管理者: 会員一覧をティア別に取得する"""
+    if not get_membership_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    try:
+        return get_membership_manager().list_members(payload, tier=tier, limit=limit, offset=offset)
+    except (ValueError, PermissionError) as e:
+        msg = str(e)
+        code = 403 if "権限" in msg else 400
+        raise HTTPException(status_code=code, detail=msg) from e
+
+
+@app.get("/api/admin/membership/distribution")
+async def admin_membership_distribution(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """管理者: ティア別会員分布を取得する"""
+    if not get_membership_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    try:
+        return get_membership_manager().tier_distribution(payload)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+@app.post("/api/admin/membership/adjust")
+async def admin_adjust_membership(
+    body: MembershipAdjustRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """管理者: ユーザーのライフタイムクレジットを調整する"""
+    if not get_membership_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    try:
+        return get_membership_manager().admin_adjust(payload, body.user_id, body.lifetime_credits)
+    except (ValueError, PermissionError) as e:
+        msg = str(e)
+        code = 403 if "権限" in msg else 400
+        raise HTTPException(status_code=code, detail=msg) from e
 
 
 # ---------------------------------------------------------------------------
