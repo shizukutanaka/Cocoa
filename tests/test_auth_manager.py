@@ -844,5 +844,75 @@ class TestCreatorApplications(unittest.TestCase):
         self.assertEqual(len(ids), 2)
 
 
+class TestTagFollowing(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.auth.register("alice", "alice@x.com", "Alice123!")
+        self.uid = self.auth.store.get_by_username("alice").user_id
+
+    def test_follow_tag_returns_list(self):
+        tags = self.auth.follow_tag(self.uid, "fantasy")
+        self.assertIn("fantasy", tags)
+
+    def test_follow_tag_normalised_lowercase(self):
+        tags = self.auth.follow_tag(self.uid, "FANTASY")
+        self.assertIn("fantasy", tags)
+
+    def test_follow_tag_deduplicated(self):
+        self.auth.follow_tag(self.uid, "vrc")
+        tags = self.auth.follow_tag(self.uid, "vrc")
+        self.assertEqual(tags.count("vrc"), 1)
+
+    def test_follow_empty_tag_raises(self):
+        with self.assertRaises(ValueError):
+            self.auth.follow_tag(self.uid, "   ")
+
+    def test_unfollow_tag_removes_it(self):
+        self.auth.follow_tag(self.uid, "mecha")
+        tags = self.auth.unfollow_tag(self.uid, "mecha")
+        self.assertNotIn("mecha", tags)
+
+    def test_unfollow_nonexistent_tag_is_noop(self):
+        tags = self.auth.unfollow_tag(self.uid, "nonexistent")
+        self.assertIsInstance(tags, list)
+
+    def test_get_followed_tags_empty_initially(self):
+        tags = self.auth.get_followed_tags(self.uid)
+        self.assertEqual(tags, [])
+
+    def test_get_followed_tags_returns_all(self):
+        self.auth.follow_tag(self.uid, "fantasy")
+        self.auth.follow_tag(self.uid, "mecha")
+        tags = self.auth.get_followed_tags(self.uid)
+        self.assertIn("fantasy", tags)
+        self.assertIn("mecha", tags)
+
+    def test_follow_tag_unknown_user_raises(self):
+        with self.assertRaises(AuthError):
+            self.auth.follow_tag("no-such-id", "fantasy")
+
+    def test_get_followed_tags_unknown_user_raises(self):
+        with self.assertRaises(AuthError):
+            self.auth.get_followed_tags("no-such-id")
+
+    def test_get_public_profile_includes_follower_count(self):
+        self.auth.register("bob", "bob@x.com", "Bob1234!")
+        bob_id = self.auth.store.get_by_username("bob").user_id
+        self.auth.follow(bob_id, self.uid)
+        profile = self.auth.get_public_profile(self.uid)
+        self.assertIn("followers_count", profile)
+        self.assertEqual(profile["followers_count"], 1)
+
+    def test_get_public_profile_inactive_user_raises(self):
+        user = self.auth.store.get_by_id(self.uid)
+        user.is_active = False
+        with self.assertRaises(AuthError):
+            self.auth.get_public_profile(self.uid)
+
+    def test_get_public_profile_unknown_user_raises(self):
+        with self.assertRaises(AuthError):
+            self.auth.get_public_profile("no-such-id")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

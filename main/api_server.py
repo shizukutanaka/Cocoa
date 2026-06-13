@@ -1259,6 +1259,79 @@ async def get_user_public_listings(
     )
 
 
+@app.get("/api/auth/me/tags", tags=["auth"])
+async def get_my_followed_tags(current_user: dict = Depends(get_current_user)):
+    """自分がフォロー中のタグ一覧を取得"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    tags = get_auth_manager().get_followed_tags(current_user["user_id"])
+    return {"items": tags, "total": len(tags)}
+
+
+@app.put("/api/auth/me/tags/{tag}", tags=["auth"])
+async def follow_tag(tag: str, current_user: dict = Depends(get_current_user)):
+    """タグをフォローする"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        tags = get_auth_manager().follow_tag(current_user["user_id"], tag)
+        return {"items": tags, "total": len(tags)}
+    except (AuthError, ValueError) as e:
+        msg = e.message if isinstance(e, AuthError) else str(e)
+        raise HTTPException(status_code=400, detail=msg) from e
+
+
+@app.delete("/api/auth/me/tags/{tag}", tags=["auth"])
+async def unfollow_tag(tag: str, current_user: dict = Depends(get_current_user)):
+    """タグのフォローを解除する"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    tags = get_auth_manager().unfollow_tag(current_user["user_id"], tag)
+    return {"items": tags, "total": len(tags)}
+
+
+@app.get("/api/tags/feed", tags=["marketplace"])
+async def get_tag_feed(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    sort_by: str = Query("newest", description="newest | downloads | rating"),
+    current_user: dict = Depends(get_current_user),
+):
+    """フォロー中のタグに一致するリスティングのフィードを取得"""
+    if not get_auth_manager or not get_marketplace:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    tags = get_auth_manager().get_followed_tags(current_user["user_id"])
+    return get_marketplace().get_tag_feed(tags, limit=limit, offset=offset, sort_by=sort_by)
+
+
+@app.get("/api/users/{user_id}/storefront", tags=["auth"])
+async def get_creator_storefront(
+    user_id: str,
+    listing_limit: int = Query(6, ge=1, le=20),
+):
+    """クリエイターのストアフロント（プロフィール＋リスティング＋統計）を一括取得"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    try:
+        profile = auth.get_public_profile(user_id)
+    except AuthError as e:
+        raise HTTPException(status_code=404, detail=e.message) from e
+    listings_data: Dict[str, Any] = {"total": 0, "items": []}
+    analytics: Optional[Dict[str, Any]] = None
+    if get_marketplace:
+        mp = get_marketplace()
+        listings_data = mp.get_user_listings_page(user_id, include_inactive=False,
+                                                   limit=listing_limit, offset=0)
+        analytics = mp.get_creator_analytics(user_id)
+    return {
+        "profile": profile,
+        "listings": listings_data,
+        "analytics": analytics,
+    }
+
+
 @app.post("/api/auth/password-reset", tags=["auth"])
 async def request_password_reset(body: PasswordResetRequest):
     """パスワードリセットトークンを送信"""

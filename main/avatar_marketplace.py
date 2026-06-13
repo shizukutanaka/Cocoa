@@ -916,6 +916,41 @@ class MarketplaceStore:
         rows.sort(key=lambda r: (r["score"], r["listing_count"]), reverse=True)
         return rows[:limit]
 
+    def get_tag_feed(
+        self,
+        tags: List[str],
+        limit: int = 20,
+        offset: int = 0,
+        sort_by: str = "newest",
+    ) -> Dict[str, Any]:
+        """Return active listings matching ANY of the given tags, paginated."""
+        tag_set = {t.lower().strip() for t in tags if t.strip()}
+        if not tag_set:
+            return {"total": 0, "offset": offset, "limit": limit,
+                    "has_more": False, "next_offset": None, "items": []}
+        with self._lock:
+            results = [
+                lst for lst in self._listings.values()
+                if lst.is_active and any(t in tag_set for t in lst.tags)
+            ]
+        if sort_by == "downloads":
+            results.sort(key=lambda x: x.download_count, reverse=True)
+        elif sort_by == "rating":
+            results.sort(key=lambda x: x.average_rating, reverse=True)
+        else:  # newest
+            results.sort(key=lambda x: x.published_at, reverse=True)
+        total = len(results)
+        page = results[offset: offset + limit]
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": [lst.to_dict() for lst in page],
+        }
+
     # --- Featured listings (admin-curated) ---
 
     def feature_listing(self, listing_id: str) -> bool:

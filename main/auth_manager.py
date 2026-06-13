@@ -108,6 +108,7 @@ class UserRecord:
     social_links: Dict[str, str] = field(default_factory=dict)  # e.g. {"twitter": "@alice"}
     bookmarks: List[str] = field(default_factory=list)  # list of doc_ids / listing_ids
     following: List[str] = field(default_factory=list)   # list of user_ids this user follows
+    followed_tags: List[str] = field(default_factory=list)  # tag strings user follows
 
     def is_locked(self) -> bool:
         return bool(self.locked_until and datetime.now(timezone.utc) < self.locked_until)
@@ -648,6 +649,15 @@ class AuthManager:
     def get_followers_count(self, user_id: str) -> int:
         return sum(1 for u in self.store.list_users() if user_id in u.following)
 
+    def get_public_profile(self, user_id: str) -> Dict[str, Any]:
+        """Return the public profile dict for user_id, raising AuthError if missing."""
+        user = self.store.get_by_id(user_id)
+        if not user or not user.is_active:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        profile = user.public_profile()
+        profile["followers_count"] = self.get_followers_count(user_id)
+        return profile
+
     def get_followers(self, user_id: str) -> List[Dict[str, Any]]:
         """Return public profiles of all users who follow user_id."""
         if not self.store.get_by_id(user_id):
@@ -766,6 +776,40 @@ class AuthManager:
             if a.user_id == user_id
         ]
         return max(apps, key=lambda a: a.created_at, default=None)
+
+    # --- Tag following ---
+
+    _MAX_FOLLOWED_TAGS = 100
+
+    def follow_tag(self, user_id: str, tag: str) -> List[str]:
+        """Add a tag to the user's followed tags. Returns updated list."""
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        tag = tag.strip().lower()[:64]
+        if not tag:
+            raise ValueError("タグを入力してください")
+        if tag not in user.followed_tags:
+            if len(user.followed_tags) >= self._MAX_FOLLOWED_TAGS:
+                raise ValueError(f"フォローできるタグは最大{self._MAX_FOLLOWED_TAGS}個です")
+            user.followed_tags.append(tag)
+        return list(user.followed_tags)
+
+    def unfollow_tag(self, user_id: str, tag: str) -> List[str]:
+        """Remove a tag from the user's followed tags. Returns updated list."""
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        tag = tag.strip().lower()[:64]
+        user.followed_tags = [t for t in user.followed_tags if t != tag]
+        return list(user.followed_tags)
+
+    def get_followed_tags(self, user_id: str) -> List[str]:
+        """Return the list of tags the user follows."""
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        return list(user.followed_tags)
 
     # --- User search ---
 

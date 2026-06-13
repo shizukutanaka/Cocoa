@@ -1673,5 +1673,70 @@ class TestCategories(unittest.TestCase):
             self.assertIn("count", entry)
 
 
+class TestTagFeed(unittest.TestCase):
+    def setUp(self):
+        self.store = MarketplaceStore()
+
+    def test_empty_tags_returns_empty(self):
+        _listing(self.store, tags=["fantasy"])
+        result = self.store.get_tag_feed([])
+        self.assertEqual(result["total"], 0)
+
+    def test_matching_tag_returns_listing(self):
+        lst = _listing(self.store, tags=["fantasy"])
+        result = self.store.get_tag_feed(["fantasy"])
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["listing_id"], lst.listing_id)
+
+    def test_non_matching_tag_returns_empty(self):
+        _listing(self.store, tags=["mecha"])
+        result = self.store.get_tag_feed(["fantasy"])
+        self.assertEqual(result["total"], 0)
+
+    def test_multiple_tags_any_match(self):
+        lst1 = _listing(self.store, tags=["fantasy"])
+        lst2 = _listing(self.store, avatar_id="av2", tags=["mecha"])
+        result = self.store.get_tag_feed(["fantasy", "mecha"])
+        self.assertEqual(result["total"], 2)
+        ids = {item["listing_id"] for item in result["items"]}
+        self.assertIn(lst1.listing_id, ids)
+        self.assertIn(lst2.listing_id, ids)
+
+    def test_inactive_listing_excluded(self):
+        lst = _listing(self.store, tags=["fantasy"])
+        self.store.unpublish(lst.listing_id, "u1")
+        result = self.store.get_tag_feed(["fantasy"])
+        self.assertEqual(result["total"], 0)
+
+    def test_pagination(self):
+        import secrets as _s
+        for _i in range(5):
+            _listing(self.store, avatar_id=_s.token_hex(4), tags=["test"])
+        page1 = self.store.get_tag_feed(["test"], limit=2, offset=0)
+        page2 = self.store.get_tag_feed(["test"], limit=2, offset=2)
+        self.assertEqual(page1["total"], 5)
+        self.assertTrue(page1["has_more"])
+        self.assertEqual(len(page1["items"]), 2)
+        self.assertEqual(page2["offset"], 2)
+
+    def test_sort_by_downloads(self):
+        _listing(self.store, tags=["art"])
+        lst2 = _listing(self.store, avatar_id="av2", tags=["art"])
+        self.store.add_credits("downloader", 1000)
+        self.store.download(lst2.listing_id, "downloader")
+        result = self.store.get_tag_feed(["art"], sort_by="downloads")
+        self.assertEqual(result["items"][0]["listing_id"], lst2.listing_id)
+
+    def test_sort_by_newest_is_default(self):
+        result = self.store.get_tag_feed(["art"])
+        self.assertEqual(result["total"], 0)
+
+    def test_response_has_standard_pagination_keys(self):
+        _listing(self.store, tags=["x"])
+        result = self.store.get_tag_feed(["x"])
+        for key in ("total", "offset", "limit", "has_more", "next_offset", "items"):
+            self.assertIn(key, result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
