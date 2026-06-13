@@ -23,6 +23,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -765,6 +770,7 @@ class AuthManager:
             items = [a for a in items if a.status == status]
         items.sort(key=lambda a: a.created_at, reverse=True)
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
         return {
@@ -840,6 +846,7 @@ class AuthManager:
             results = [u for u in results if u.role == role]
         results.sort(key=lambda u: u.username.lower())
         total = len(results)
+        offset, limit = normalize_pagination(offset, limit)
         page = results[offset: offset + limit]
         has_more = offset + limit < total
         return {
@@ -888,6 +895,7 @@ class AuthManager:
         banned = [u for u in self.store.list_users() if u.is_banned]
         banned.sort(key=lambda u: u.banned_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
         total = len(banned)
+        offset, limit = normalize_pagination(offset, limit)
         page = banned[offset: offset + limit]
         has_more = offset + limit < total
         return {

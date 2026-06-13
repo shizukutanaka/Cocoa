@@ -19,6 +19,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 logger = logging.getLogger(__name__)
 
 _CODE_BYTES = 6       # 12 uppercase hex chars, grouped as XXXX-XXXX-XXXX
@@ -146,6 +151,7 @@ class GiftCardStore:
     ) -> Dict[str, Any]:
         with self._lock:
             ids = list(reversed(self._purchaser_cards.get(purchaser_id, [])))
+            offset, limit = normalize_pagination(offset, limit)
             cards = [self._cards[i].to_dict() for i in ids[offset: offset + limit] if i in self._cards]
             total = len(ids)
         has_more = offset + limit < total

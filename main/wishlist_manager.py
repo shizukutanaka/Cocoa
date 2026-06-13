@@ -17,6 +17,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 logger = logging.getLogger(__name__)
 
 _MAX_WISHLIST_ITEMS = 500
@@ -78,6 +83,7 @@ class WishlistStore:
             items = list(self._wishlists.get(user_id, {}).values())
         items.sort(key=lambda x: x.added_at, reverse=True)
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
         return {

@@ -15,6 +15,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 logger = logging.getLogger(__name__)
 
 _MAX_COMMISSIONS_PER_USER = 100  # open commissions per requester
@@ -183,6 +188,7 @@ class CommissionStore:
             items = [r for r in items if r.status == status]
         items.sort(key=lambda r: r.created_at, reverse=True)
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
         return {
@@ -208,6 +214,7 @@ class CommissionStore:
             items = [r for r in items if r.status == status]
         items.sort(key=lambda r: r.created_at, reverse=True)
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
         return {

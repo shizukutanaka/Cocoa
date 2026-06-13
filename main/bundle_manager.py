@@ -21,6 +21,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 logger = logging.getLogger(__name__)
 
 _MIN_LISTINGS = 2
@@ -154,6 +159,7 @@ class BundleStore:
         if not include_inactive:
             bundles = [b for b in bundles if b.is_active]
         total = len(bundles)
+        offset, limit = normalize_pagination(offset, limit)
         page = bundles[offset: offset + limit]
         has_more = offset + limit < total
         return {
@@ -170,6 +176,7 @@ class BundleStore:
             bundles = [b for b in self._bundles.values() if b.is_active]
         bundles.sort(key=lambda b: b.created_at, reverse=True)
         total = len(bundles)
+        offset, limit = normalize_pagination(offset, limit)
         page = bundles[offset: offset + limit]
         has_more = offset + limit < total
         return {

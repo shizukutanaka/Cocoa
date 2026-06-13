@@ -173,6 +173,26 @@ class TestModerationQueue(unittest.TestCase):
             self.assertEqual(item.kind, kind)
 
 
+class TestModerationQueuePaginationClamp(unittest.TestCase):
+    def setUp(self):
+        self.q = _q()
+        for i in range(5):
+            self.q.enqueue("listing_report", f"src{i}", "sub", "u1", "spam")
+
+    def test_negative_offset_clamped(self):
+        r = self.q.list_items(offset=-3, limit=2)
+        self.assertEqual(r["offset"], 0)
+
+    def test_zero_limit_clamped(self):
+        r = self.q.list_items(offset=0, limit=0)
+        self.assertGreaterEqual(r["limit"], 1)
+        self.assertNotEqual(r["items"], [])
+
+    def test_huge_limit_capped(self):
+        r = self.q.list_items(offset=0, limit=10**9)
+        self.assertLessEqual(r["limit"], 100)
+
+
 class TestModerationQueueSingleton(unittest.TestCase):
     def test_singleton(self):
         a = get_moderation_queue()

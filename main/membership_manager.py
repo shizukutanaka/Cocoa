@@ -24,6 +24,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 logger = logging.getLogger(__name__)
 
 # Tier definitions: (name, minimum_lifetime_credits, fee_discount_percent, label)
@@ -139,6 +144,7 @@ class MembershipStore:
             records = [r for r in records if r.tier == tier]
         records.sort(key=lambda r: r.lifetime_credits, reverse=True)
         total = len(records)
+        offset, limit = normalize_pagination(offset, limit)
         page = records[offset: offset + limit]
         has_more = offset + limit < total
         return {

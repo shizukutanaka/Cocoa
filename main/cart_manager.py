@@ -14,6 +14,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 logger = logging.getLogger(__name__)
 
 _MAX_CART_ITEMS = 50
@@ -228,6 +233,7 @@ class CartStore:
         with self._lock:
             ids = list(reversed(self._user_orders.get(user_id, [])))
             total = len(ids)
+            offset, limit = normalize_pagination(offset, limit)
             page_ids = ids[offset: offset + limit]
             items = [self._orders[oid].to_dict() for oid in page_ids if oid in self._orders]
             has_more = offset + limit < total

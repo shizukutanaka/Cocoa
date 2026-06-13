@@ -20,6 +20,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 logger = logging.getLogger(__name__)
 
 REFUND_WINDOW_HOURS = 72
@@ -107,6 +112,7 @@ class RefundStore:
             items = [r for r in items if r.user_id == user_id]
         items.sort(key=lambda r: r.created_at, reverse=True)
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
         return {

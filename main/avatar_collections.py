@@ -12,6 +12,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 _MAX_COLLECTIONS_PER_USER = 100
 _MAX_ITEMS_PER_COLLECTION = 500
 
@@ -151,6 +156,7 @@ class CollectionStore:
             items = [c for c in items if q in c.name.lower() or q in c.description.lower()]
         items.sort(key=lambda c: c.updated_at, reverse=True)
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset : offset + limit]
         has_more = offset + limit < total
         return {

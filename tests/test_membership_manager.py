@@ -241,6 +241,25 @@ class TestMembershipManager(unittest.TestCase):
             self.mgr.tier_distribution(_user())
 
 
+class TestMembershipPaginationClamp(unittest.TestCase):
+    def setUp(self):
+        self.store = MembershipStore()
+        for i in range(5):
+            self.store.add_credits(f"u{i}", 100)
+
+    def test_negative_offset_clamped(self):
+        r = self.store.list_by_tier(offset=-2, limit=2)
+        self.assertEqual(r["offset"], 0)
+
+    def test_zero_limit_clamped(self):
+        r = self.store.list_by_tier(offset=0, limit=0)
+        self.assertGreaterEqual(r["limit"], 1)
+
+    def test_huge_limit_capped(self):
+        r = self.store.list_by_tier(offset=0, limit=10**9)
+        self.assertLessEqual(r["limit"], 100)
+
+
 class TestMembershipManagerSingleton(unittest.TestCase):
     def test_singleton(self):
         a = get_membership_manager()

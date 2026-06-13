@@ -18,6 +18,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 logger = logging.getLogger(__name__)
 
 REFERRAL_BONUS_CREDITS = 50   # credits awarded to referrer on conversion
@@ -116,6 +121,7 @@ class ReferralStore:
         with self._lock:
             ids = list(reversed(self._referrer_records.get(referrer_id, [])))
             total = len(ids)
+            offset, limit = normalize_pagination(offset, limit)
             page = [self._records[i].to_dict() for i in ids[offset: offset + limit] if i in self._records]
         has_more = offset + limit < total
         return {

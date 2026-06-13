@@ -18,6 +18,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 logger = logging.getLogger(__name__)
 
 
@@ -233,6 +238,7 @@ class SearchIndex:
 
         # --- Paginate ---
         total = len(candidates)
+        offset, limit = normalize_pagination(offset, limit)
         page = candidates[offset: offset + limit]
         has_more = offset + limit < total
 
