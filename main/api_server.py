@@ -1174,6 +1174,30 @@ async def search_users(
     return get_auth_manager().search_users(q, limit=limit, offset=offset)
 
 
+@app.get("/api/users/{user_id}/stats", tags=["auth"])
+async def get_user_stats(user_id: str):
+    """クリエイターの公開統計情報（リスティング数、ダウンロード数、フォロワー数、平均評価）"""
+    stats: Dict[str, Any] = {"user_id": user_id}
+    if get_auth_manager:
+        auth = get_auth_manager()
+        user = auth.store.get_by_id(user_id)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
+        stats["follower_count"] = auth.get_followers_count(user_id)
+        stats["following_count"] = len(user.following)
+    if get_marketplace:
+        mp = get_marketplace()
+        listings = mp.get_user_listings(user_id)
+        stats["public_listings"] = len(listings)
+        stats["total_downloads"] = sum(lst.download_count for lst in listings)
+        rated = [lst for lst in listings if lst.rating_count > 0]
+        stats["average_rating"] = (
+            round(sum(lst.average_rating for lst in rated) / len(rated), 2)
+            if rated else None
+        )
+    return stats
+
+
 @app.get("/api/users/{user_id}/profile", tags=["auth"])
 async def get_user_profile(user_id: str):
     """公開プロフィール取得"""
@@ -1486,16 +1510,23 @@ async def browse_marketplace(
     q: str = Query("", description="検索クエリ"),
     tags: Optional[str] = Query(None, description="カンマ区切りのタグ"),
     category: Optional[str] = Query(None),
-    sort_by: str = Query("newest", description="newest | downloads | rating"),
+    sort_by: str = Query("newest", description="newest | downloads | rating | price_asc | price_desc"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    is_free: Optional[bool] = Query(None, description="true=無料のみ、false=有料のみ"),
+    min_price: Optional[int] = Query(None, ge=0),
+    max_price: Optional[int] = Query(None, ge=0),
 ):
     """マーケットプレイスを閲覧（認証不要）"""
     if not get_marketplace:
         return {"total": 0, "items": []}
     mp = get_marketplace()
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
-    return mp.search(query=q, tags=tag_list, category=category, sort_by=sort_by, limit=limit, offset=offset)
+    return mp.search(
+        query=q, tags=tag_list, category=category, sort_by=sort_by,
+        limit=limit, offset=offset,
+        is_free=is_free, min_price=min_price, max_price=max_price,
+    )
 
 
 @app.get("/api/marketplace/featured", tags=["marketplace"])

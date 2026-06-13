@@ -510,6 +510,51 @@ class TestSearch(unittest.TestCase):
         for key in ("listing_id", "name", "owner_username", "tags", "download_count", "average_rating"):
             self.assertIn(key, d)
 
+    def test_filter_free_only(self):
+        store = _store()
+        store.publish("av_free", "u1", "alice", "Free", "free", [], "vrc", {}, is_free=True, price_credits=0)
+        store.publish("av_paid", "u1", "alice", "Paid", "paid", [], "vrc", {}, is_free=False, price_credits=50)
+        r = store.search(is_free=True)
+        self.assertTrue(all(it["is_free"] for it in r["items"]))
+
+    def test_filter_paid_only(self):
+        store = _store()
+        store.publish("av_free", "u1", "alice", "Free", "", [], "vrc", {}, is_free=True)
+        store.publish("av_paid", "u1", "alice", "Paid", "", [], "vrc", {}, is_free=False, price_credits=50)
+        r = store.search(is_free=False)
+        self.assertTrue(all(not it["is_free"] for it in r["items"]))
+
+    def test_filter_min_price(self):
+        store = _store()
+        store.publish("av1", "u1", "alice", "Cheap", "", [], "vrc", {}, is_free=False, price_credits=10)
+        store.publish("av2", "u1", "alice", "Expensive", "", [], "vrc", {}, is_free=False, price_credits=100)
+        r = store.search(min_price=50)
+        self.assertTrue(all(it["price_credits"] >= 50 for it in r["items"]))
+
+    def test_filter_max_price(self):
+        store = _store()
+        store.publish("av1", "u1", "alice", "Cheap", "", [], "vrc", {}, is_free=False, price_credits=10)
+        store.publish("av2", "u1", "alice", "Expensive", "", [], "vrc", {}, is_free=False, price_credits=100)
+        r = store.search(max_price=50)
+        self.assertTrue(all(it["price_credits"] <= 50 for it in r["items"]))
+
+    def test_sort_by_price_asc(self):
+        store = _store()
+        store.publish("av1", "u1", "alice", "Mid", "", [], "vrc", {}, is_free=False, price_credits=50)
+        store.publish("av2", "u1", "alice", "Low", "", [], "vrc", {}, is_free=False, price_credits=10)
+        store.publish("av3", "u1", "alice", "High", "", [], "vrc", {}, is_free=False, price_credits=99)
+        r = store.search(sort_by="price_asc")
+        prices = [it["price_credits"] for it in r["items"]]
+        self.assertEqual(prices, sorted(prices))
+
+    def test_sort_by_price_desc(self):
+        store = _store()
+        store.publish("av1", "u1", "alice", "Mid", "", [], "vrc", {}, is_free=False, price_credits=50)
+        store.publish("av2", "u1", "alice", "Low", "", [], "vrc", {}, is_free=False, price_credits=10)
+        r = store.search(sort_by="price_desc")
+        prices = [it["price_credits"] for it in r["items"]]
+        self.assertEqual(prices, sorted(prices, reverse=True))
+
 
 class TestCreatorAnalytics(unittest.TestCase):
     def setUp(self):

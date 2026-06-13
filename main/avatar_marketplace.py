@@ -550,9 +550,12 @@ class MarketplaceStore:
         query: str = "",
         tags: Optional[List[str]] = None,
         category: Optional[str] = None,
-        sort_by: str = "newest",   # newest | downloads | rating
+        sort_by: str = "newest",   # newest | downloads | rating | price_asc | price_desc
         limit: int = 20,
         offset: int = 0,
+        is_free: Optional[bool] = None,     # True = free only, False = paid only
+        min_price: Optional[int] = None,    # inclusive minimum price_credits
+        max_price: Optional[int] = None,    # inclusive maximum price_credits
     ) -> Dict[str, Any]:
         with self._lock:
             results = [lst for lst in self._listings.values() if lst.is_active]
@@ -571,11 +574,23 @@ class MarketplaceStore:
         if category:
             results = [lst for lst in results if lst.category.lower() == category.lower()]
 
+        # Price filters
+        if is_free is not None:
+            results = [lst for lst in results if lst.is_free == is_free]
+        if min_price is not None:
+            results = [lst for lst in results if lst.price_credits >= min_price]
+        if max_price is not None:
+            results = [lst for lst in results if lst.price_credits <= max_price]
+
         # Sort
         if sort_by == "downloads":
             results.sort(key=lambda x: x.download_count, reverse=True)
         elif sort_by == "rating":
             results.sort(key=lambda x: (x.average_rating, x.rating_count), reverse=True)
+        elif sort_by == "price_asc":
+            results.sort(key=lambda x: x.price_credits)
+        elif sort_by == "price_desc":
+            results.sort(key=lambda x: x.price_credits, reverse=True)
         else:  # newest
             results.sort(key=lambda x: x.published_at, reverse=True)
 
