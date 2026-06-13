@@ -578,6 +578,10 @@ class AuthManager:
             raise AuthError("not_found", "ユーザーが見つかりません")
         return list(user.bookmarks)
 
+    def get_users_who_bookmarked(self, item_id: str) -> List[str]:
+        """Return user_ids of all users who have item_id in their bookmarks."""
+        return [u.user_id for u in self.store.list_users() if item_id in u.bookmarks]
+
     # --- Following ---
 
     def follow(self, follower_id: str, creator_id: str) -> List[str]:

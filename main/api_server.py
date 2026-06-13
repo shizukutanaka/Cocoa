@@ -1543,6 +1543,17 @@ async def publish_avatar(body: PublishRequest, current_user: dict = Depends(get_
                 "parameters": listing.parameters,
                 "is_public": True,
             })
+        # Notify followers of the creator
+        if get_auth_manager and get_notification_queue:
+            followers = get_auth_manager().get_followers(current_user["user_id"])
+            follower_ids = [f["user_id"] for f in followers]
+            if follower_ids:
+                get_notification_queue().push_batch(
+                    follower_ids, "listing_published",
+                    title="新着アバター",
+                    body=f"{current_user.get('username', 'クリエイター')} が「{listing.name}」を公開しました",
+                    payload={"listing_id": listing.listing_id, "owner_id": current_user["user_id"]},
+                )
         return listing.to_dict()
     except (ValueError, PermissionError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -1772,9 +1783,19 @@ async def add_review_reply(
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     try:
-        reply = get_marketplace().add_review_reply(
+        mp = get_marketplace()
+        reply = mp.add_review_reply(
             review_id, current_user["user_id"], current_user["username"], body.text
         )
+        # Notify the review author (if different from replier)
+        if get_notification_queue:
+            review = mp._find_review(review_id)
+            if review and review.user_id != current_user["user_id"]:
+                get_notification_queue().push_from_template(
+                    review.user_id, "review_reply",
+                    payload={"review_id": review_id, "reply_id": reply.reply_id},
+                    replier_username=current_user.get("username", "ユーザー"),
+                )
         return reply.to_dict()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -1868,7 +1889,12 @@ async def update_listing(listing_id: str, body: UpdateListingRequest, current_us
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     try:
-        listing = get_marketplace().update_listing(
+        mp = get_marketplace()
+        # Capture pre-update price to detect drops
+        old = mp.get_listing(listing_id)
+        old_price = (old.price_credits if old else None, old.is_free if old else None)
+
+        listing = mp.update_listing(
             listing_id, current_user["user_id"],
             name=body.name,
             description=body.description,
@@ -1892,6 +1918,24 @@ async def update_listing(listing_id: str, body: UpdateListingRequest, current_us
                 "owner_id": listing.owner_id,
                 "is_public": listing.is_active,
             })
+        # Price-drop notification to users who bookmarked this listing
+        price_dropped = (
+            get_auth_manager and get_notification_queue and old is not None
+            and (
+                (not listing.is_free and not old_price[1] and listing.price_credits < (old_price[0] or 0))
+                or (listing.is_free and not old_price[1])
+            )
+        )
+        if price_dropped:
+            watchers = get_auth_manager().get_users_who_bookmarked(listing_id)
+            if watchers:
+                get_notification_queue().push_batch(
+                    watchers, "system",
+                    title="ブックマークしたアバターの価格が下がりました",
+                    body=f"「{listing.name}」の価格が変わりました",
+                    payload={"listing_id": listing_id, "new_price": listing.price_credits,
+                             "is_free": listing.is_free},
+                )
         return {"status": "updated", "listing": listing.to_dict()}
     except (ValueError, PermissionError) as e:
         code = 403 if isinstance(e, PermissionError) else 400
@@ -2773,6 +2817,45 @@ async def bulk_listing_action(body: BulkListingActionRequest, admin: dict = Depe
         "success_count": len(succeeded),
         "failure_count": len(failed),
     }
+
+
+@app.get("/api/admin/tags", tags=["admin"])
+async def list_all_tags(
+    limit: int = Query(100, ge=1, le=500),
+    admin: dict = Depends(get_current_admin),
+):
+    """全タグと各タグを持つリスティング数を取得（管理者専用）"""
+    if not get_marketplace:
+        return {"items": [], "total": 0}
+    # Re-use same access pattern as get_categories
+    from collections import Counter
+    mp_store = get_marketplace()
+    with mp_store._lock:
+        tag_counts: Counter = Counter(
+            tag
+            for lst in mp_store._listings.values()
+            if lst.is_active
+            for tag in lst.tags
+        )
+    items = [
+        {"tag": tag, "count": cnt}
+        for tag, cnt in tag_counts.most_common(limit)
+    ]
+    return {"items": items, "total": len(tag_counts)}
+
+
+@app.delete("/api/auth/me", tags=["auth"])
+async def delete_own_account(current_user: dict = Depends(get_current_user)):
+    """自分のアカウントを削除（非可逆。リスティング・レビューは残る）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    auth = get_auth_manager()
+    user = auth.store.get_by_id(current_user["user_id"])
+    if not user:
+        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
+    # Soft-delete: deactivate rather than remove, so listings/reviews stay
+    user.is_active = False
+    return {"status": "deleted", "user_id": current_user["user_id"]}
 
 
 @app.exception_handler(HTTPException)

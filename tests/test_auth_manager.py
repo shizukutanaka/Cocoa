@@ -637,6 +637,41 @@ class TestGetFollowers(unittest.TestCase):
         self.assertEqual(carol_followers, [])
 
 
+class TestGetUsersWhoBokmarked(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.auth.register("alice", "alice@x.com", "Alice1234!")
+        self.auth.register("bob", "bob@x.com", "Bob12345!")
+        self.alice = self.auth.store.get_by_username("alice").user_id
+        self.bob = self.auth.store.get_by_username("bob").user_id
+
+    def test_no_bookmarks_initially(self):
+        users = self.auth.get_users_who_bookmarked("item1")
+        self.assertEqual(users, [])
+
+    def test_finds_user_after_bookmark(self):
+        self.auth.add_bookmark(self.alice, "item1")
+        users = self.auth.get_users_who_bookmarked("item1")
+        self.assertIn(self.alice, users)
+
+    def test_multiple_users_with_same_bookmark(self):
+        self.auth.add_bookmark(self.alice, "item1")
+        self.auth.add_bookmark(self.bob, "item1")
+        users = self.auth.get_users_who_bookmarked("item1")
+        self.assertEqual(len(users), 2)
+
+    def test_excludes_user_after_unbookmark(self):
+        self.auth.add_bookmark(self.alice, "item1")
+        self.auth.remove_bookmark(self.alice, "item1")
+        users = self.auth.get_users_who_bookmarked("item1")
+        self.assertNotIn(self.alice, users)
+
+    def test_different_items_independent(self):
+        self.auth.add_bookmark(self.alice, "item1")
+        users = self.auth.get_users_who_bookmarked("item2")
+        self.assertNotIn(self.alice, users)
+
+
 class TestSocialLinks(unittest.TestCase):
     def setUp(self):
         self.auth = AuthManager()
