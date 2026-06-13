@@ -8,7 +8,13 @@ for _p in (str(ROOT), str(ROOT / "main")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from avatar_marketplace import ListingReport, MarketplaceStore, Review, ReviewReply
+from avatar_marketplace import (
+    ListingReport,
+    MarketplaceStore,
+    PurchaseDispute,
+    Review,
+    ReviewReply,
+)
 
 
 def _store():
@@ -786,6 +792,120 @@ class TestCreatorAnalyticsExtended(unittest.TestCase):
         a = self.store.get_creator_analytics("u1")
         self.assertEqual(a["downloads_by_tag"], {})
         self.assertEqual(a["total_credits_earned"], 0)
+
+
+class TestPriceHistory(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.listing = _listing(self.store, is_free=False, price_credits=100)
+
+    def test_initial_price_recorded(self):
+        history = self.store.get_price_history(self.listing.listing_id)
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["price_credits"], 100)
+        self.assertFalse(history[0]["is_free"])
+
+    def test_price_change_recorded(self):
+        self.store.update_listing(self.listing.listing_id, "u1", price_credits=50)
+        history = self.store.get_price_history(self.listing.listing_id)
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[1]["price_credits"], 50)
+
+    def test_no_price_change_no_history_entry(self):
+        self.store.update_listing(self.listing.listing_id, "u1", name="New Name")
+        history = self.store.get_price_history(self.listing.listing_id)
+        self.assertEqual(len(history), 1)  # only initial entry
+
+    def test_unknown_listing_returns_empty(self):
+        history = self.store.get_price_history("no-such-id")
+        self.assertEqual(history, [])
+
+
+class TestPurchaseDisputes(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.store.add_credits("u_buyer", 500)
+        self.paid_listing = _listing(
+            self.store, avatar_id="av_paid", owner_id="u_seller",
+            owner_username="seller", name="Paid Avatar",
+            description="Premium", tags=[], category="vrc",
+            parameters={}, is_free=False, price_credits=50
+        )
+        # Buyer downloads the paid listing
+        self.store.download(self.paid_listing.listing_id, "u_buyer")
+
+    def test_open_dispute_returns_dispute(self):
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.assertIsInstance(dispute, PurchaseDispute)
+        self.assertEqual(dispute.status, "open")
+
+    def test_open_dispute_records_seller_and_amount(self):
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.assertEqual(dispute.seller_id, "u_seller")
+        self.assertEqual(dispute.amount_credits, 50)
+
+    def test_open_dispute_without_download_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.open_dispute(self.paid_listing.listing_id, "u_nobody", "other")
+
+    def test_open_dispute_on_free_listing_raises(self):
+        free = _listing(self.store, avatar_id="av_free", owner_id="u_seller",
+                        owner_username="seller", name="Free", description="",
+                        tags=[], category="vrc", parameters={}, is_free=True)
+        with self.assertRaises(ValueError):
+            self.store.open_dispute(free.listing_id, "u_buyer", "other")
+
+    def test_duplicate_open_dispute_raises(self):
+        self.store.open_dispute(self.paid_listing.listing_id, "u_buyer", "other")
+        with self.assertRaises(ValueError):
+            self.store.open_dispute(self.paid_listing.listing_id, "u_buyer", "other")
+
+    def test_invalid_reason_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.open_dispute(self.paid_listing.listing_id, "u_buyer", "bad_reason")
+
+    def test_resolve_dispute_refund_credits_buyer(self):
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        before_balance = self.store.get_balance("u_buyer")
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        after_balance = self.store.get_balance("u_buyer")
+        self.assertEqual(after_balance - before_balance, 50)
+
+    def test_resolve_dispute_status_updated(self):
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        resolved = self.store.resolve_dispute(dispute.dispute_id, "admin1", "release")
+        self.assertEqual(resolved.status, "resolved_release")
+        self.assertIsNotNone(resolved.resolved_at)
+
+    def test_resolve_already_resolved_raises(self):
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "other"
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        with self.assertRaises(ValueError):
+            self.store.resolve_dispute(dispute.dispute_id, "admin1", "release")
+
+    def test_get_disputes_returns_paginated(self):
+        self.store.open_dispute(self.paid_listing.listing_id, "u_buyer", "other")
+        result = self.store.get_disputes()
+        self.assertEqual(result["total"], 1)
+        self.assertIn("has_more", result)
+
+    def test_get_disputes_filter_by_status(self):
+        dispute = self.store.open_dispute(self.paid_listing.listing_id, "u_buyer", "other")
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        open_result = self.store.get_disputes(status="open")
+        self.assertEqual(open_result["total"], 0)
+        refund_result = self.store.get_disputes(status="resolved_refund")
+        self.assertEqual(refund_result["total"], 1)
 
 
 class TestFeaturedListings(unittest.TestCase):

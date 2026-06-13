@@ -124,6 +124,42 @@ _REPORT_REASONS = frozenset({
     "inappropriate", "spam", "copyright", "misleading", "malware", "other"
 })
 
+_DISPUTE_REASONS = frozenset({
+    "not_as_described", "corrupted_file", "duplicate_charge", "unauthorized", "other"
+})
+
+
+@dataclass
+class PurchaseDispute:
+    dispute_id: str
+    listing_id: str
+    buyer_id: str
+    seller_id: str
+    amount_credits: int
+    reason: str
+    details: str
+    status: str = "open"  # open | resolved_refund | resolved_release
+    resolved_by: str = ""
+    resolution_note: str = ""
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    resolved_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "dispute_id": self.dispute_id,
+            "listing_id": self.listing_id,
+            "buyer_id": self.buyer_id,
+            "seller_id": self.seller_id,
+            "amount_credits": self.amount_credits,
+            "reason": self.reason,
+            "details": self.details,
+            "status": self.status,
+            "resolved_by": self.resolved_by,
+            "resolution_note": self.resolution_note,
+            "created_at": self.created_at.isoformat(),
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+        }
+
 
 @dataclass
 class ListingReport:
@@ -167,6 +203,8 @@ class MarketplaceStore:
         self._quotas: Dict[str, int] = {}  # user_id → max active listings (None/missing = unlimited)
         self._review_replies: Dict[str, List[ReviewReply]] = {}  # review_id → [Reply]
         self._featured: List[str] = []  # ordered list of featured listing_ids
+        self._price_history: Dict[str, List[Dict[str, Any]]] = {}  # listing_id → [{price_credits, is_free, changed_at}]
+        self._disputes: Dict[str, PurchaseDispute] = {}  # dispute_id → PurchaseDispute
         self._lock = threading.Lock()
 
     # --- Credits ledger ---
@@ -269,6 +307,12 @@ class MarketplaceStore:
             self._listings[listing.listing_id] = listing
             self._votes[listing.listing_id] = {}
             self._reviews[listing.listing_id] = {}
+            # Record initial price
+            self._price_history[listing.listing_id] = [{
+                "price_credits": price_credits,
+                "is_free": is_free,
+                "changed_at": listing.published_at.isoformat(),
+            }]
             logger.info("Marketplace listing created: %s by %s", name, owner_username)
             return listing
 
@@ -308,15 +352,26 @@ class MarketplaceStore:
                 listing.thumbnail_url = thumbnail_url.strip()[:500]
             if is_free is not None:
                 listing.is_free = is_free
+            price_changed = False
             if price_credits is not None:
                 if price_credits < 0:
                     raise ValueError("price_credits must be ≥ 0")
+                if price_credits != listing.price_credits:
+                    price_changed = True
                 listing.price_credits = price_credits
+            if is_free is not None and is_free != listing.is_free:
+                price_changed = True
             if license_type is not None:
                 listing.license_type = license_type
             if license_details is not None:
                 listing.license_details = license_details.strip()[:500]
             listing.updated_at = datetime.now(timezone.utc)
+            if price_changed:
+                self._price_history.setdefault(listing.listing_id, []).append({
+                    "price_credits": listing.price_credits,
+                    "is_free": listing.is_free,
+                    "changed_at": listing.updated_at.isoformat(),
+                })
             return listing
 
     # --- Unpublish ---
@@ -614,6 +669,99 @@ class MarketplaceStore:
             if lst and lst.is_active:
                 result.append(lst.to_dict())
         return result
+
+    # --- Price history ---
+
+    def get_price_history(self, listing_id: str) -> List[Dict[str, Any]]:
+        """Return the price change log for a listing (oldest first)."""
+        with self._lock:
+            return list(self._price_history.get(listing_id, []))
+
+    # --- Purchase disputes ---
+
+    def open_dispute(
+        self,
+        listing_id: str,
+        buyer_id: str,
+        reason: str,
+        details: str = "",
+    ) -> PurchaseDispute:
+        if reason not in _DISPUTE_REASONS:
+            raise ValueError(f"Invalid reason. Must be one of: {', '.join(sorted(_DISPUTE_REASONS))}")
+        details = details.strip()[:1000]
+        with self._lock:
+            listing = self._listings.get(listing_id)
+            if not listing:
+                raise ValueError("リスティングが見つかりません")
+            if listing.is_free or listing.price_credits == 0:
+                raise ValueError("無料リスティングは争議の対象外です")
+            # Verify buyer actually downloaded this listing
+            downloaded = any(lid == listing_id and did == buyer_id for lid, did, _ in self._download_log)
+            if not downloaded:
+                raise ValueError("ダウンロード履歴がありません")
+            # One open dispute per buyer/listing pair
+            for d in self._disputes.values():
+                if d.listing_id == listing_id and d.buyer_id == buyer_id and d.status == "open":
+                    raise ValueError("既に争議が開いています")
+            dispute = PurchaseDispute(
+                dispute_id=secrets.token_hex(8),
+                listing_id=listing_id,
+                buyer_id=buyer_id,
+                seller_id=listing.owner_id,
+                amount_credits=listing.price_credits,
+                reason=reason,
+                details=details,
+            )
+            self._disputes[dispute.dispute_id] = dispute
+        logger.info("Dispute opened: %s by buyer %s on listing %s", dispute.dispute_id, buyer_id, listing_id)
+        return dispute
+
+    def resolve_dispute(
+        self,
+        dispute_id: str,
+        admin_id: str,
+        decision: str,  # "refund" | "release"
+        note: str = "",
+    ) -> PurchaseDispute:
+        if decision not in ("refund", "release"):
+            raise ValueError("decision must be 'refund' or 'release'")
+        with self._lock:
+            dispute = self._disputes.get(dispute_id)
+            if not dispute:
+                raise ValueError("争議が見つかりません")
+            if dispute.status != "open":
+                raise ValueError("この争議はすでに解決されています")
+            dispute.status = f"resolved_{decision}"
+            dispute.resolved_by = admin_id
+            dispute.resolution_note = note.strip()[:500]
+            dispute.resolved_at = datetime.now(timezone.utc)
+            if decision == "refund":
+                self._credits[dispute.buyer_id] = (
+                    self._credits.get(dispute.buyer_id, 0) + dispute.amount_credits
+                )
+        logger.info("Dispute %s resolved: %s by admin %s", dispute_id, decision, admin_id)
+        return dispute
+
+    def get_disputes(
+        self,
+        status: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        with self._lock:
+            items = list(self._disputes.values())
+        if status:
+            items = [d for d in items if d.status == status]
+        items.sort(key=lambda d: d.created_at, reverse=True)
+        total = len(items)
+        page = items[offset: offset + limit]
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": offset + limit < total,
+            "items": [d.to_dict() for d in page],
+        }
 
     def get_related(self, listing_id: str, limit: int = 6) -> List[Dict[str, Any]]:
         """Return listings similar to the given one, scored by shared tags + same category.

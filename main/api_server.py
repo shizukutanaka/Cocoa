@@ -1674,6 +1674,36 @@ async def delete_review_reply(
     return {"status": "deleted", "reply_id": reply_id}
 
 
+@app.get("/api/marketplace/{listing_id}/price-history", tags=["marketplace"])
+async def listing_price_history(listing_id: str):
+    """リスティングの価格変更履歴を取得"""
+    if not get_marketplace:
+        return {"items": [], "listing_id": listing_id}
+    history = get_marketplace().get_price_history(listing_id)
+    return {"listing_id": listing_id, "items": history, "total": len(history)}
+
+
+class OpenDisputeRequest(BaseModel):
+    reason: str
+    details: str = ""
+
+
+@app.post("/api/marketplace/{listing_id}/dispute", tags=["marketplace"], status_code=201)
+async def open_dispute(
+    listing_id: str, body: OpenDisputeRequest, current_user: dict = Depends(get_current_user)
+):
+    """有料ダウンロードに対して争議を申し立てる（24h以内）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        dispute = get_marketplace().open_dispute(
+            listing_id, current_user["user_id"], body.reason, body.details
+        )
+        return dispute.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @app.post("/api/marketplace/{listing_id}/report", tags=["marketplace"])
 async def report_listing(listing_id: str, body: ReportRequest, current_user: dict = Depends(get_current_user)):
     """リスティングを通報（モデレーション）"""
@@ -2392,6 +2422,40 @@ async def resolve_report(report_id: str, body: ResolveReportRequest, admin: dict
                     {"listing_id": report.listing_id, "reason": report.reason},
                 )
         return {"status": "resolved", "report": report.to_dict()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+class ResolveDisputeRequest(BaseModel):
+    decision: str  # "refund" | "release"
+    note: str = ""
+
+
+@app.get("/api/admin/disputes", tags=["admin"])
+async def admin_list_disputes(
+    status: Optional[str] = Query(None, description="open | resolved_refund | resolved_release"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(get_current_admin),
+):
+    """購入争議一覧（管理者専用）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    return get_marketplace().get_disputes(status=status, limit=limit, offset=offset)
+
+
+@app.post("/api/admin/disputes/{dispute_id}/resolve", tags=["admin"])
+async def admin_resolve_dispute(
+    dispute_id: str, body: ResolveDisputeRequest, admin: dict = Depends(get_current_admin)
+):
+    """争議を解決（refund: 返金 / release: 解決）（管理者専用）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        dispute = get_marketplace().resolve_dispute(
+            dispute_id, admin["user_id"], body.decision, body.note
+        )
+        return {"status": "resolved", "dispute": dispute.to_dict()}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
