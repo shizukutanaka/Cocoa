@@ -119,6 +119,7 @@ try:
     from .auth_manager import AuthError, get_auth_manager
     from .avatar_collections import get_collection_store
     from .avatar_marketplace import get_marketplace
+    from .bundle_manager import get_bundle_manager
     from .cart_manager import get_cart_manager
     from .commissions import get_commission_store
     from .license_manager import get_license_manager
@@ -138,6 +139,7 @@ except ImportError:
     get_notification_queue = None
     get_collection_store = None
     get_saved_search_store = None
+    get_bundle_manager = None
     get_cart_manager = None
     get_commission_store = None
     get_license_manager = None
@@ -3666,6 +3668,138 @@ async def get_order(
     if not order:
         raise HTTPException(status_code=404, detail="注文が見つかりません")
     return order
+
+
+class BundleCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    listing_ids: List[str]
+    discount_percent: int
+
+
+class BundleUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    listing_ids: Optional[List[str]] = None
+    discount_percent: Optional[int] = None
+
+
+@app.post("/api/bundles", tags=["bundles"], status_code=201)
+async def create_bundle(
+    body: BundleCreateRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """バンドルを作成する（クリエイター専用）"""
+    if not get_bundle_manager or not get_marketplace:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_bundle_manager().create_bundle(
+            creator_id=current_user["user_id"],
+            creator_username=current_user.get("username", ""),
+            name=body.name,
+            description=body.description,
+            listing_ids=body.listing_ids,
+            discount_percent=body.discount_percent,
+            marketplace_store=get_marketplace(),
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/bundles", tags=["bundles"])
+async def list_active_bundles(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """公開中のバンドル一覧を取得する（認証不要）"""
+    if not get_bundle_manager:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_bundle_manager().list_active_bundles(limit=limit, offset=offset)
+
+
+@app.get("/api/bundles/mine", tags=["bundles"])
+async def list_my_bundles(
+    include_inactive: bool = Query(False),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分が作成したバンドルの一覧を取得する"""
+    if not get_bundle_manager:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_bundle_manager().list_my_bundles(
+        current_user["user_id"], include_inactive=include_inactive,
+        limit=limit, offset=offset
+    )
+
+
+@app.get("/api/bundles/{bundle_id}", tags=["bundles"])
+async def get_bundle(bundle_id: str):
+    """バンドルの詳細を取得する（認証不要）"""
+    if not get_bundle_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    bundle = get_bundle_manager().get_bundle(bundle_id)
+    if not bundle:
+        raise HTTPException(status_code=404, detail="バンドルが見つかりません")
+    return bundle
+
+
+@app.put("/api/bundles/{bundle_id}", tags=["bundles"])
+async def update_bundle(
+    bundle_id: str,
+    body: BundleUpdateRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """バンドルを更新する（作成者専用）"""
+    if not get_bundle_manager or not get_marketplace:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_bundle_manager().update_bundle(
+            bundle_id, current_user["user_id"], get_marketplace(),
+            name=body.name, description=body.description,
+            listing_ids=body.listing_ids, discount_percent=body.discount_percent,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404 if "見つかりません" in str(e) else 400, detail=str(e)) from e
+
+
+@app.delete("/api/bundles/{bundle_id}", tags=["bundles"])
+async def delete_bundle(
+    bundle_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """バンドルを削除する（作成者専用）"""
+    if not get_bundle_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        get_bundle_manager().delete_bundle(bundle_id, current_user["user_id"])
+        return {"message": "バンドルを削除しました"}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.post("/api/bundles/{bundle_id}/purchase", tags=["bundles"], status_code=201)
+async def purchase_bundle(
+    bundle_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """バンドルを購入する（割引適用、購入済みアイテムはスキップ）"""
+    if not get_bundle_manager or not get_marketplace:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_bundle_manager().purchase_bundle(
+            bundle_id, current_user["user_id"], get_marketplace()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 class ActivateLicenseRequest(BaseModel):
