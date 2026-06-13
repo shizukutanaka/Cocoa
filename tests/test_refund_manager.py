@@ -19,13 +19,22 @@ from refund_manager import (
 )
 
 
+class _FakeOrderItem:
+    def __init__(self, owner_id, final_price, quantity=1):
+        self.owner_id = owner_id
+        self.final_price = final_price
+        self.quantity = quantity
+
+
 class _FakeOrder:
-    def __init__(self, order_id, user_id, total_credits, status="completed", age_hours=0):
+    def __init__(self, order_id, user_id, total_credits, status="completed",
+                 age_hours=0, items=None):
         self.order_id = order_id
         self.user_id = user_id
         self.total_credits = total_credits
         self.status = status
         self.created_at = datetime.now(timezone.utc) - timedelta(hours=age_hours)
+        self.items = items or []
 
 
 class _FakeCartStore:
@@ -51,6 +60,9 @@ class _FakeMarketplace:
         self._ledger.append({"user_id": user_id, "delta": delta, "kind": kind,
                               "ref_id": ref_id, "balance_after": balance_after})
 
+    def get_balance(self, user_id):
+        return self._credits.get(user_id, 0)
+
     def credit(self, user_id, amount, kind, ref_id=""):
         if amount <= 0:
             raise ValueError("amount must be positive")
@@ -58,6 +70,18 @@ class _FakeMarketplace:
             new_bal = self._credits.get(user_id, 0) + amount
             self._credits[user_id] = new_bal
             self._append_ledger(user_id, amount, kind, ref_id=ref_id, balance_after=new_bal)
+            return new_bal
+
+    def debit(self, user_id, amount, kind, ref_id=""):
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        with self._lock:
+            balance = self._credits.get(user_id, 0)
+            if balance < amount:
+                raise ValueError(f"残高不足 (残高: {balance}, 必要: {amount})")
+            new_bal = balance - amount
+            self._credits[user_id] = new_bal
+            self._append_ledger(user_id, -amount, kind, ref_id=ref_id, balance_after=new_bal)
             return new_bal
 
 
@@ -325,6 +349,59 @@ class TestRefundManagerAdmin(unittest.TestCase):
         mgr.request_refund("u1", "o1", "reason", cart)
         result = mgr.get_my_refunds("u1")
         self.assertEqual(result["total"], 1)
+
+
+class TestRefundClawback(unittest.TestCase):
+    """Refund approval must claw seller proceeds back so credits are conserved."""
+
+    def _setup(self, seller_balance):
+        # Buyer u1 bought a 500-credit item from seller s1.
+        item = _FakeOrderItem(owner_id="s1", final_price=500)
+        order = _FakeOrder("o1", "u1", 500, items=[item])
+        cart = _FakeCartManager([order])
+        mkt = _FakeMarketplace(credits={"u1": 0, "s1": seller_balance})
+        mgr = RefundManager()
+        mgr.request_refund("u1", "o1", "want refund", cart)
+        rid = mgr.store.list_requests()["items"][0]["request_id"]
+        return mgr, cart, mkt, rid
+
+    def test_clawback_conserves_credits(self):
+        # Seller has the full proceeds; refund must be money-neutral overall.
+        mgr, cart, mkt, rid = self._setup(seller_balance=500)
+        total_before = mkt._credits["u1"] + mkt._credits["s1"]
+        result = mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        self.assertEqual(mkt._credits["u1"], 500)   # buyer made whole
+        self.assertEqual(mkt._credits["s1"], 0)     # seller clawed back
+        self.assertEqual(result["reclaimed_from_sellers"], 500)
+        self.assertEqual(mkt._credits["u1"] + mkt._credits["s1"], total_before)
+
+    def test_clawback_records_sale_reversal_ledger(self):
+        mgr, cart, mkt, rid = self._setup(seller_balance=500)
+        mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        entry = next(e for e in mkt._ledger if e["kind"] == "sale_reversal")
+        self.assertEqual(entry["user_id"], "s1")
+        self.assertEqual(entry["delta"], -500)
+
+    def test_clawback_clamped_when_seller_spent_proceeds(self):
+        # Seller only has 200 of the 500 left; clamp, platform absorbs 300.
+        mgr, cart, mkt, rid = self._setup(seller_balance=200)
+        result = mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        self.assertEqual(mkt._credits["s1"], 0)        # not negative
+        self.assertEqual(result["reclaimed_from_sellers"], 200)
+        self.assertEqual(mkt._credits["u1"], 500)      # buyer still fully refunded
+
+    def test_clawback_multiple_sellers(self):
+        items = [_FakeOrderItem("s1", 300), _FakeOrderItem("s2", 200)]
+        order = _FakeOrder("o1", "u1", 500, items=items)
+        cart = _FakeCartManager([order])
+        mkt = _FakeMarketplace(credits={"u1": 0, "s1": 300, "s2": 200})
+        mgr = RefundManager()
+        mgr.request_refund("u1", "o1", "refund", cart)
+        rid = mgr.store.list_requests()["items"][0]["request_id"]
+        result = mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        self.assertEqual(mkt._credits["s1"], 0)
+        self.assertEqual(mkt._credits["s2"], 0)
+        self.assertEqual(result["reclaimed_from_sellers"], 500)
 
 
 class TestRefundManagerSingleton(unittest.TestCase):

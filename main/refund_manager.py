@@ -193,7 +193,15 @@ class RefundManager:
         marketplace_store: Any,
         cart_manager: Any,
     ) -> Dict[str, Any]:
-        """Approve a refund: return credits to buyer and mark order refunded."""
+        """Approve a refund: claw seller proceeds back, return credits to buyer.
+
+        A paid purchase credits the seller, so a refund must debit the seller
+        symmetrically — otherwise credits are minted from nothing and the total
+        money supply inflates by the refund amount.  If a seller has already
+        spent the proceeds, the clawback is clamped to their available balance
+        (the platform absorbs the shortfall) so the buyer's refund is never
+        blocked and no balance goes negative.
+        """
         self._require_admin(admin_payload)
         req = self.store.get(request_id)
         if not req:
@@ -201,23 +209,49 @@ class RefundManager:
         if req.status != "pending":
             raise ValueError(f"保留中のリクエストのみ承認できます (現在: {req.status})")
 
+        order = cart_manager.store.get_order(req.order_id)
+
+        # Claw back each seller's proceeds (best-effort, clamped to balance).
+        reclaimed = 0
+        if order is not None:
+            for item in getattr(order, "items", []):
+                owed = item.final_price * getattr(item, "quantity", 1)
+                if owed <= 0:
+                    continue
+                available = marketplace_store.get_balance(item.owner_id)
+                claw = min(available, owed)
+                if claw > 0:
+                    marketplace_store.debit(
+                        item.owner_id, claw, "sale_reversal", ref_id=req.order_id
+                    )
+                    reclaimed += claw
+                if claw < owed:
+                    logger.warning(
+                        "Refund clawback shortfall: order=%s seller=%s owed=%d reclaimed=%d",
+                        req.order_id, item.owner_id, owed, claw,
+                    )
+
         # Return credits to buyer via the marketplace's audited public API
         new_bal = marketplace_store.credit(
             req.user_id, req.total_credits, "refund", ref_id=req.request_id
         )
 
         # Mark order refunded
-        order = cart_manager.store.get_order(req.order_id)
-        if order:
+        if order is not None:
             order.status = "refunded"
 
         admin_id = admin_payload.get("sub", "")
         updated = self.store.update(request_id, "approved", "", admin_id)
         logger.info(
-            "Refund approved: %s by admin %s (%d credits → %s)",
-            request_id, admin_id, req.total_credits, req.user_id,
+            "Refund approved: %s by admin %s (%d credits → %s, %d reclaimed from sellers)",
+            request_id, admin_id, req.total_credits, req.user_id, reclaimed,
         )
-        return {"request": updated.to_dict(), "credits_returned": req.total_credits, "new_balance": new_bal}
+        return {
+            "request": updated.to_dict(),
+            "credits_returned": req.total_credits,
+            "new_balance": new_bal,
+            "reclaimed_from_sellers": reclaimed,
+        }
 
     def reject_refund(
         self,
