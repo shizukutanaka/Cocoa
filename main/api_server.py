@@ -3411,6 +3411,85 @@ async def close_commission(
         raise HTTPException(status_code=404 if "見つかりません" in str(e) else 400, detail=str(e)) from e
 
 
+# --- Tip endpoints ---
+
+class TipRequest(BaseModel):
+    recipient_id: str
+    amount: int
+    message: str = ""
+
+
+@app.post("/api/tips", tags=["marketplace"], status_code=201)
+async def send_tip(
+    body: TipRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """クリエイターにチップを送る（クレジット転送＋感謝メッセージ）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        tip = get_marketplace().send_tip(
+            sender_id=current_user["user_id"],
+            sender_username=current_user.get("username", ""),
+            recipient_id=body.recipient_id,
+            amount=body.amount,
+            message=body.message,
+        )
+        if get_notification_queue:
+            get_notification_queue().push(
+                body.recipient_id, "tip_received",
+                title="チップが届きました！",
+                body=f"{current_user.get('username', 'ユーザー')} から {body.amount} クレジットのチップ",
+                payload={"tip_id": tip.tip_id, "amount": body.amount},
+            )
+        return tip.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/tips/received", tags=["marketplace"])
+async def get_tips_received(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分が受け取ったチップ一覧を取得"""
+    if not get_marketplace:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_marketplace().get_tips_received(current_user["user_id"], limit=limit, offset=offset)
+
+
+@app.get("/api/tips/sent", tags=["marketplace"])
+async def get_tips_sent(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分が送ったチップ一覧を取得"""
+    if not get_marketplace:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_marketplace().get_tips_sent(current_user["user_id"], limit=limit, offset=offset)
+
+
+@app.get("/api/users/{user_id}/tips", tags=["auth"])
+async def get_user_public_tips(
+    user_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """ユーザーが受け取ったチップの公開一覧を取得（送信者ユーザー名と金額のみ）"""
+    if not get_marketplace:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    result = get_marketplace().get_tips_received(user_id, limit=limit, offset=offset)
+    # Strip sender_id from public view
+    for item in result["items"]:
+        item.pop("sender_id", None)
+    return result
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """HTTP例外ハンドラー"""

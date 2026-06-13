@@ -1998,5 +1998,86 @@ class TestPromoCodes(unittest.TestCase):
             self.assertIn(key, d)
 
 
+class TestTips(unittest.TestCase):
+    def setUp(self):
+        self.store = MarketplaceStore()
+        self.store.add_credits("sender", 1000)
+
+    def test_send_tip_transfers_credits(self):
+        self.store.send_tip("sender", "alice", "recipient", 100)
+        self.assertEqual(self.store.get_balance("sender"), 900)
+        self.assertEqual(self.store.get_balance("recipient"), 100)
+
+    def test_send_tip_returns_tip_object(self):
+        tip = self.store.send_tip("sender", "alice", "recipient", 50, "Thanks!")
+        self.assertEqual(tip.amount, 50)
+        self.assertEqual(tip.message, "Thanks!")
+        self.assertEqual(tip.sender_id, "sender")
+        self.assertEqual(tip.recipient_id, "recipient")
+
+    def test_send_tip_to_self_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.send_tip("sender", "alice", "sender", 100)
+
+    def test_send_zero_tip_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.send_tip("sender", "alice", "recipient", 0)
+
+    def test_send_negative_tip_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.send_tip("sender", "alice", "recipient", -10)
+
+    def test_send_tip_insufficient_credits_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.send_tip("sender", "alice", "recipient", 5000)
+
+    def test_send_tip_exceeds_max_raises(self):
+        self.store.add_credits("richsender", 100_000)
+        with self.assertRaises(ValueError):
+            self.store.send_tip("richsender", "rich", "recipient", 10_001)
+
+    def test_get_tips_received_empty(self):
+        result = self.store.get_tips_received("nobody")
+        self.assertEqual(result["total"], 0)
+
+    def test_get_tips_received_returns_tips(self):
+        self.store.send_tip("sender", "alice", "recipient", 100)
+        result = self.store.get_tips_received("recipient")
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["amount"], 100)
+
+    def test_get_tips_sent_returns_tips(self):
+        self.store.send_tip("sender", "alice", "recipient", 100)
+        result = self.store.get_tips_sent("sender")
+        self.assertEqual(result["total"], 1)
+
+    def test_tips_newest_first(self):
+        self.store.send_tip("sender", "alice", "recipient", 10)
+        self.store.send_tip("sender", "alice", "recipient", 20)
+        result = self.store.get_tips_received("recipient")
+        self.assertEqual(result["items"][0]["amount"], 20)
+        self.assertEqual(result["items"][1]["amount"], 10)
+
+    def test_get_tips_pagination(self):
+        for _i in range(5):
+            self.store.send_tip("sender", "alice", "recipient", 10)
+        page1 = self.store.get_tips_received("recipient", limit=2, offset=0)
+        self.assertEqual(page1["total"], 5)
+        self.assertTrue(page1["has_more"])
+        self.assertEqual(len(page1["items"]), 2)
+
+    def test_tip_to_dict(self):
+        tip = self.store.send_tip("sender", "alice", "recipient", 50, "Great work!")
+        d = tip.to_dict()
+        for key in ("tip_id", "sender_id", "sender_username", "recipient_id", "amount", "message", "created_at"):
+            self.assertIn(key, d)
+
+    def test_tip_records_ledger_entries(self):
+        self.store.send_tip("sender", "alice", "recipient", 100)
+        history = self.store.get_credit_history("sender")
+        kinds = {entry["kind"] for entry in history["items"]}
+        self.assertIn("gift_sent", kinds)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

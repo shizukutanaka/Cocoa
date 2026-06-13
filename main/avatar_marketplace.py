@@ -232,6 +232,28 @@ class PromoCode:
 
 
 @dataclass
+class Tip:
+    tip_id: str
+    sender_id: str
+    sender_username: str
+    recipient_id: str
+    amount: int     # credits transferred
+    message: str = ""
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "tip_id": self.tip_id,
+            "sender_id": self.sender_id,
+            "sender_username": self.sender_username,
+            "recipient_id": self.recipient_id,
+            "amount": self.amount,
+            "message": self.message,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+@dataclass
 class ListingReport:
     report_id: str
     listing_id: str
@@ -308,6 +330,7 @@ class MarketplaceStore:
         self._credit_ledger: Dict[str, List[Dict[str, Any]]] = {}  # user_id → [{amount, kind, ref_id, balance_after, ts}]
         self._review_reports: Dict[str, ReviewReport] = {}  # report_id → ReviewReport
         self._promo_codes: Dict[str, PromoCode] = {}  # code_id → PromoCode
+        self._tips: List[Tip] = []  # chronological list of tips
         self._lock = threading.Lock()
 
     # --- Credits ledger ---
@@ -1697,6 +1720,80 @@ class MarketplaceStore:
             "original_price": listing.price_credits,
             "discounted_price": discounted,
             "listing_id": listing_id,
+        }
+
+    # --- Tips ---
+
+    _MAX_TIP_AMOUNT = 10_000
+    _MAX_TIP_MESSAGE_LEN = 300
+
+    def send_tip(
+        self,
+        sender_id: str,
+        sender_username: str,
+        recipient_id: str,
+        amount: int,
+        message: str = "",
+    ) -> Tip:
+        """Transfer credits from sender to recipient as a tip with an optional message."""
+        if sender_id == recipient_id:
+            raise ValueError("自分自身にチップを送ることはできません")
+        if amount <= 0:
+            raise ValueError("チップは1クレジット以上にしてください")
+        if amount > self._MAX_TIP_AMOUNT:
+            raise ValueError(f"1回のチップは{self._MAX_TIP_AMOUNT}クレジットまでです")
+        message = message.strip()[:self._MAX_TIP_MESSAGE_LEN]
+        # Transfer credits (validates sender balance, raises ValueError if insufficient)
+        self.gift_credits(sender_id, recipient_id, amount)
+        tip = Tip(
+            tip_id=secrets.token_hex(8),
+            sender_id=sender_id,
+            sender_username=sender_username,
+            recipient_id=recipient_id,
+            amount=amount,
+            message=message,
+        )
+        with self._lock:
+            self._tips.append(tip)
+        logger.info("Tip sent: %s → %s (%d credits)", sender_id, recipient_id, amount)
+        return tip
+
+    def get_tips_received(
+        self, recipient_id: str, limit: int = 20, offset: int = 0
+    ) -> Dict[str, Any]:
+        """Return paginated tips received by a user, newest first."""
+        with self._lock:
+            items = [t for t in self._tips if t.recipient_id == recipient_id]
+        items = list(reversed(items))  # newest first
+        total = len(items)
+        page = items[offset: offset + limit]
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": [t.to_dict() for t in page],
+        }
+
+    def get_tips_sent(
+        self, sender_id: str, limit: int = 20, offset: int = 0
+    ) -> Dict[str, Any]:
+        """Return paginated tips sent by a user, newest first."""
+        with self._lock:
+            items = [t for t in self._tips if t.sender_id == sender_id]
+        items = list(reversed(items))  # newest first
+        total = len(items)
+        page = items[offset: offset + limit]
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": [t.to_dict() for t in page],
         }
 
 
