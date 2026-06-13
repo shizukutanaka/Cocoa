@@ -37,7 +37,9 @@ class MarketplaceListing:
     parameters: Dict[str, Any]
     thumbnail_url: str
     is_free: bool = True
-    price_credits: int = 0  # future monetisation hook
+    price_credits: int = 0
+    license_type: str = "personal"  # personal | cc_by | cc_by_sa | commercial | custom
+    license_details: str = ""
     download_count: int = 0
     rating_sum: int = 0
     rating_count: int = 0
@@ -64,6 +66,8 @@ class MarketplaceListing:
             "thumbnail_url": self.thumbnail_url,
             "is_free": self.is_free,
             "price_credits": self.price_credits,
+            "license_type": self.license_type,
+            "license_details": self.license_details,
             "download_count": self.download_count,
             "average_rating": self.average_rating,
             "rating_count": self.rating_count,
@@ -195,6 +199,8 @@ class MarketplaceStore:
         thumbnail_url: str = "",
         is_free: bool = True,
         price_credits: int = 0,
+        license_type: str = "personal",
+        license_details: str = "",
     ) -> MarketplaceListing:
         with self._lock:
             # Enforce creator quota
@@ -221,6 +227,8 @@ class MarketplaceStore:
                 thumbnail_url=thumbnail_url,
                 is_free=is_free,
                 price_credits=price_credits,
+                license_type=license_type,
+                license_details=license_details.strip()[:500],
             )
             self._listings[listing.listing_id] = listing
             self._votes[listing.listing_id] = {}
@@ -242,6 +250,8 @@ class MarketplaceStore:
         thumbnail_url: Optional[str] = None,
         is_free: Optional[bool] = None,
         price_credits: Optional[int] = None,
+        license_type: Optional[str] = None,
+        license_details: Optional[str] = None,
     ) -> "MarketplaceListing":
         """Update a published listing. Only the owner may update it."""
         with self._lock:
@@ -266,6 +276,10 @@ class MarketplaceStore:
                 if price_credits < 0:
                     raise ValueError("price_credits must be ≥ 0")
                 listing.price_credits = price_credits
+            if license_type is not None:
+                listing.license_type = license_type
+            if license_details is not None:
+                listing.license_details = license_details.strip()[:500]
             listing.updated_at = datetime.now(timezone.utc)
             return listing
 

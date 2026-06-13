@@ -148,5 +148,57 @@ class TestNotificationQueue(unittest.TestCase):
         self.assertIs(q1, q2)
 
 
+class TestNotificationPreferences(unittest.TestCase):
+    def setUp(self):
+        self.q = NotificationQueue()
+
+    def test_no_muted_kinds_by_default(self):
+        self.assertEqual(self.q.get_muted_kinds("u1"), [])
+
+    def test_mute_kind_silences_push(self):
+        self.q.mute_kind("u1", "new_follower")
+        result = self.q.push("u1", "new_follower", "T", "B")
+        self.assertIsNone(result)
+
+    def test_muted_kind_not_stored(self):
+        self.q.mute_kind("u1", "new_follower")
+        self.q.push("u1", "new_follower", "T", "B")
+        notifs = self.q.get_notifications("u1")
+        self.assertEqual(notifs["total"], 0)
+
+    def test_unmuted_kind_is_delivered(self):
+        self.q.mute_kind("u1", "new_follower")
+        result = self.q.push("u1", "system", "T", "B")
+        self.assertIsNotNone(result)
+
+    def test_unmute_kind_restores_delivery(self):
+        self.q.mute_kind("u1", "new_follower")
+        self.q.unmute_kind("u1", "new_follower")
+        result = self.q.push("u1", "new_follower", "T", "B")
+        self.assertIsNotNone(result)
+
+    def test_get_muted_kinds_returns_sorted_list(self):
+        self.q.mute_kind("u1", "system")
+        self.q.mute_kind("u1", "new_follower")
+        kinds = self.q.get_muted_kinds("u1")
+        self.assertEqual(kinds, sorted(kinds))
+
+    def test_set_muted_kinds_replaces_set(self):
+        self.q.mute_kind("u1", "old_kind")
+        self.q.set_muted_kinds("u1", ["new_download", "new_review"])
+        self.assertNotIn("old_kind", self.q.get_muted_kinds("u1"))
+        self.assertIn("new_download", self.q.get_muted_kinds("u1"))
+
+    def test_set_muted_kinds_empty_clears_all(self):
+        self.q.mute_kind("u1", "system")
+        self.q.set_muted_kinds("u1", [])
+        self.assertEqual(self.q.get_muted_kinds("u1"), [])
+
+    def test_mute_does_not_affect_other_users(self):
+        self.q.mute_kind("u1", "system")
+        result = self.q.push("u2", "system", "T", "B")
+        self.assertIsNotNone(result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -50,6 +50,30 @@ class TestPublish(unittest.TestCase):
         listing = _listing(store, tags=[f"tag{i}" for i in range(30)])
         self.assertLessEqual(len(listing.tags), 20)
 
+    def test_default_license_is_personal(self):
+        store = _store()
+        listing = _listing(store)
+        self.assertEqual(listing.license_type, "personal")
+
+    def test_custom_license_stored(self):
+        store = _store()
+        listing = _listing(store, license_type="cc_by", license_details="Attribution required")
+        self.assertEqual(listing.license_type, "cc_by")
+        self.assertEqual(listing.license_details, "Attribution required")
+
+    def test_license_in_to_dict(self):
+        store = _store()
+        listing = _listing(store, license_type="commercial")
+        d = listing.to_dict()
+        self.assertIn("license_type", d)
+        self.assertEqual(d["license_type"], "commercial")
+
+    def test_update_listing_changes_license(self):
+        store = _store()
+        listing = _listing(store)
+        store.update_listing(listing.listing_id, "u1", license_type="cc_by_sa")
+        self.assertEqual(listing.license_type, "cc_by_sa")
+
 
 class TestUnpublish(unittest.TestCase):
     def test_owner_can_unpublish(self):

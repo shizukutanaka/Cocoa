@@ -434,5 +434,48 @@ class TestEmailVerification(unittest.TestCase):
         self.assertTrue(ok)
 
 
+class TestUserSearch(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.auth.register("alice", "alice@example.com", "Passw0rd!")
+        self.auth.register("alicia", "alicia@example.com", "Passw0rd!")
+        self.auth.register("bob", "bob@example.com", "Passw0rd!")
+
+    def test_search_by_username(self):
+        result = self.auth.search_users("alic")
+        usernames = [u["username"] for u in result["items"]]
+        self.assertIn("alice", usernames)
+        self.assertIn("alicia", usernames)
+
+    def test_search_excludes_non_matching(self):
+        result = self.auth.search_users("alic")
+        usernames = [u["username"] for u in result["items"]]
+        self.assertNotIn("bob", usernames)
+
+    def test_search_case_insensitive(self):
+        result = self.auth.search_users("ALICE")
+        self.assertGreater(result["total"], 0)
+
+    def test_search_pagination_fields_present(self):
+        result = self.auth.search_users("a", limit=1, offset=0)
+        for key in ("total", "offset", "limit", "has_more", "next_offset", "items"):
+            self.assertIn(key, result)
+
+    def test_search_has_more_pagination(self):
+        result = self.auth.search_users("a", limit=1, offset=0)
+        self.assertTrue(result["has_more"])
+        self.assertEqual(result["next_offset"], 1)
+
+    def test_search_returns_public_profile_fields(self):
+        result = self.auth.search_users("alice")
+        for key in ("user_id", "username", "role"):
+            self.assertIn(key, result["items"][0])
+
+    def test_search_no_results(self):
+        result = self.auth.search_users("zzz_no_match")
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(result["items"], [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

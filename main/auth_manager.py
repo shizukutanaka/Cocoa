@@ -536,6 +536,33 @@ class AuthManager:
     def get_followers_count(self, user_id: str) -> int:
         return sum(1 for u in self.store.list_users() if user_id in u.following)
 
+    # --- User search ---
+
+    def search_users(
+        self,
+        query: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Search public user profiles by username or display_name (case-insensitive)."""
+        q = query.lower().strip()
+        results = [
+            u for u in self.store.list_users()
+            if u.is_active and (q in u.username.lower() or q in (u.display_name or "").lower())
+        ]
+        results.sort(key=lambda u: u.username.lower())
+        total = len(results)
+        page = results[offset: offset + limit]
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": [u.public_profile() for u in page],
+        }
+
     # --- Helpers ---
 
     def change_password(self, user_id: str, current_password: str, new_password: str) -> None:

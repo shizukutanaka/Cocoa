@@ -43,6 +43,7 @@ class NotificationQueue:
 
     def __init__(self, max_per_user: int = _MAX_QUEUE):
         self._queues: Dict[str, List[UserNotification]] = {}
+        self._muted: Dict[str, set] = {}  # user_id → set of muted notification kinds
         self._lock = threading.Lock()
         self._max = max_per_user
         self._counter = 0
@@ -58,22 +59,47 @@ class NotificationQueue:
         title: str,
         body: str,
         payload: Optional[Dict[str, Any]] = None,
-    ) -> UserNotification:
-        notif = UserNotification(
-            notification_id=self._next_id(),
-            user_id=user_id,
-            kind=kind,
-            title=title,
-            body=body,
-            payload=payload or {},
-        )
+    ) -> Optional["UserNotification"]:
+        """Push a notification. Returns None (silently dropped) if the kind is muted."""
         with self._lock:
+            if kind in self._muted.get(user_id, set()):
+                return None
+            notif = UserNotification(
+                notification_id=self._next_id(),
+                user_id=user_id,
+                kind=kind,
+                title=title,
+                body=body,
+                payload=payload or {},
+            )
             q = self._queues.setdefault(user_id, [])
             q.append(notif)
             # Drop oldest if over limit
             if len(q) > self._max:
                 del q[: len(q) - self._max]
         return notif
+
+    # --- Notification preferences ---
+
+    def mute_kind(self, user_id: str, kind: str) -> None:
+        """Mute a notification kind for a user (future pushes of this kind are silently dropped)."""
+        with self._lock:
+            self._muted.setdefault(user_id, set()).add(kind)
+
+    def unmute_kind(self, user_id: str, kind: str) -> None:
+        """Unmute a notification kind for a user."""
+        with self._lock:
+            self._muted.get(user_id, set()).discard(kind)
+
+    def get_muted_kinds(self, user_id: str) -> List[str]:
+        """Return the list of muted notification kinds for a user."""
+        with self._lock:
+            return sorted(self._muted.get(user_id, set()))
+
+    def set_muted_kinds(self, user_id: str, kinds: List[str]) -> None:
+        """Replace the user's muted-kinds set entirely."""
+        with self._lock:
+            self._muted[user_id] = set(kinds)
 
     def get_notifications(
         self,

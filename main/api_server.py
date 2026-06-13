@@ -1007,6 +1007,30 @@ async def delete_notification(notification_id: str, current_user: dict = Depends
     return {"status": "deleted"}
 
 
+@app.get("/api/notifications/preferences", tags=["notifications"])
+async def get_notification_preferences(current_user: dict = Depends(get_current_user)):
+    """ミュート中の通知種別を取得"""
+    if not get_notification_queue:
+        return {"muted_kinds": []}
+    return {"muted_kinds": get_notification_queue().get_muted_kinds(current_user["user_id"])}
+
+
+class NotificationPreferencesRequest(BaseModel):
+    muted_kinds: List[str]
+
+
+@app.put("/api/notifications/preferences", tags=["notifications"])
+async def set_notification_preferences(
+    body: NotificationPreferencesRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """通知種別のミュート設定を更新。muted_kinds: [] でリセット"""
+    if not get_notification_queue:
+        raise HTTPException(status_code=503, detail="通知システムが利用できません")
+    get_notification_queue().set_muted_kinds(current_user["user_id"], body.muted_kinds)
+    return {"muted_kinds": get_notification_queue().get_muted_kinds(current_user["user_id"])}
+
+
 @app.get("/api/auth/bookmarks", tags=["auth"])
 async def list_bookmarks(current_user: dict = Depends(get_current_user)):
     """ブックマーク一覧取得"""
@@ -1118,6 +1142,18 @@ async def creator_feed(
     }
 
 
+@app.get("/api/users/search", tags=["auth"])
+async def search_users(
+    q: str = Query("", min_length=1),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """ユーザー名・表示名でユーザーを検索（公開プロフィールのみ）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    return get_auth_manager().search_users(q, limit=limit, offset=offset)
+
+
 @app.get("/api/users/{user_id}/profile", tags=["auth"])
 async def get_user_profile(user_id: str):
     """公開プロフィール取得"""
@@ -1217,6 +1253,8 @@ class PublishRequest(BaseModel):
     thumbnail_url: str = ""
     is_free: bool = True
     price_credits: int = 0
+    license_type: str = "personal"
+    license_details: str = ""
 
 
 class RatingRequest(BaseModel):
@@ -1252,6 +1290,8 @@ class UpdateListingRequest(BaseModel):
     thumbnail_url: Optional[str] = None
     is_free: Optional[bool] = None
     price_credits: Optional[int] = None
+    license_type: Optional[str] = None
+    license_details: Optional[str] = None
 
 
 @app.post("/api/marketplace/publish", tags=["marketplace"])
@@ -1273,6 +1313,8 @@ async def publish_avatar(body: PublishRequest, current_user: dict = Depends(get_
             thumbnail_url=body.thumbnail_url,
             is_free=body.is_free,
             price_credits=body.price_credits,
+            license_type=body.license_type,
+            license_details=body.license_details,
         )
         # Also index for search
         if get_search_index:
@@ -1476,6 +1518,8 @@ async def update_listing(listing_id: str, body: UpdateListingRequest, current_us
             thumbnail_url=body.thumbnail_url,
             is_free=body.is_free,
             price_credits=body.price_credits,
+            license_type=body.license_type,
+            license_details=body.license_details,
         )
         # Re-index if name/description/tags changed
         if get_search_index and any(v is not None for v in [body.name, body.description, body.tags]):
