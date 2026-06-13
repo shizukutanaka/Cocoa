@@ -1801,6 +1801,65 @@ async def update_listing(listing_id: str, body: UpdateListingRequest, current_us
         raise HTTPException(status_code=code, detail=str(e)) from e
 
 
+# --- Listing versions ---
+
+
+class PublishVersionRequest(BaseModel):
+    changelog: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    parameters: Optional[dict] = None
+
+
+@app.post("/api/marketplace/{listing_id}/versions", tags=["marketplace"], status_code=201)
+async def publish_listing_version(
+    listing_id: str,
+    body: PublishVersionRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """リスティングの新バージョンを公開（オーナーのみ）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        version = get_marketplace().publish_version(
+            listing_id,
+            current_user["user_id"],
+            body.changelog,
+            name=body.name,
+            description=body.description,
+            parameters=body.parameters,
+        )
+        return version.to_dict()
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/marketplace/{listing_id}/versions", tags=["marketplace"])
+async def list_listing_versions(listing_id: str):
+    """リスティングの全バージョン履歴を取得（古い順）"""
+    if not get_marketplace:
+        return {"listing_id": listing_id, "items": [], "total": 0}
+    versions = get_marketplace().get_versions(listing_id)
+    return {
+        "listing_id": listing_id,
+        "items": [v.to_dict() for v in versions],
+        "total": len(versions),
+    }
+
+
+@app.get("/api/marketplace/{listing_id}/versions/{version_number}", tags=["marketplace"])
+async def get_listing_version(listing_id: str, version_number: int):
+    """リスティングの特定バージョンを取得"""
+    if not get_marketplace:
+        raise HTTPException(status_code=404, detail="バージョンが見つかりません")
+    version = get_marketplace().get_version(listing_id, version_number)
+    if version is None:
+        raise HTTPException(status_code=404, detail="バージョンが見つかりません")
+    return version.to_dict()
+
+
 @app.get("/api/marketplace/downloads/history", tags=["marketplace"])
 async def my_download_history(
     limit: int = Query(20, ge=1, le=100),

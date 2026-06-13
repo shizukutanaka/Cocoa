@@ -10,6 +10,7 @@ for _p in (str(ROOT), str(ROOT / "main")):
 
 from avatar_marketplace import (
     ListingReport,
+    ListingVersion,
     MarketplaceStore,
     PurchaseDispute,
     Review,
@@ -1072,6 +1073,98 @@ class TestReviewReplies(unittest.TestCase):
         d = reply.to_dict()
         for key in ("reply_id", "review_id", "user_id", "username", "text", "created_at"):
             self.assertIn(key, d)
+
+
+class TestListingVersions(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.listing = _listing(self.store)
+        self.lid = self.listing.listing_id
+
+    def test_publish_creates_v1_automatically(self):
+        versions = self.store.get_versions(self.lid)
+        self.assertEqual(len(versions), 1)
+        self.assertEqual(versions[0].version_number, 1)
+
+    def test_v1_changelog_is_initial_publish(self):
+        v1 = self.store.get_versions(self.lid)[0]
+        self.assertIn("公開", v1.changelog)
+
+    def test_publish_version_returns_listing_version(self):
+        v = self.store.publish_version(self.lid, "u1", "バグ修正")
+        self.assertIsInstance(v, ListingVersion)
+
+    def test_publish_version_increments_version_number(self):
+        v2 = self.store.publish_version(self.lid, "u1", "バグ修正")
+        self.assertEqual(v2.version_number, 2)
+        v3 = self.store.publish_version(self.lid, "u1", "機能追加")
+        self.assertEqual(v3.version_number, 3)
+
+    def test_publish_version_updates_listing_current_version(self):
+        self.store.publish_version(self.lid, "u1", "変更")
+        listing = self.store.get_listing(self.lid)
+        self.assertEqual(listing.current_version, 2)
+
+    def test_publish_version_updates_name(self):
+        self.store.publish_version(self.lid, "u1", "名前変更", name="New Name")
+        listing = self.store.get_listing(self.lid)
+        self.assertEqual(listing.name, "New Name")
+
+    def test_publish_version_updates_description(self):
+        self.store.publish_version(self.lid, "u1", "説明変更", description="Updated description")
+        listing = self.store.get_listing(self.lid)
+        self.assertEqual(listing.description, "Updated description")
+
+    def test_publish_version_wrong_owner_raises(self):
+        with self.assertRaises(PermissionError):
+            self.store.publish_version(self.lid, "u999", "変更")
+
+    def test_publish_version_empty_changelog_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.publish_version(self.lid, "u1", "   ")
+
+    def test_publish_version_unknown_listing_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.publish_version("no-such-id", "u1", "変更")
+
+    def test_get_versions_returns_oldest_first(self):
+        self.store.publish_version(self.lid, "u1", "v2")
+        self.store.publish_version(self.lid, "u1", "v3")
+        versions = self.store.get_versions(self.lid)
+        nums = [v.version_number for v in versions]
+        self.assertEqual(nums, sorted(nums))
+
+    def test_get_version_by_number(self):
+        self.store.publish_version(self.lid, "u1", "v2 changelog")
+        v = self.store.get_version(self.lid, 2)
+        self.assertIsNotNone(v)
+        self.assertEqual(v.version_number, 2)
+        self.assertEqual(v.changelog, "v2 changelog")
+
+    def test_get_version_nonexistent_returns_none(self):
+        v = self.store.get_version(self.lid, 99)
+        self.assertIsNone(v)
+
+    def test_to_dict_fields(self):
+        v = self.store.publish_version(self.lid, "u1", "変更内容")
+        d = v.to_dict()
+        for key in ("version_id", "listing_id", "version_number", "name",
+                    "description", "parameters", "changelog", "created_by", "created_at"):
+            self.assertIn(key, d)
+
+    def test_parameters_snapshot_on_version(self):
+        self.store.publish_version(self.lid, "u1", "param update", parameters={"y": 2})
+        v2 = self.store.get_version(self.lid, 2)
+        self.assertEqual(v2.parameters, {"y": 2})
+        # v1 snapshot is unchanged
+        v1 = self.store.get_version(self.lid, 1)
+        self.assertEqual(v1.parameters, {"x": 1})
+
+    def test_multiple_listings_independent_versions(self):
+        listing2 = _listing(self.store, avatar_id="av2", owner_id="u2", owner_username="bob")
+        self.store.publish_version(self.lid, "u1", "u1 v2")
+        versions2 = self.store.get_versions(listing2.listing_id)
+        self.assertEqual(len(versions2), 1)  # only v1 (initial)
 
 
 if __name__ == "__main__":

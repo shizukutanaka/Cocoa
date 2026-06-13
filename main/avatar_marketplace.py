@@ -25,6 +25,32 @@ logger = logging.getLogger(__name__)
 # Data models
 # ---------------------------------------------------------------------------
 @dataclass
+class ListingVersion:
+    version_id: str
+    listing_id: str
+    version_number: int     # sequential: 1, 2, 3, …
+    name: str
+    description: str
+    parameters: Dict[str, Any]
+    changelog: str          # what changed in this version
+    created_by: str         # owner_id
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "version_id": self.version_id,
+            "listing_id": self.listing_id,
+            "version_number": self.version_number,
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters,
+            "changelog": self.changelog,
+            "created_by": self.created_by,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+@dataclass
 class MarketplaceListing:
     listing_id: str
     avatar_id: str
@@ -43,6 +69,7 @@ class MarketplaceListing:
     download_count: int = 0
     rating_sum: int = 0
     rating_count: int = 0
+    current_version: int = 1  # latest version number
     published_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     is_active: bool = True
@@ -71,6 +98,7 @@ class MarketplaceListing:
             "download_count": self.download_count,
             "average_rating": self.average_rating,
             "rating_count": self.rating_count,
+            "current_version": self.current_version,
             "published_at": self.published_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -205,6 +233,7 @@ class MarketplaceStore:
         self._featured: List[str] = []  # ordered list of featured listing_ids
         self._price_history: Dict[str, List[Dict[str, Any]]] = {}  # listing_id → [{price_credits, is_free, changed_at}]
         self._disputes: Dict[str, PurchaseDispute] = {}  # dispute_id → PurchaseDispute
+        self._versions: Dict[str, List[ListingVersion]] = {}  # listing_id → [ListingVersion], oldest first
         self._lock = threading.Lock()
 
     # --- Credits ledger ---
@@ -313,6 +342,19 @@ class MarketplaceStore:
                 "is_free": is_free,
                 "changed_at": listing.published_at.isoformat(),
             }]
+            # Record initial version (v1)
+            v1 = ListingVersion(
+                version_id=secrets.token_hex(8),
+                listing_id=listing.listing_id,
+                version_number=1,
+                name=name,
+                description=description,
+                parameters=dict(parameters),
+                changelog="初回公開",
+                created_by=owner_id,
+                created_at=listing.published_at,
+            )
+            self._versions[listing.listing_id] = [v1]
             logger.info("Marketplace listing created: %s by %s", name, owner_username)
             return listing
 
@@ -691,6 +733,62 @@ class MarketplaceStore:
         """Return the price change log for a listing (oldest first)."""
         with self._lock:
             return list(self._price_history.get(listing_id, []))
+
+    # --- Listing versions ---
+
+    def publish_version(
+        self,
+        listing_id: str,
+        requester_id: str,
+        changelog: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+    ) -> ListingVersion:
+        """Create a new version of an existing listing. Only the owner can do this."""
+        changelog = changelog.strip()[:1000]
+        if not changelog:
+            raise ValueError("変更履歴を入力してください")
+        with self._lock:
+            listing = self._listings.get(listing_id)
+            if not listing or not listing.is_active:
+                raise ValueError("リスティングが見つかりません")
+            if listing.owner_id != requester_id:
+                raise PermissionError("オーナーのみバージョンを更新できます")
+            # Update listing fields if provided
+            if name is not None:
+                listing.name = name.strip()[:200]
+            if description is not None:
+                listing.description = description.strip()[:2000]
+            if parameters is not None:
+                listing.parameters = parameters
+            listing.current_version += 1
+            listing.updated_at = datetime.now(timezone.utc)
+            version = ListingVersion(
+                version_id=secrets.token_hex(8),
+                listing_id=listing_id,
+                version_number=listing.current_version,
+                name=listing.name,
+                description=listing.description,
+                parameters=dict(listing.parameters),
+                changelog=changelog,
+                created_by=requester_id,
+            )
+            self._versions.setdefault(listing_id, []).append(version)
+        logger.info("Version %d published for listing %s", listing.current_version, listing_id)
+        return version
+
+    def get_versions(self, listing_id: str) -> List[ListingVersion]:
+        """Return all versions for a listing (oldest first)."""
+        with self._lock:
+            return list(self._versions.get(listing_id, []))
+
+    def get_version(self, listing_id: str, version_number: int) -> Optional[ListingVersion]:
+        with self._lock:
+            for v in self._versions.get(listing_id, []):
+                if v.version_number == version_number:
+                    return v
+        return None
 
     # --- Purchase disputes ---
 
