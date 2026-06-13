@@ -25,10 +25,19 @@ class _FakeMarketplace:
     def __init__(self) -> None:
         self._credits: dict = {}
         self._grants: list = []
+        self._ledger: list = []
 
     def add_credits(self, user_id: str, amount: int) -> int:
         self._credits[user_id] = self._credits.get(user_id, 0) + amount
         self._grants.append((user_id, amount))
+        self._ledger.append({"user_id": user_id, "amount": amount, "kind": "grant", "ref_id": ""})
+        return self._credits[user_id]
+
+    def credit(self, user_id: str, amount: int, kind: str, ref_id: str = "") -> int:
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        self._credits[user_id] = self._credits.get(user_id, 0) + amount
+        self._ledger.append({"user_id": user_id, "amount": amount, "kind": kind, "ref_id": ref_id})
         return self._credits[user_id]
 
 
@@ -180,6 +189,15 @@ class TestReferralManager(unittest.TestCase):
         self.assertEqual(record.bonus_awarded, REFERRAL_BONUS_CREDITS)
         self.assertEqual(self.mp._credits.get("ref1", 0), REFERRAL_BONUS_CREDITS)
 
+    def test_on_first_purchase_records_referral_bonus_ledger_kind(self):
+        # Bonus must be auditable as "referral_bonus", not generic "grant".
+        code = self.mgr.get_my_code("ref1")
+        self.mgr.apply_referral_code("new1", code)
+        self.mgr.on_first_purchase("new1", self.mp)
+        entry = next(e for e in self.mp._ledger if e["user_id"] == "ref1")
+        self.assertEqual(entry["kind"], "referral_bonus")
+        self.assertEqual(entry["ref_id"], "new1")
+
     def test_on_first_purchase_no_referral_returns_none(self):
         result = self.mgr.on_first_purchase("orphan", self.mp)
         self.assertIsNone(result)
@@ -190,7 +208,8 @@ class TestReferralManager(unittest.TestCase):
         self.mgr.on_first_purchase("new1", self.mp)
         result = self.mgr.on_first_purchase("new1", self.mp)
         self.assertIsNone(result)
-        self.assertEqual(len(self.mp._grants), 1)
+        bonuses = [e for e in self.mp._ledger if e["kind"] == "referral_bonus"]
+        self.assertEqual(len(bonuses), 1)
 
     def test_get_my_referrals_empty(self):
         result = self.mgr.get_my_referrals("ref1")

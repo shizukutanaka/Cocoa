@@ -176,15 +176,20 @@ class ReferralManager:
     ) -> Optional[ReferralRecord]:
         """Call after a user completes their first purchase.
 
-        If they were referred, awards REFERRAL_BONUS_CREDITS to the referrer
-        via marketplace_store.add_credits(), marks the referral as converted,
-        and returns the updated record.
+        If they were referred, awards REFERRAL_BONUS_CREDITS to the referrer,
+        marks the referral as converted, and returns the updated record.  The
+        bonus is recorded in the ledger with kind "referral_bonus" (not the
+        generic "grant") so it is distinguishable in audits, with the referred
+        user as ref_id.
         """
         record = self.store.convert_referral(user_id, REFERRAL_BONUS_CREDITS)
         if record is None:
             return None
         try:
-            marketplace_store.add_credits(record.referrer_id, REFERRAL_BONUS_CREDITS)
+            marketplace_store.credit(
+                record.referrer_id, REFERRAL_BONUS_CREDITS,
+                "referral_bonus", ref_id=user_id,
+            )
             logger.info(
                 "Referral bonus awarded: %d credits → %s (referred %s)",
                 REFERRAL_BONUS_CREDITS, record.referrer_id, user_id,
