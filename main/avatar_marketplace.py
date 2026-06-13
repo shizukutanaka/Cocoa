@@ -553,6 +553,25 @@ class MarketplaceStore:
         for _, _, ts in logs:
             day_counts[ts.strftime("%Y-%m-%d")] += 1
 
+        # Downloads by tag and category
+        listing_map = {lst.listing_id: lst for lst in listings}
+        tag_counts: Counter = Counter()
+        category_counts: Counter = Counter()
+        for lid, _, _ in logs:
+            lst = listing_map.get(lid)
+            if lst:
+                for tag in lst.tags:
+                    tag_counts[tag] += 1
+                if lst.category:
+                    category_counts[lst.category] += 1
+
+        # Revenue (credits earned from paid downloads)
+        credits_earned = sum(
+            listing_map[lid].price_credits
+            for lid, _, _ in logs
+            if lid in listing_map and not listing_map[lid].is_free
+        )
+
         # Top listing by downloads
         top = max(listings, key=lambda lst: lst.download_count, default=None)
 
@@ -562,8 +581,11 @@ class MarketplaceStore:
             "active_listings": active_count,
             "total_downloads": total_downloads,
             "total_reviews": total_reviews,
+            "total_credits_earned": credits_earned,
             "rating_distribution": rating_dist,
             "downloads_by_day": dict(day_counts),
+            "downloads_by_tag": dict(tag_counts.most_common(20)),
+            "downloads_by_category": dict(category_counts),
             "top_listing": top.to_dict() if top else None,
         }
 

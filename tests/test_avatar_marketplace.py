@@ -727,5 +727,43 @@ class TestReviews(unittest.TestCase):
         self.assertEqual(result["total"], 0)
 
 
+class TestCreatorAnalyticsExtended(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.store.add_credits("u3", 200)
+        self.l1 = self.store.publish(
+            "av1", "u1", "alice", "Cat", "cute cat", ["cute", "vrc"],
+            "animal", {}, is_free=True
+        )
+        self.l2 = self.store.publish(
+            "av2", "u1", "alice", "Dog", "cute dog", ["cute"],
+            "animal", {}, is_free=False, price_credits=10
+        )
+
+    def test_analytics_downloads_by_tag(self):
+        self.store.download(self.l1.listing_id, "u3")
+        a = self.store.get_creator_analytics("u1")
+        self.assertIn("downloads_by_tag", a)
+        self.assertGreater(a["downloads_by_tag"].get("cute", 0), 0)
+
+    def test_analytics_downloads_by_category(self):
+        self.store.download(self.l1.listing_id, "u3")
+        a = self.store.get_creator_analytics("u1")
+        self.assertIn("downloads_by_category", a)
+        self.assertGreater(a["downloads_by_category"].get("animal", 0), 0)
+
+    def test_analytics_total_credits_earned(self):
+        self.store.add_credits("u3", 10)
+        self.store.download(self.l2.listing_id, "u3")
+        a = self.store.get_creator_analytics("u1")
+        self.assertIn("total_credits_earned", a)
+        self.assertEqual(a["total_credits_earned"], 10)
+
+    def test_analytics_no_downloads_zero_tag_counts(self):
+        a = self.store.get_creator_analytics("u1")
+        self.assertEqual(a["downloads_by_tag"], {})
+        self.assertEqual(a["total_credits_earned"], 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

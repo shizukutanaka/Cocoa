@@ -2061,9 +2061,47 @@ async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
     return {"user_id": user_id, "status": "deleted"}
 
 
+@app.get("/api/marketplace/favorites", tags=["marketplace"])
+async def list_favorites(current_user: dict = Depends(get_current_user)):
+    """お気に入りリスト（ブックマーク済みのリスティング）"""
+    if not get_auth_manager or not get_marketplace:
+        return {"items": [], "total": 0}
+    bookmarks = get_auth_manager().get_bookmarks(current_user["user_id"])
+    mp = get_marketplace()
+    items = []
+    for item_id in bookmarks:
+        listing = mp.get_listing(item_id)
+        if listing and listing.is_active:
+            items.append(listing.to_dict())
+    return {"items": items, "total": len(items)}
+
+
+@app.post("/api/marketplace/{listing_id}/favorite", tags=["marketplace"], status_code=201)
+async def add_favorite(listing_id: str, current_user: dict = Depends(get_current_user)):
+    """リスティングをお気に入りに追加"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    listing = get_marketplace().get_listing(listing_id)
+    if not listing or not listing.is_active:
+        raise HTTPException(status_code=404, detail="リスティングが見つかりません")
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    get_auth_manager().add_bookmark(current_user["user_id"], listing_id)
+    return {"status": "added", "listing_id": listing_id}
+
+
+@app.delete("/api/marketplace/{listing_id}/favorite", tags=["marketplace"])
+async def remove_favorite(listing_id: str, current_user: dict = Depends(get_current_user)):
+    """リスティングをお気に入りから削除"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    get_auth_manager().remove_bookmark(current_user["user_id"], listing_id)
+    return {"status": "removed", "listing_id": listing_id}
+
+
 @app.get("/api/marketplace/analytics/me", tags=["marketplace"])
 async def my_creator_analytics(current_user: dict = Depends(get_current_user)):
-    """自分のクリエイターダッシュボード統計"""
+    """自分のクリエイターダッシュボード統計（タグ・カテゴリー別ダウンロード内訳を含む）"""
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return get_marketplace().get_creator_analytics(current_user["user_id"])
