@@ -196,6 +196,42 @@ class PurchaseDispute:
 
 
 @dataclass
+class PromoCode:
+    code_id: str
+    code: str               # uppercased alphanumeric string
+    creator_id: str         # must own the listing (or listing_id=None for any listing by creator)
+    discount_percent: int   # 1-99
+    listing_id: Optional[str] = None  # None = applies to any of creator's listings
+    max_uses: Optional[int] = None    # None = unlimited
+    uses_count: int = 0
+    expires_at: Optional[datetime] = None
+    is_active: bool = True
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def is_valid(self) -> bool:
+        if not self.is_active:
+            return False
+        if self.max_uses is not None and self.uses_count >= self.max_uses:
+            return False
+        return not (self.expires_at and datetime.now(timezone.utc) > self.expires_at)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "code_id": self.code_id,
+            "code": self.code,
+            "creator_id": self.creator_id,
+            "discount_percent": self.discount_percent,
+            "listing_id": self.listing_id,
+            "max_uses": self.max_uses,
+            "uses_count": self.uses_count,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "is_active": self.is_active,
+            "is_valid": self.is_valid(),
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+@dataclass
 class ListingReport:
     report_id: str
     listing_id: str
@@ -271,6 +307,7 @@ class MarketplaceStore:
         self._versions: Dict[str, List[ListingVersion]] = {}  # listing_id → [ListingVersion], oldest first
         self._credit_ledger: Dict[str, List[Dict[str, Any]]] = {}  # user_id → [{amount, kind, ref_id, balance_after, ts}]
         self._review_reports: Dict[str, ReviewReport] = {}  # report_id → ReviewReport
+        self._promo_codes: Dict[str, PromoCode] = {}  # code_id → PromoCode
         self._lock = threading.Lock()
 
     # --- Credits ledger ---
@@ -511,34 +548,50 @@ class MarketplaceStore:
 
     # --- Download / Clone ---
 
-    def download(self, listing_id: str, downloader_id: str) -> Optional[Dict[str, Any]]:
+    def download(
+        self, listing_id: str, downloader_id: str, promo_code: str = ""
+    ) -> Optional[Dict[str, Any]]:
         """Increment download counter and return the avatar parameters for cloning.
 
         Raises ValueError if the listing is not free and the downloader has insufficient credits.
         The owner downloading their own listing is always free.
+        If promo_code is given and valid, a discount is applied to the purchase price.
         """
         with self._lock:
             listing = self._listings.get(listing_id)
             if not listing or not listing.is_active:
                 return None
             paid = not listing.is_free and listing.owner_id != downloader_id
+
+            actual_price = listing.price_credits
+            applied_promo: Optional[PromoCode] = None
+            if paid and promo_code:
+                pc = self._resolve_promo(promo_code.upper().strip(), listing_id, listing.owner_id)
+                if pc:
+                    discount = max(0, min(99, pc.discount_percent))
+                    actual_price = max(0, int(listing.price_credits * (100 - discount) / 100))
+                    applied_promo = pc
+
             if paid:
-                self._deduct_credits(downloader_id, listing.price_credits)
+                self._deduct_credits(downloader_id, actual_price)
                 buyer_bal = self._credits.get(downloader_id, 0)
-                self._append_ledger(downloader_id, -listing.price_credits, "purchase",
+                self._append_ledger(downloader_id, -actual_price, "purchase",
                                      ref_id=listing_id, balance_after=buyer_bal)
-                # Credit seller
+                # Credit seller with discounted amount
                 self._credits[listing.owner_id] = (
-                    self._credits.get(listing.owner_id, 0) + listing.price_credits
+                    self._credits.get(listing.owner_id, 0) + actual_price
                 )
                 seller_bal = self._credits[listing.owner_id]
-                self._append_ledger(listing.owner_id, listing.price_credits, "sale",
+                self._append_ledger(listing.owner_id, actual_price, "sale",
                                      ref_id=listing_id, balance_after=seller_bal)
+                if applied_promo:
+                    applied_promo.uses_count += 1
+
             now = datetime.now(timezone.utc)
             listing.download_count += 1
             listing.updated_at = now
             self._download_log.append((listing_id, downloader_id, now))
-            return {
+            result: Dict[str, Any] = {
                 "source_listing_id": listing_id,
                 "source_avatar_id": listing.avatar_id,
                 "name": f"{listing.name} (copy)",
@@ -547,6 +600,14 @@ class MarketplaceStore:
                 "category": listing.category,
                 "thumbnail_url": listing.thumbnail_url,
             }
+            if applied_promo:
+                result["promo_applied"] = {
+                    "code": applied_promo.code,
+                    "discount_percent": applied_promo.discount_percent,
+                    "original_price": listing.price_credits,
+                    "actual_price": actual_price,
+                }
+            return result
 
     # --- Rating ---
 
@@ -1539,6 +1600,104 @@ class MarketplaceStore:
                 if rv:
                     rv.is_hidden = True
         return report
+
+    # --- Promo codes ---
+
+    _MAX_PROMO_CODES_PER_CREATOR = 50
+
+    def _resolve_promo(
+        self, code_upper: str, listing_id: str, creator_id: str
+    ) -> Optional["PromoCode"]:
+        """Return a valid PromoCode for the listing, or None."""
+        for pc in self._promo_codes.values():
+            if (pc.code == code_upper and pc.creator_id == creator_id and pc.is_valid()
+                    and (pc.listing_id is None or pc.listing_id == listing_id)):
+                return pc
+        return None
+
+    def create_promo_code(
+        self,
+        creator_id: str,
+        code: str,
+        discount_percent: int,
+        listing_id: Optional[str] = None,
+        max_uses: Optional[int] = None,
+        expires_at: Optional[datetime] = None,
+    ) -> PromoCode:
+        """Create a promo code. Only the listing owner may create listing-specific codes."""
+        code = code.upper().strip()
+        if not code or not code.isalnum():
+            raise ValueError("コードは英数字のみ使用できます")
+        if len(code) > 32:
+            raise ValueError("コードは32文字以内にしてください")
+        if not 1 <= discount_percent <= 99:
+            raise ValueError("割引率は1〜99の範囲で指定してください")
+        if max_uses is not None and max_uses < 1:
+            raise ValueError("最大使用回数は1以上にしてください")
+        with self._lock:
+            if listing_id:
+                listing = self._listings.get(listing_id)
+                if not listing or not listing.is_active:
+                    raise ValueError("リスティングが見つかりません")
+                if listing.owner_id != creator_id:
+                    raise PermissionError("このリスティングのオーナーのみがプロモコードを作成できます")
+            creator_codes = [pc for pc in self._promo_codes.values() if pc.creator_id == creator_id]
+            if len(creator_codes) >= self._MAX_PROMO_CODES_PER_CREATOR:
+                raise ValueError(f"プロモコードは最大{self._MAX_PROMO_CODES_PER_CREATOR}個まで作成できます")
+            # Prevent duplicate active codes for the same creator
+            for pc in creator_codes:
+                if pc.code == code and pc.is_active:
+                    raise ValueError(f"コード '{code}' はすでに存在します")
+            promo = PromoCode(
+                code_id=secrets.token_hex(8),
+                code=code,
+                creator_id=creator_id,
+                discount_percent=discount_percent,
+                listing_id=listing_id,
+                max_uses=max_uses,
+                expires_at=expires_at,
+            )
+            self._promo_codes[promo.code_id] = promo
+        logger.info("Promo code created: %s by %s", code, creator_id)
+        return promo
+
+    def deactivate_promo_code(self, code_id: str, requester_id: str) -> PromoCode:
+        """Deactivate a promo code (only the creator can do this)."""
+        with self._lock:
+            pc = self._promo_codes.get(code_id)
+            if not pc:
+                raise ValueError("プロモコードが見つかりません")
+            if pc.creator_id != requester_id:
+                raise PermissionError("このプロモコードのオーナーのみが無効化できます")
+            pc.is_active = False
+        return pc
+
+    def list_promo_codes(self, creator_id: str) -> List[Dict[str, Any]]:
+        """List all promo codes created by a creator."""
+        with self._lock:
+            codes = [pc for pc in self._promo_codes.values() if pc.creator_id == creator_id]
+        codes.sort(key=lambda pc: pc.created_at, reverse=True)
+        return [pc.to_dict() for pc in codes]
+
+    def lookup_promo_code(self, code: str, listing_id: str) -> Optional[Dict[str, Any]]:
+        """Public lookup: validate a code for a specific listing. Returns info or None."""
+        code_upper = code.upper().strip()
+        with self._lock:
+            listing = self._listings.get(listing_id)
+            if not listing or not listing.is_active:
+                return None
+            pc = self._resolve_promo(code_upper, listing_id, listing.owner_id)
+        if not pc:
+            return None
+        discount = max(0, min(99, pc.discount_percent))
+        discounted = max(0, int(listing.price_credits * (100 - discount) / 100))
+        return {
+            "code": pc.code,
+            "discount_percent": pc.discount_percent,
+            "original_price": listing.price_credits,
+            "discounted_price": discounted,
+            "listing_id": listing_id,
+        }
 
 
 # ---------------------------------------------------------------------------

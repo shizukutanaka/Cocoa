@@ -1906,5 +1906,97 @@ class TestReviewReports(unittest.TestCase):
             self.assertIn(key, d)
 
 
+class TestPromoCodes(unittest.TestCase):
+    def setUp(self):
+        self.store = MarketplaceStore()
+        lst = _listing(self.store, owner_id="creator1", is_free=False, price_credits=100)
+        self.listing_id = lst.listing_id
+        self.store.add_credits("buyer", 500)
+
+    def test_create_promo_code_succeeds(self):
+        pc = self.store.create_promo_code("creator1", "SAVE20", 20, listing_id=self.listing_id)
+        self.assertEqual(pc.code, "SAVE20")
+        self.assertEqual(pc.discount_percent, 20)
+        self.assertTrue(pc.is_active)
+
+    def test_create_promo_code_uppercases(self):
+        pc = self.store.create_promo_code("creator1", "save20", 20)
+        self.assertEqual(pc.code, "SAVE20")
+
+    def test_create_promo_code_non_alnum_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.create_promo_code("creator1", "SAVE-20", 20)
+
+    def test_create_promo_code_invalid_discount_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.create_promo_code("creator1", "TEST", 0)
+        with self.assertRaises(ValueError):
+            self.store.create_promo_code("creator1", "TEST", 100)
+
+    def test_create_promo_code_non_owner_raises(self):
+        with self.assertRaises(PermissionError):
+            self.store.create_promo_code("other_user", "CODE", 10, listing_id=self.listing_id)
+
+    def test_duplicate_active_code_raises(self):
+        self.store.create_promo_code("creator1", "SAVE20", 20)
+        with self.assertRaises(ValueError):
+            self.store.create_promo_code("creator1", "SAVE20", 30)
+
+    def test_download_with_valid_promo_applies_discount(self):
+        self.store.create_promo_code("creator1", "SAVE20", 20, listing_id=self.listing_id)
+        data = self.store.download(self.listing_id, "buyer", promo_code="SAVE20")
+        self.assertIsNotNone(data)
+        self.assertIn("promo_applied", data)
+        self.assertEqual(data["promo_applied"]["actual_price"], 80)
+        self.assertEqual(data["promo_applied"]["discount_percent"], 20)
+
+    def test_download_without_promo_charges_full(self):
+        data = self.store.download(self.listing_id, "buyer")
+        self.assertNotIn("promo_applied", data)
+        self.assertEqual(self.store.get_balance("buyer"), 400)
+
+    def test_download_promo_increments_uses_count(self):
+        self.store.create_promo_code("creator1", "USE1", 10, max_uses=1)
+        self.store.download(self.listing_id, "buyer", promo_code="USE1")
+        self.store.add_credits("buyer2", 500)
+        # Second buyer tries same code — should not get discount (max_uses exhausted)
+        data = self.store.download(self.listing_id, "buyer2", promo_code="USE1")
+        self.assertNotIn("promo_applied", data)
+
+    def test_deactivate_promo_code(self):
+        pc = self.store.create_promo_code("creator1", "DEACT", 50)
+        result = self.store.deactivate_promo_code(pc.code_id, "creator1")
+        self.assertFalse(result.is_active)
+
+    def test_deactivate_non_owner_raises(self):
+        pc = self.store.create_promo_code("creator1", "NOPE", 10)
+        with self.assertRaises(PermissionError):
+            self.store.deactivate_promo_code(pc.code_id, "other_user")
+
+    def test_list_promo_codes(self):
+        self.store.create_promo_code("creator1", "CODE1", 10)
+        self.store.create_promo_code("creator1", "CODE2", 20)
+        codes = self.store.list_promo_codes("creator1")
+        self.assertEqual(len(codes), 2)
+
+    def test_lookup_promo_code_valid(self):
+        self.store.create_promo_code("creator1", "LOOK10", 10, listing_id=self.listing_id)
+        info = self.store.lookup_promo_code("LOOK10", self.listing_id)
+        self.assertIsNotNone(info)
+        self.assertEqual(info["discount_percent"], 10)
+        self.assertEqual(info["discounted_price"], 90)
+        self.assertEqual(info["original_price"], 100)
+
+    def test_lookup_invalid_code_returns_none(self):
+        info = self.store.lookup_promo_code("INVALID", self.listing_id)
+        self.assertIsNone(info)
+
+    def test_promo_code_to_dict(self):
+        pc = self.store.create_promo_code("creator1", "DICT", 15)
+        d = pc.to_dict()
+        for key in ("code_id", "code", "creator_id", "discount_percent", "is_active", "is_valid", "created_at"):
+            self.assertIn(key, d)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1773,13 +1773,17 @@ async def related_listings(listing_id: str, limit: int = Query(6, ge=1, le=20)):
 
 
 @app.post("/api/marketplace/{listing_id}/download", tags=["marketplace"])
-async def download_avatar(listing_id: str, current_user: dict = Depends(get_current_user)):
+async def download_avatar(
+    listing_id: str,
+    promo_code: str = Query("", description="プロモコード（省略可）"),
+    current_user: dict = Depends(get_current_user),
+):
     """マーケットプレイスからアバターをダウンロード（クローン）"""
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     mp = get_marketplace()
     try:
-        data = mp.download(listing_id, current_user["user_id"])
+        data = mp.download(listing_id, current_user["user_id"], promo_code=promo_code)
     except ValueError as exc:
         raise HTTPException(status_code=402, detail=str(exc)) from exc
     if not data:
@@ -2995,6 +2999,79 @@ async def transfer_listing(
         raise HTTPException(status_code=403, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=404 if "見つかりません" in str(e) else 400, detail=str(e)) from e
+
+
+class PromoCodeCreateRequest(BaseModel):
+    code: str
+    discount_percent: int
+    listing_id: Optional[str] = None
+    max_uses: Optional[int] = None
+    expires_at: Optional[str] = None  # ISO-8601 string or None
+
+
+@app.post("/api/marketplace/promo-codes", tags=["marketplace"], status_code=201)
+async def create_promo_code(
+    body: PromoCodeCreateRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """プロモコードを作成する（リスティングオーナー専用）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    from datetime import datetime
+    expires_at = None
+    if body.expires_at:
+        try:
+            expires_at = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="expires_at の形式が不正です（ISO-8601）") from exc
+    try:
+        promo = get_marketplace().create_promo_code(
+            creator_id=current_user["user_id"],
+            code=body.code,
+            discount_percent=body.discount_percent,
+            listing_id=body.listing_id,
+            max_uses=body.max_uses,
+            expires_at=expires_at,
+        )
+        return promo.to_dict()
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/marketplace/promo-codes/mine", tags=["marketplace"])
+async def list_my_promo_codes(current_user: dict = Depends(get_current_user)):
+    """自分が作成したプロモコード一覧を取得"""
+    if not get_marketplace:
+        return {"items": [], "total": 0}
+    codes = get_marketplace().list_promo_codes(current_user["user_id"])
+    return {"items": codes, "total": len(codes)}
+
+
+@app.delete("/api/marketplace/promo-codes/{code_id}", tags=["marketplace"])
+async def deactivate_promo_code(code_id: str, current_user: dict = Depends(get_current_user)):
+    """プロモコードを無効化する"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        promo = get_marketplace().deactivate_promo_code(code_id, current_user["user_id"])
+        return promo.to_dict()
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get("/api/marketplace/{listing_id}/promo/{code}", tags=["marketplace"])
+async def lookup_promo_code(listing_id: str, code: str):
+    """プロモコードを検証し割引情報を返す（認証不要）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    info = get_marketplace().lookup_promo_code(code, listing_id)
+    if info is None:
+        raise HTTPException(status_code=404, detail="有効なプロモコードが見つかりません")
+    return info
 
 
 @app.post("/api/admin/reviews/{review_id}/hide", tags=["admin"])
