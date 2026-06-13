@@ -18,6 +18,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from .pagination import normalize_pagination
+except ImportError:  # pragma: no cover - support flat import in tests
+    from pagination import normalize_pagination
+
 logger = logging.getLogger(__name__)
 
 
@@ -369,6 +374,7 @@ class MarketplaceStore:
         with self._lock:
             all_entries = list(reversed(self._credit_ledger.get(user_id, [])))
         total = len(all_entries)
+        offset, limit = normalize_pagination(offset, limit)
         page = all_entries[offset : offset + limit]
         has_more = offset + limit < total
         return {
@@ -758,6 +764,7 @@ class MarketplaceStore:
         else:  # newest
             items.sort(key=lambda r: r.created_at, reverse=True)
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
         return {
@@ -890,6 +897,7 @@ class MarketplaceStore:
             ]
         items.sort(key=lambda x: x.published_at, reverse=True)
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset : offset + limit]
         has_more = offset + limit < total
         return {
@@ -1020,6 +1028,7 @@ class MarketplaceStore:
             results.sort(key=lambda x: x.published_at, reverse=True)
 
         total = len(results)
+        offset, limit = normalize_pagination(offset, limit)
         page = results[offset: offset + limit]
         has_more = offset + limit < total
         response: Dict[str, Any] = {
@@ -1117,6 +1126,7 @@ class MarketplaceStore:
         else:  # newest
             results.sort(key=lambda x: x.published_at, reverse=True)
         total = len(results)
+        offset, limit = normalize_pagination(offset, limit)
         page = results[offset: offset + limit]
         has_more = offset + limit < total
         return {
@@ -1316,6 +1326,7 @@ class MarketplaceStore:
             items = [d for d in items if d.status == status]
         items.sort(key=lambda d: d.created_at, reverse=True)
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
         return {
@@ -1630,6 +1641,7 @@ class MarketplaceStore:
             entries = [(lid, ts) for lid, did, ts in self._download_log if did == user_id]
         entries.sort(key=lambda x: x[1], reverse=True)
         total = len(entries)
+        offset, limit = normalize_pagination(offset, limit)
         page = entries[offset: offset + limit]
         items = []
         for lid, ts in page:
@@ -1684,6 +1696,7 @@ class MarketplaceStore:
             items = [r for r in items if r.status == status]
         items.sort(key=lambda r: r.created_at, reverse=True)
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
         return {
@@ -1761,6 +1774,7 @@ class MarketplaceStore:
             items = [r for r in items if r.status == status]
         items.sort(key=lambda r: r.created_at, reverse=True)
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
         return {
@@ -1942,6 +1956,7 @@ class MarketplaceStore:
             items = [t for t in self._tips if t.recipient_id == recipient_id]
         items = list(reversed(items))  # newest first
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
         return {
@@ -1961,6 +1976,7 @@ class MarketplaceStore:
             items = [t for t in self._tips if t.sender_id == sender_id]
         items = list(reversed(items))  # newest first
         total = len(items)
+        offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
         return {

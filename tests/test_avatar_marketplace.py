@@ -291,6 +291,31 @@ class TestDownloadHistory(unittest.TestCase):
         self.assertEqual(result_u3["total"], 0)
 
 
+class TestPaginationClamping(unittest.TestCase):
+    """Hostile/malformed pagination inputs must be clamped, not slice wrongly."""
+
+    def setUp(self):
+        self.store = _store()
+        for _ in range(6):
+            self.store.add_credits("u1", 10)  # 6 ledger entries
+
+    def test_negative_offset_returns_first_page_not_tail(self):
+        r = self.store.get_credit_history("u1", limit=3, offset=-2)
+        self.assertEqual(r["offset"], 0)
+        self.assertEqual(len(r["items"]), 3)
+
+    def test_zero_limit_does_not_create_paging_loop(self):
+        r = self.store.get_credit_history("u1", limit=0, offset=0)
+        self.assertGreaterEqual(r["limit"], 1)
+        # Must not report "more pages" with an unchanged next_offset.
+        if r["has_more"]:
+            self.assertNotEqual(r["next_offset"], 0)
+
+    def test_huge_limit_is_capped(self):
+        r = self.store.get_credit_history("u1", limit=10**9, offset=0)
+        self.assertLessEqual(r["limit"], 100)
+
+
 class TestCredits(unittest.TestCase):
     def setUp(self):
         self.store = _store()
