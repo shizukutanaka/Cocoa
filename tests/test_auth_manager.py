@@ -513,5 +513,81 @@ class TestUserSearch(unittest.TestCase):
         self.assertEqual(result["items"], [])
 
 
+class TestApiKeyManagement(unittest.TestCase):
+    def setUp(self):
+        self.auth = AuthManager()
+        self.user = self.auth.register("alice", "alice@example.com", "Passw0rd!")
+
+    def test_create_api_key_returns_raw_key(self):
+        result = self.auth.create_api_key(self.user.user_id, "My Key")
+        self.assertIn("raw_key", result)
+        self.assertTrue(result["raw_key"].startswith("cca_"))
+
+    def test_create_api_key_returns_metadata(self):
+        result = self.auth.create_api_key(self.user.user_id, "My Key")
+        for f in ("key_id", "name", "key_prefix", "created_at", "last_used"):
+            self.assertIn(f, result)
+        self.assertNotIn("key_hash", result)
+
+    def test_raw_key_not_stored(self):
+        result = self.auth.create_api_key(self.user.user_id, "My Key")
+        listed = self.auth.list_api_keys(self.user.user_id)
+        entry = next(e for e in listed if e["key_id"] == result["key_id"])
+        self.assertNotIn("raw_key", entry)
+        self.assertNotIn("key_hash", entry)
+
+    def test_verify_api_key_valid(self):
+        result = self.auth.create_api_key(self.user.user_id, "My Key")
+        payload = self.auth.verify_api_key(result["raw_key"])
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["sub"], self.user.user_id)
+        self.assertEqual(payload["type"], "api_key")
+
+    def test_verify_api_key_invalid(self):
+        self.assertIsNone(self.auth.verify_api_key("cca_invalidkey"))
+
+    def test_list_api_keys_scoped_to_user(self):
+        user2 = self.auth.register("bob", "bob@example.com", "Passw0rd!")
+        self.auth.create_api_key(self.user.user_id, "Alice Key")
+        self.auth.create_api_key(user2.user_id, "Bob Key")
+        alice_keys = self.auth.list_api_keys(self.user.user_id)
+        self.assertEqual(len(alice_keys), 1)
+        self.assertEqual(alice_keys[0]["name"], "Alice Key")
+
+    def test_revoke_api_key_removes_it(self):
+        result = self.auth.create_api_key(self.user.user_id, "Temp Key")
+        ok = self.auth.revoke_api_key(self.user.user_id, result["key_id"])
+        self.assertTrue(ok)
+        self.assertEqual(self.auth.list_api_keys(self.user.user_id), [])
+
+    def test_revoke_invalid_key_returns_false(self):
+        self.assertFalse(self.auth.revoke_api_key(self.user.user_id, "no-such-key"))
+
+    def test_revoke_another_users_key_fails(self):
+        user2 = self.auth.register("bob", "bob@example.com", "Passw0rd!")
+        result = self.auth.create_api_key(user2.user_id, "Bob Key")
+        self.assertFalse(self.auth.revoke_api_key(self.user.user_id, result["key_id"]))
+
+    def test_multiple_keys_per_user(self):
+        self.auth.create_api_key(self.user.user_id, "Key A")
+        self.auth.create_api_key(self.user.user_id, "Key B")
+        self.assertEqual(len(self.auth.list_api_keys(self.user.user_id)), 2)
+
+    def test_verify_updates_last_used(self):
+        result = self.auth.create_api_key(self.user.user_id, "Track Key")
+        self.auth.verify_api_key(result["raw_key"])
+        keys = self.auth.list_api_keys(self.user.user_id)
+        entry = next(e for e in keys if e["key_id"] == result["key_id"])
+        self.assertIsNotNone(entry["last_used"])
+
+    def test_create_api_key_empty_name_raises(self):
+        with self.assertRaises(ValueError):
+            self.auth.create_api_key(self.user.user_id, "  ")
+
+    def test_create_api_key_unknown_user_raises(self):
+        with self.assertRaises(AuthError):
+            self.auth.create_api_key("no-such-user", "Key")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

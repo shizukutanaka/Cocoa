@@ -222,6 +222,7 @@ class UserStore:
         self._revoked_jtis: set = set()           # revoked token JTI values
         self._reset_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
         self._verify_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
+        self._api_keys: Dict[str, Dict] = {}     # key_prefix+hash → {user_id, name, key_id, created_at}
 
     # --- CRUD ---
 
@@ -304,6 +305,58 @@ class UserStore:
         entry = self._verify_tokens.pop(token, None)
         if entry and entry[1] > time.time():
             return entry[0]
+        return None
+
+    # --- API key management ---
+
+    def create_api_key(self, user_id: str, name: str) -> Dict[str, Any]:
+        """Create a new API key. Returns the raw key ONCE — it is never stored."""
+        raw_key = "cca_" + secrets.token_urlsafe(32)
+        key_id = secrets.token_hex(8)
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        key_prefix = raw_key[:12]
+        entry: Dict[str, Any] = {
+            "key_id": key_id,
+            "user_id": user_id,
+            "name": name,
+            "key_hash": key_hash,
+            "key_prefix": key_prefix,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "last_used": None,
+        }
+        self._api_keys[key_id] = entry
+        return {k: v for k, v in entry.items() if k != "key_hash"} | {"raw_key": raw_key}
+
+    def revoke_api_key(self, user_id: str, key_id: str) -> bool:
+        entry = self._api_keys.get(key_id)
+        if not entry or entry["user_id"] != user_id:
+            return False
+        del self._api_keys[key_id]
+        return True
+
+    def list_api_keys(self, user_id: str) -> List[Dict[str, Any]]:
+        return [
+            {k: v for k, v in entry.items() if k != "key_hash"}
+            for entry in self._api_keys.values()
+            if entry["user_id"] == user_id
+        ]
+
+    def verify_api_key(self, raw_key: str) -> Optional[Dict[str, Any]]:
+        """Verify a raw API key and return a JWT-like payload dict, or None."""
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        for entry in self._api_keys.values():
+            if entry["key_hash"] == key_hash:
+                entry["last_used"] = datetime.now(timezone.utc).isoformat()
+                user = self._by_id.get(entry["user_id"])
+                if not user or not user.is_active:
+                    return None
+                return {
+                    "sub": user.user_id,
+                    "username": user.username,
+                    "role": user.role,
+                    "type": "api_key",
+                    "key_id": entry["key_id"],
+                }
         return None
 
 
@@ -586,6 +639,27 @@ class AuthManager:
             "next_offset": offset + limit if has_more else None,
             "items": [u.public_profile() for u in page],
         }
+
+    # --- API key management ---
+
+    def create_api_key(self, user_id: str, name: str) -> Dict[str, Any]:
+        """Create a named API key for the given user. Returns metadata + raw_key (shown once)."""
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        name = name.strip()[:64]
+        if not name:
+            raise ValueError("API キー名を入力してください")
+        return self.store.create_api_key(user_id, name)
+
+    def revoke_api_key(self, user_id: str, key_id: str) -> bool:
+        return self.store.revoke_api_key(user_id, key_id)
+
+    def list_api_keys(self, user_id: str) -> List[Dict[str, Any]]:
+        return self.store.list_api_keys(user_id)
+
+    def verify_api_key(self, raw_key: str) -> Optional[Dict[str, Any]]:
+        return self.store.verify_api_key(raw_key)
 
     # --- Helpers ---
 

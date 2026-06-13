@@ -321,8 +321,23 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # 依存関係関数
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """JWT認証チェック"""
+async def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """JWT or API key authentication."""
+    # 1. Try X-API-Key header (programmatic access)
+    if get_auth_manager and request is not None:
+        api_key_header = request.headers.get("X-API-Key", "").strip()
+        if api_key_header:
+            auth = get_auth_manager()
+            key_payload = auth.verify_api_key(api_key_header)
+            if not key_payload:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="無効なAPIキーです")
+            return {
+                "user_id": key_payload["sub"],
+                "username": key_payload.get("username", ""),
+                "role": key_payload.get("role", "user"),
+            }
+
+    # 2. Bearer JWT
     if not credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="認証が必要です")
 
@@ -817,6 +832,10 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+class CreateApiKeyRequest(BaseModel):
+    name: str
+
+
 @app.post("/api/auth/register", tags=["auth"], status_code=201)
 async def register(body: RegisterRequest):
     """新規ユーザー登録。email_verification_token を使って POST /api/auth/verify-email でメール確認を完了してください"""
@@ -1190,6 +1209,38 @@ async def confirm_password_reset(body: PasswordResetConfirm):
     if not ok:
         raise HTTPException(status_code=400, detail="無効または期限切れのトークンです")
     return {"status": "password_reset"}
+
+
+@app.post("/api/auth/api-keys", tags=["auth"], status_code=201)
+async def create_api_key(body: CreateApiKeyRequest, current_user: dict = Depends(get_current_user)):
+    """APIキーを作成。raw_key は一度だけ返されます — 安全な場所に保管してください"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        result = get_auth_manager().create_api_key(current_user["user_id"], body.name)
+        return result
+    except (ValueError, AuthError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/auth/api-keys", tags=["auth"])
+async def list_api_keys(current_user: dict = Depends(get_current_user)):
+    """現在のユーザーのAPIキー一覧（raw_key は含まれません）"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    keys = get_auth_manager().list_api_keys(current_user["user_id"])
+    return {"items": keys, "total": len(keys)}
+
+
+@app.delete("/api/auth/api-keys/{key_id}", tags=["auth"])
+async def revoke_api_key(key_id: str, current_user: dict = Depends(get_current_user)):
+    """APIキーを無効化"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    ok = get_auth_manager().revoke_api_key(current_user["user_id"], key_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="APIキーが見つかりません")
+    return {"status": "revoked", "key_id": key_id}
 
 
 # ===========================================================================
