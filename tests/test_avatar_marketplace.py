@@ -788,6 +788,73 @@ class TestCreatorAnalyticsExtended(unittest.TestCase):
         self.assertEqual(a["total_credits_earned"], 0)
 
 
+class TestFeaturedListings(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.l1 = _listing(self.store, avatar_id="av1", name="Cat A")
+        self.l2 = _listing(self.store, avatar_id="av2", name="Cat B")
+
+    def test_feature_listing_returns_true(self):
+        ok = self.store.feature_listing(self.l1.listing_id)
+        self.assertTrue(ok)
+
+    def test_feature_listing_unknown_returns_false(self):
+        ok = self.store.feature_listing("no-such-id")
+        self.assertFalse(ok)
+
+    def test_feature_twice_returns_false(self):
+        self.store.feature_listing(self.l1.listing_id)
+        ok = self.store.feature_listing(self.l1.listing_id)
+        self.assertFalse(ok)
+
+    def test_get_featured_ordered(self):
+        self.store.feature_listing(self.l1.listing_id)
+        self.store.feature_listing(self.l2.listing_id)
+        items = self.store.get_featured()
+        ids = [it["listing_id"] for it in items]
+        self.assertEqual(ids[0], self.l1.listing_id)
+        self.assertEqual(ids[1], self.l2.listing_id)
+
+    def test_unfeature_listing(self):
+        self.store.feature_listing(self.l1.listing_id)
+        ok = self.store.unfeature_listing(self.l1.listing_id)
+        self.assertTrue(ok)
+        self.assertEqual(self.store.get_featured(), [])
+
+    def test_unfeature_not_featured_returns_false(self):
+        ok = self.store.unfeature_listing(self.l1.listing_id)
+        self.assertFalse(ok)
+
+    def test_get_featured_excludes_inactive(self):
+        self.store.feature_listing(self.l1.listing_id)
+        self.l1.is_active = False
+        items = self.store.get_featured()
+        self.assertEqual(items, [])
+
+
+class TestTrendingImproved(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.l1 = _listing(self.store, avatar_id="av1", name="Recent Hit")
+        self.l2 = _listing(self.store, avatar_id="av2", name="Old Favorite")
+        # Give l2 a lot of all-time downloads
+        self.store.add_credits("u_buyer", 10000)
+        for i in range(5):
+            self.store.download(self.l2.listing_id, f"u_old_{i}")
+
+    def test_trending_returns_list(self):
+        items = self.store.get_trending(limit=5)
+        self.assertIsInstance(items, list)
+
+    def test_trending_with_days_param(self):
+        items = self.store.get_trending(limit=10, days=7)
+        self.assertIsInstance(items, list)
+
+    def test_trending_respects_limit(self):
+        items = self.store.get_trending(limit=1)
+        self.assertLessEqual(len(items), 1)
+
+
 class TestReviewReplies(unittest.TestCase):
     def setUp(self):
         self.store = _store()

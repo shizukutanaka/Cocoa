@@ -1498,12 +1498,24 @@ async def browse_marketplace(
     return mp.search(query=q, tags=tag_list, category=category, sort_by=sort_by, limit=limit, offset=offset)
 
 
+@app.get("/api/marketplace/featured", tags=["marketplace"])
+async def featured_avatars(limit: int = Query(20, ge=1, le=50)):
+    """管理者が選んだフィーチャーアバターを取得"""
+    if not get_marketplace:
+        return {"items": [], "total": 0}
+    items = get_marketplace().get_featured(limit)
+    return {"items": items, "total": len(items)}
+
+
 @app.get("/api/marketplace/trending", tags=["marketplace"])
-async def trending_avatars(limit: int = Query(10, ge=1, le=50)):
-    """トレンドアバターを取得"""
+async def trending_avatars(
+    limit: int = Query(10, ge=1, le=50),
+    days: int = Query(7, ge=1, le=90),
+):
+    """直近 N 日間のダウンロード数でトレンドアバターを取得"""
     if not get_marketplace:
         return {"items": []}
-    return {"items": get_marketplace().get_trending(limit)}
+    return {"items": get_marketplace().get_trending(limit, days=days)}
 
 
 @app.get("/api/marketplace/trending-tags", tags=["marketplace"])
@@ -2178,6 +2190,28 @@ async def my_creator_analytics(current_user: dict = Depends(get_current_user)):
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return get_marketplace().get_creator_analytics(current_user["user_id"])
+
+
+@app.post("/api/admin/listings/{listing_id}/feature", tags=["admin"])
+async def feature_listing(listing_id: str, admin: dict = Depends(get_current_admin)):
+    """リスティングをフィーチャーに追加（管理者専用）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    ok = get_marketplace().feature_listing(listing_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="リスティングが見つかりません、またはすでにフィーチャー済みです")
+    return {"status": "featured", "listing_id": listing_id}
+
+
+@app.delete("/api/admin/listings/{listing_id}/feature", tags=["admin"])
+async def unfeature_listing(listing_id: str, admin: dict = Depends(get_current_admin)):
+    """リスティングをフィーチャーから削除（管理者専用）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    ok = get_marketplace().unfeature_listing(listing_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="フィーチャーリストにリスティングが見つかりません")
+    return {"status": "unfeatured", "listing_id": listing_id}
 
 
 @app.get("/api/admin/stats", tags=["admin"])

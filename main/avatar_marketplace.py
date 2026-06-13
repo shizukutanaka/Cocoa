@@ -166,6 +166,7 @@ class MarketplaceStore:
         self._credits: Dict[str, int] = {}  # user_id → credit balance
         self._quotas: Dict[str, int] = {}  # user_id → max active listings (None/missing = unlimited)
         self._review_replies: Dict[str, List[ReviewReply]] = {}  # review_id → [Reply]
+        self._featured: List[str] = []  # ordered list of featured listing_ids
         self._lock = threading.Lock()
 
     # --- Credits ledger ---
@@ -541,11 +542,20 @@ class MarketplaceStore:
     def get_user_listings(self, owner_id: str) -> List[MarketplaceListing]:
         return [lst for lst in self._listings.values() if lst.owner_id == owner_id and lst.is_active]
 
-    def get_trending(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Top downloads in the last 7 days — simplified (no time filter in memory store)."""
+    def get_trending(self, limit: int = 10, days: int = 7) -> List[Dict[str, Any]]:
+        """Top listings by recent downloads (within `days` days), falling back to all-time if none."""
+        from collections import Counter
+        from datetime import timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         with self._lock:
+            recent_counts: Counter = Counter(
+                lid for lid, _, ts in self._download_log if ts >= cutoff
+            )
             active = [lst for lst in self._listings.values() if lst.is_active]
-        active.sort(key=lambda x: x.download_count, reverse=True)
+        if recent_counts:
+            active.sort(key=lambda x: recent_counts.get(x.listing_id, 0), reverse=True)
+        else:
+            active.sort(key=lambda x: x.download_count, reverse=True)
         return [lst.to_dict() for lst in active[:limit]]
 
     def get_trending_tags(self, limit: int = 20) -> List[Dict[str, Any]]:
@@ -574,6 +584,36 @@ class MarketplaceStore:
         ]
         rows.sort(key=lambda r: (r["score"], r["listing_count"]), reverse=True)
         return rows[:limit]
+
+    # --- Featured listings (admin-curated) ---
+
+    def feature_listing(self, listing_id: str) -> bool:
+        """Add a listing to the featured list (no-op if already featured)."""
+        with self._lock:
+            if listing_id in self._listings and listing_id not in self._featured:
+                self._featured.append(listing_id)
+                return True
+        return False
+
+    def unfeature_listing(self, listing_id: str) -> bool:
+        """Remove a listing from the featured list."""
+        with self._lock:
+            try:
+                self._featured.remove(listing_id)
+                return True
+            except ValueError:
+                return False
+
+    def get_featured(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Return featured active listings in curator order."""
+        with self._lock:
+            ids = list(self._featured[:limit])
+        result = []
+        for lid in ids:
+            lst = self._listings.get(lid)
+            if lst and lst.is_active:
+                result.append(lst.to_dict())
+        return result
 
     def get_related(self, listing_id: str, limit: int = 6) -> List[Dict[str, Any]]:
         """Return listings similar to the given one, scored by shared tags + same category.
