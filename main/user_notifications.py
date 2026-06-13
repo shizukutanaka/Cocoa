@@ -13,6 +13,40 @@ from typing import Any, Dict, List, Optional
 
 _MAX_QUEUE = 200  # max stored notifications per user (oldest discarded)
 
+# ---------------------------------------------------------------------------
+# Notification templates
+# ---------------------------------------------------------------------------
+NOTIFICATION_TEMPLATES: Dict[str, Dict[str, str]] = {
+    "new_follower": {
+        "title": "新しいフォロワー",
+        "body": "{follower_username} があなたをフォローしました",
+    },
+    "new_download": {
+        "title": "ダウンロード通知",
+        "body": "{downloader_username} が「{listing_name}」をダウンロードしました",
+    },
+    "new_review": {
+        "title": "新しいレビュー",
+        "body": "{reviewer_username} が「{listing_name}」に {stars}★ のレビューを投稿しました",
+    },
+    "review_reply": {
+        "title": "レビューに返信がありました",
+        "body": "{replier_username} があなたのレビューに返信しました",
+    },
+    "credit_gifted": {
+        "title": "クレジットをギフトされました",
+        "body": "{sender_username} から {amount} クレジットを受け取りました",
+    },
+    "listing_published": {
+        "title": "アバターが公開されました",
+        "body": "「{listing_name}」がマーケットプレイスに公開されました",
+    },
+    "system_announcement": {
+        "title": "お知らせ",
+        "body": "{message}",
+    },
+}
+
 
 @dataclass
 class UserNotification:
@@ -155,6 +189,37 @@ class NotificationQueue:
     def unread_count(self, user_id: str) -> int:
         with self._lock:
             return sum(1 for n in self._queues.get(user_id, []) if not n.is_read)
+
+    def push_from_template(
+        self,
+        user_id: str,
+        template_key: str,
+        payload: Optional[Dict[str, Any]] = None,
+        **vars: Any,
+    ) -> Optional["UserNotification"]:
+        """Push a notification rendered from a predefined template."""
+        tmpl = NOTIFICATION_TEMPLATES.get(template_key)
+        if tmpl is None:
+            raise ValueError(f"Unknown notification template: {template_key!r}")
+        title = tmpl["title"].format(**vars)
+        body = tmpl["body"].format(**vars)
+        return self.push(user_id, template_key, title, body, payload)
+
+    def push_batch(
+        self,
+        user_ids: List[str],
+        kind: str,
+        title: str,
+        body: str,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Push the same notification to multiple users. Returns number actually delivered (not muted)."""
+        count = 0
+        for uid in user_ids:
+            result = self.push(uid, kind, title, body, payload)
+            if result is not None:
+                count += 1
+        return count
 
     def stats(self) -> Dict[str, Any]:
         with self._lock:

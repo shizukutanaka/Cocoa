@@ -1109,11 +1109,10 @@ async def follow_creator(creator_id: str, current_user: dict = Depends(get_curre
     try:
         following = get_auth_manager().follow(current_user["user_id"], creator_id)
         if get_notification_queue:
-            get_notification_queue().push(
+            get_notification_queue().push_from_template(
                 creator_id, "new_follower",
-                "新しいフォロワー",
-                f"{current_user.get('username', 'Someone')} があなたをフォローしました",
-                {"follower_id": current_user["user_id"], "follower_username": current_user.get("username")},
+                payload={"follower_id": current_user["user_id"]},
+                follower_username=current_user.get("username", "ユーザー"),
             )
         return {"following_count": len(following), "followed": creator_id}
     except (AuthError, ValueError) as e:
@@ -1548,12 +1547,12 @@ async def download_avatar(listing_id: str, current_user: dict = Depends(get_curr
     if not data:
         raise HTTPException(status_code=404, detail="リスティングが見つかりません")
     listing = mp.get_listing(listing_id)
-    if listing and get_notification_queue:
-        get_notification_queue().push(
+    if listing and get_notification_queue and listing.owner_id != current_user["user_id"]:
+        get_notification_queue().push_from_template(
             listing.owner_id, "new_download",
-            "アバターがダウンロードされました",
-            f"「{listing.name}」が {current_user.get('username', '誰か')} にダウンロードされました",
-            {"listing_id": listing_id, "downloader_id": current_user["user_id"], "total_downloads": listing.download_count},
+            payload={"listing_id": listing_id, "downloader_id": current_user["user_id"]},
+            downloader_username=current_user.get("username", "ユーザー"),
+            listing_name=listing.name,
         )
     return {"status": "downloaded", "avatar_data": data}
 
@@ -1585,12 +1584,13 @@ async def post_review(listing_id: str, body: ReviewRequest, current_user: dict =
             body.text,
         )
         listing = mp.get_listing(listing_id)
-        if listing and get_notification_queue:
-            get_notification_queue().push(
+        if listing and get_notification_queue and listing.owner_id != current_user["user_id"]:
+            get_notification_queue().push_from_template(
                 listing.owner_id, "new_review",
-                "新しいレビュー",
-                f"「{listing.name}」に {rv.stars}★ のレビューが届きました",
-                {"listing_id": listing_id, "reviewer_id": current_user["user_id"], "stars": rv.stars},
+                payload={"listing_id": listing_id, "reviewer_id": current_user["user_id"], "stars": rv.stars},
+                reviewer_username=current_user.get("username", "ユーザー"),
+                listing_name=listing.name,
+                stars=rv.stars,
             )
         return {"listing_id": listing_id, "average_rating": avg, "review": rv.to_dict()}
     except (ValueError, PermissionError) as e:
@@ -1767,6 +1767,13 @@ async def gift_credits(body: GiftCreditsRequest, current_user: dict = Depends(ge
         result = get_marketplace().gift_credits(
             current_user["user_id"], body.recipient_id, body.amount
         )
+        if get_notification_queue:
+            get_notification_queue().push_from_template(
+                body.recipient_id, "credit_gifted",
+                payload={"sender_id": current_user["user_id"], "amount": body.amount},
+                sender_username=current_user.get("username", "ユーザー"),
+                amount=body.amount,
+            )
         return {
             "status": "gifted",
             "amount": body.amount,
@@ -2209,6 +2216,26 @@ async def search_analytics(
     if not get_search_index:
         raise HTTPException(status_code=503, detail="検索インデックスが利用できません")
     return get_search_index().query_analytics(top_n=top_n)
+
+
+class BroadcastRequest(BaseModel):
+    message: str
+    title: Optional[str] = None
+
+
+@app.post("/api/admin/notifications/broadcast", tags=["admin"])
+async def broadcast_notification(body: BroadcastRequest, admin: dict = Depends(get_current_admin)):
+    """全アクティブユーザーにシステムアナウンスを送信（管理者専用）"""
+    if not get_auth_manager or not get_notification_queue:
+        raise HTTPException(status_code=503, detail="必要なモジュールが利用できません")
+    active_users = [u.user_id for u in get_auth_manager().store.list_users() if u.is_active]
+    title = (body.title or "お知らせ").strip()[:80]
+    message = body.message.strip()[:500]
+    if not message:
+        raise HTTPException(status_code=400, detail="メッセージを入力してください")
+    nq = get_notification_queue()
+    delivered = nq.push_batch(active_users, "system_announcement", title, message)
+    return {"status": "broadcast", "target_users": len(active_users), "delivered": delivered}
 
 
 # ===========================================================================

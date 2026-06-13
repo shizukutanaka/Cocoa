@@ -200,5 +200,82 @@ class TestNotificationPreferences(unittest.TestCase):
         self.assertIsNotNone(result)
 
 
+class TestNotificationTemplates(unittest.TestCase):
+    def setUp(self):
+        from user_notifications import NotificationQueue
+        self.q = NotificationQueue()
+
+    def test_push_from_template_new_follower(self):
+        notif = self.q.push_from_template("u1", "new_follower", follower_username="alice")
+        self.assertIsNotNone(notif)
+        self.assertEqual(notif.kind, "new_follower")
+        self.assertIn("alice", notif.body)
+
+    def test_push_from_template_new_download(self):
+        notif = self.q.push_from_template(
+            "u1", "new_download", downloader_username="bob", listing_name="Cool Cat"
+        )
+        self.assertIsNotNone(notif)
+        self.assertIn("bob", notif.body)
+        self.assertIn("Cool Cat", notif.body)
+
+    def test_push_from_template_new_review(self):
+        notif = self.q.push_from_template(
+            "u1", "new_review", reviewer_username="carol", listing_name="My Avatar", stars=5
+        )
+        self.assertIn("5", notif.body)
+        self.assertIn("carol", notif.body)
+
+    def test_push_from_template_credit_gifted(self):
+        notif = self.q.push_from_template(
+            "u1", "credit_gifted", sender_username="dave", amount=100
+        )
+        self.assertIn("100", notif.body)
+
+    def test_push_from_template_unknown_raises(self):
+        from user_notifications import NotificationQueue
+        q = NotificationQueue()
+        with self.assertRaises(ValueError):
+            q.push_from_template("u1", "no_such_template", foo="bar")
+
+    def test_push_from_template_respects_mute(self):
+        self.q.mute_kind("u1", "new_follower")
+        notif = self.q.push_from_template("u1", "new_follower", follower_username="eve")
+        self.assertIsNone(notif)
+
+    def test_push_from_template_payload_stored(self):
+        notif = self.q.push_from_template(
+            "u1", "new_follower",
+            payload={"follower_id": "u2"},
+            follower_username="frank",
+        )
+        self.assertEqual(notif.payload["follower_id"], "u2")
+
+
+class TestPushBatch(unittest.TestCase):
+    def setUp(self):
+        from user_notifications import NotificationQueue
+        self.q = NotificationQueue()
+
+    def test_push_batch_delivers_to_all(self):
+        count = self.q.push_batch(["u1", "u2", "u3"], "system", "Hello", "World")
+        self.assertEqual(count, 3)
+
+    def test_push_batch_skips_muted(self):
+        self.q.mute_kind("u2", "system")
+        count = self.q.push_batch(["u1", "u2", "u3"], "system", "Alert", "Message")
+        self.assertEqual(count, 2)
+
+    def test_push_batch_empty_list(self):
+        count = self.q.push_batch([], "system", "Test", "Body")
+        self.assertEqual(count, 0)
+
+    def test_push_batch_each_user_gets_notification(self):
+        self.q.push_batch(["u1", "u2"], "system_announcement", "News", "Big news")
+        for uid in ("u1", "u2"):
+            r = self.q.get_notifications(uid)
+            self.assertEqual(r["total"], 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
