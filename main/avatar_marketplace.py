@@ -1317,11 +1317,13 @@ class MarketplaceStore:
         items.sort(key=lambda d: d.created_at, reverse=True)
         total = len(items)
         page = items[offset: offset + limit]
+        has_more = offset + limit < total
         return {
             "total": total,
             "offset": offset,
             "limit": limit,
-            "has_more": offset + limit < total,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
             "items": [d.to_dict() for d in page],
         }
 

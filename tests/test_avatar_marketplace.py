@@ -1088,6 +1088,27 @@ class TestPurchaseDisputes(unittest.TestCase):
         self.assertEqual(result["total"], 1)
         self.assertIn("has_more", result)
 
+    def test_get_disputes_honors_full_pagination_contract(self):
+        # Every paginated endpoint must expose the same keys, incl. next_offset.
+        result = self.store.get_disputes()
+        for key in ("total", "offset", "limit", "has_more", "next_offset", "items"):
+            self.assertIn(key, result)
+
+    def test_get_disputes_next_offset_set_when_more(self):
+        # Open several disputes across distinct listings so a page has more.
+        for i in range(3):
+            lst = _listing(
+                self.store, avatar_id=f"av_d{i}", owner_id="u_seller",
+                owner_username="seller", name=f"D{i}", description="",
+                tags=[], category="vrc", parameters={}, is_free=False,
+                price_credits=10,
+            )
+            self.store.download(lst.listing_id, "u_buyer")
+            self.store.open_dispute(lst.listing_id, "u_buyer", "other")
+        result = self.store.get_disputes(limit=2, offset=0)
+        self.assertTrue(result["has_more"])
+        self.assertEqual(result["next_offset"], 2)
+
     def test_get_disputes_filter_by_status(self):
         dispute = self.store.open_dispute(self.paid_listing.listing_id, "u_buyer", "other")
         self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
