@@ -1,0 +1,184 @@
+"""Tests for main/moderation_queue.py"""
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+for _p in (str(ROOT), str(ROOT / "main")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from moderation_queue import (
+    VALID_KINDS,
+    ModerationItem,
+    ModerationQueue,
+    get_moderation_queue,
+)
+
+
+def _q() -> ModerationQueue:
+    return ModerationQueue()
+
+
+class TestModerationItem(unittest.TestCase):
+    def test_to_dict(self):
+        item = ModerationItem(
+            item_id="mid1", kind="listing_report", source_id="rep1",
+            subject_id="lst1", reporter_id="u1", reason="spam",
+        )
+        d = item.to_dict()
+        self.assertEqual(d["item_id"], "mid1")
+        self.assertEqual(d["status"], "pending")
+        self.assertIsNone(d["resolved_at"])
+
+
+class TestModerationQueue(unittest.TestCase):
+    def setUp(self):
+        self.q = _q()
+
+    def test_enqueue_creates_item(self):
+        item = self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
+        self.assertEqual(item.kind, "listing_report")
+        self.assertEqual(item.status, "pending")
+
+    def test_enqueue_idempotent_by_source_id(self):
+        item1 = self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
+        item2 = self.q.enqueue("listing_report", "rep1", "lst2", "u2", "different")
+        self.assertEqual(item1.item_id, item2.item_id)
+
+    def test_enqueue_invalid_kind_raises(self):
+        with self.assertRaises(ValueError):
+            self.q.enqueue("bad_kind", "s1", "sub1", "u1", "reason")
+
+    def test_enqueue_invalid_priority_raises(self):
+        with self.assertRaises(ValueError):
+            self.q.enqueue("listing_report", "s1", "sub1", "u1", "reason", priority="critical")
+
+    def test_get_item(self):
+        item = self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
+        fetched = self.q.get(item.item_id)
+        self.assertIsNotNone(fetched)
+        self.assertEqual(fetched.item_id, item.item_id)
+
+    def test_get_unknown_returns_none(self):
+        self.assertIsNone(self.q.get("no-id"))
+
+    def test_assign_sets_in_review(self):
+        item = self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
+        self.q.assign(item.item_id, "admin1")
+        self.assertEqual(item.status, "in_review")
+        self.assertEqual(item.assigned_to, "admin1")
+
+    def test_assign_unknown_raises(self):
+        with self.assertRaises(ValueError):
+            self.q.assign("no-id", "admin1")
+
+    def test_update_status_resolved(self):
+        item = self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
+        self.q.update_status(item.item_id, "resolved", "removed listing")
+        self.assertEqual(item.status, "resolved")
+        self.assertIsNotNone(item.resolved_at)
+        self.assertEqual(item.notes, "removed listing")
+
+    def test_update_status_dismissed(self):
+        item = self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
+        self.q.update_status(item.item_id, "dismissed")
+        self.assertEqual(item.status, "dismissed")
+        self.assertIsNotNone(item.resolved_at)
+
+    def test_update_status_invalid_raises(self):
+        item = self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
+        with self.assertRaises(ValueError):
+            self.q.update_status(item.item_id, "archived")
+
+    def test_update_status_unknown_raises(self):
+        with self.assertRaises(ValueError):
+            self.q.update_status("no-id", "resolved")
+
+    def test_list_items_all(self):
+        self.q.enqueue("listing_report", "r1", "l1", "u1", "spam")
+        self.q.enqueue("review_report", "r2", "rev1", "u2", "abuse")
+        result = self.q.list_items()
+        self.assertEqual(result["total"], 2)
+
+    def test_list_items_filter_by_status(self):
+        item = self.q.enqueue("listing_report", "r1", "l1", "u1", "spam")
+        self.q.enqueue("review_report", "r2", "rev1", "u2", "abuse")
+        self.q.update_status(item.item_id, "resolved")
+        result = self.q.list_items(status="pending")
+        self.assertEqual(result["total"], 1)
+
+    def test_list_items_filter_by_kind(self):
+        self.q.enqueue("listing_report", "r1", "l1", "u1", "spam")
+        self.q.enqueue("review_report", "r2", "rev1", "u2", "abuse")
+        result = self.q.list_items(kind="review_report")
+        self.assertEqual(result["total"], 1)
+
+    def test_list_items_filter_by_priority(self):
+        self.q.enqueue("listing_report", "r1", "l1", "u1", "spam", priority="high")
+        self.q.enqueue("review_report", "r2", "rev1", "u2", "abuse", priority="low")
+        result = self.q.list_items(priority="high")
+        self.assertEqual(result["total"], 1)
+
+    def test_list_items_filter_by_assigned_to(self):
+        item = self.q.enqueue("listing_report", "r1", "l1", "u1", "spam")
+        self.q.enqueue("review_report", "r2", "rev1", "u2", "abuse")
+        self.q.assign(item.item_id, "admin1")
+        result = self.q.list_items(assigned_to="admin1")
+        self.assertEqual(result["total"], 1)
+
+    def test_list_items_sort_by_priority(self):
+        self.q.enqueue("listing_report", "r1", "l1", "u1", "x", priority="low")
+        self.q.enqueue("review_report", "r2", "rev1", "u2", "x", priority="high")
+        result = self.q.list_items(sort_by="priority")
+        self.assertEqual(result["items"][0]["priority"], "high")
+
+    def test_list_items_pagination(self):
+        for i in range(5):
+            self.q.enqueue("listing_report", f"r{i}", f"l{i}", "u1", "spam")
+        result = self.q.list_items(limit=3, offset=0)
+        self.assertEqual(result["total"], 5)
+        self.assertEqual(len(result["items"]), 3)
+        self.assertTrue(result["has_more"])
+
+    def test_get_stats(self):
+        self.q.enqueue("listing_report", "r1", "l1", "u1", "spam", priority="high")
+        self.q.enqueue("review_report", "r2", "rev1", "u2", "abuse", priority="medium")
+        stats = self.q.get_stats()
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["pending"], 2)
+        self.assertEqual(stats["open"], 2)
+        self.assertIn("listing_report", stats["by_kind"])
+
+    def test_get_stats_after_resolve(self):
+        item = self.q.enqueue("listing_report", "r1", "l1", "u1", "spam")
+        self.q.update_status(item.item_id, "resolved")
+        stats = self.q.get_stats()
+        self.assertEqual(stats["resolved"], 1)
+        self.assertEqual(stats["open"], 0)
+
+    def test_set_priority(self):
+        item = self.q.enqueue("listing_report", "r1", "l1", "u1", "spam")
+        self.q.set_priority(item.item_id, "high")
+        self.assertEqual(item.priority, "high")
+
+    def test_set_priority_invalid_raises(self):
+        item = self.q.enqueue("listing_report", "r1", "l1", "u1", "spam")
+        with self.assertRaises(ValueError):
+            self.q.set_priority(item.item_id, "critical")
+
+    def test_all_valid_kinds_work(self):
+        for i, kind in enumerate(VALID_KINDS):
+            item = self.q.enqueue(kind, f"src{i}", "sub1", "u1", "test")
+            self.assertEqual(item.kind, kind)
+
+
+class TestModerationQueueSingleton(unittest.TestCase):
+    def test_singleton(self):
+        a = get_moderation_queue()
+        b = get_moderation_queue()
+        self.assertIs(a, b)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

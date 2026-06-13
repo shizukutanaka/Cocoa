@@ -123,6 +123,7 @@ try:
     from .cart_manager import get_cart_manager
     from .commissions import get_commission_store
     from .license_manager import get_license_manager
+    from .moderation_queue import get_moderation_queue
     from .rate_limiter import get_client_ip, get_rate_limiter
     from .referral_manager import get_referral_manager
     from .saved_searches import get_saved_search_store
@@ -144,6 +145,7 @@ except ImportError:
     get_cart_manager = None
     get_commission_store = None
     get_license_manager = None
+    get_moderation_queue = None
     get_referral_manager = None
     get_wishlist_manager = None
     AuthError = Exception
@@ -4065,6 +4067,129 @@ async def list_banned_users(
         return {"total": 0, "offset": offset, "limit": limit,
                 "has_more": False, "next_offset": None, "items": []}
     return get_auth_manager().get_banned_users(admin, limit=limit, offset=offset)
+
+
+class ModerationEnqueueRequest(BaseModel):
+    kind: str
+    source_id: str
+    subject_id: str
+    reporter_id: str
+    reason: str
+    details: str = ""
+    priority: str = "medium"
+
+
+class ModerationUpdateRequest(BaseModel):
+    status: str
+    notes: str = ""
+
+
+class ModerationAssignRequest(BaseModel):
+    admin_id: str
+
+
+class ModerationPriorityRequest(BaseModel):
+    priority: str
+
+
+@app.get("/api/admin/moderation", tags=["admin"])
+async def list_moderation_items(
+    status: Optional[str] = Query(None),
+    kind: Optional[str] = Query(None),
+    priority: Optional[str] = Query(None),
+    assigned_to: Optional[str] = Query(None),
+    sort_by: str = Query("created_at"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(get_current_admin),
+):
+    """モデレーションキューの一覧を取得する（管理者専用）"""
+    if not get_moderation_queue:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_moderation_queue().list_items(
+        status=status, kind=kind, priority=priority,
+        assigned_to=assigned_to, limit=limit, offset=offset, sort_by=sort_by,
+    )
+
+
+@app.get("/api/admin/moderation/stats", tags=["admin"])
+async def moderation_stats(admin: dict = Depends(get_current_admin)):
+    """モデレーションキューの統計を取得する（管理者専用）"""
+    if not get_moderation_queue:
+        return {"total": 0, "pending": 0, "in_review": 0,
+                "resolved": 0, "dismissed": 0, "open": 0,
+                "by_kind": {}, "by_priority": {}}
+    return get_moderation_queue().get_stats()
+
+
+@app.post("/api/admin/moderation", tags=["admin"], status_code=201)
+async def enqueue_moderation_item(
+    body: ModerationEnqueueRequest,
+    admin: dict = Depends(get_current_admin),
+):
+    """モデレーションアイテムをキューに追加する（管理者専用）"""
+    if not get_moderation_queue:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_moderation_queue().enqueue(
+            kind=body.kind, source_id=body.source_id,
+            subject_id=body.subject_id, reporter_id=body.reporter_id,
+            reason=body.reason, details=body.details, priority=body.priority,
+        ).to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.put("/api/admin/moderation/{item_id}/assign", tags=["admin"])
+async def assign_moderation_item(
+    item_id: str,
+    body: ModerationAssignRequest,
+    admin: dict = Depends(get_current_admin),
+):
+    """モデレーションアイテムを管理者にアサインする"""
+    if not get_moderation_queue:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_moderation_queue().assign(item_id, body.admin_id).to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.put("/api/admin/moderation/{item_id}/status", tags=["admin"])
+async def update_moderation_status(
+    item_id: str,
+    body: ModerationUpdateRequest,
+    admin: dict = Depends(get_current_admin),
+):
+    """モデレーションアイテムのステータスを更新する"""
+    if not get_moderation_queue:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_moderation_queue().update_status(item_id, body.status, body.notes).to_dict()
+    except ValueError as e:
+        msg = str(e)
+        raise HTTPException(
+            status_code=404 if "見つかりません" in msg else 400, detail=msg
+        ) from e
+
+
+@app.put("/api/admin/moderation/{item_id}/priority", tags=["admin"])
+async def set_moderation_priority(
+    item_id: str,
+    body: ModerationPriorityRequest,
+    admin: dict = Depends(get_current_admin),
+):
+    """モデレーションアイテムの優先度を設定する"""
+    if not get_moderation_queue:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_moderation_queue().set_priority(item_id, body.priority).to_dict()
+    except ValueError as e:
+        msg = str(e)
+        raise HTTPException(
+            status_code=404 if "見つかりません" in msg else 400, detail=msg
+        ) from e
 
 
 @app.exception_handler(HTTPException)
