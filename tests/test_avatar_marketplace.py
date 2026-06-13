@@ -335,6 +335,29 @@ class TestCredits(unittest.TestCase):
             self.store.download(self.paid_listing.listing_id, "u_buyer")
         self.assertEqual(self.store.get_balance("u_buyer"), 20)
 
+    def test_gift_transfers_credits(self):
+        self.store.add_credits("u_sender", 100)
+        result = self.store.gift_credits("u_sender", "u_receiver", 40)
+        self.assertEqual(self.store.get_balance("u_sender"), 60)
+        self.assertEqual(self.store.get_balance("u_receiver"), 40)
+        self.assertEqual(result["sender_balance"], 60)
+        self.assertEqual(result["recipient_balance"], 40)
+
+    def test_gift_insufficient_balance_raises(self):
+        self.store.add_credits("u_sender", 10)
+        with self.assertRaises(ValueError):
+            self.store.gift_credits("u_sender", "u_receiver", 50)
+        self.assertEqual(self.store.get_balance("u_sender"), 10)
+
+    def test_gift_to_self_raises(self):
+        self.store.add_credits("u1", 50)
+        with self.assertRaises(ValueError):
+            self.store.gift_credits("u1", "u1", 10)
+
+    def test_gift_zero_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.gift_credits("u_sender", "u_receiver", 0)
+
 
 class TestRating(unittest.TestCase):
     def test_rate_valid(self):

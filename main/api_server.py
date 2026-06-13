@@ -1753,6 +1753,30 @@ async def get_credits_balance(current_user: dict = Depends(get_current_user)):
     return {"user_id": current_user["user_id"], "balance": balance}
 
 
+class GiftCreditsRequest(BaseModel):
+    recipient_id: str
+    amount: int
+
+
+@app.post("/api/credits/gift", tags=["marketplace"])
+async def gift_credits(body: GiftCreditsRequest, current_user: dict = Depends(get_current_user)):
+    """別のユーザーにクレジットをギフトする"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        result = get_marketplace().gift_credits(
+            current_user["user_id"], body.recipient_id, body.amount
+        )
+        return {
+            "status": "gifted",
+            "amount": body.amount,
+            "recipient_id": body.recipient_id,
+            **result,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 class GrantCreditsRequest(BaseModel):
     user_id: str
     amount: int
