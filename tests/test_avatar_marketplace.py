@@ -69,6 +69,81 @@ class TestUnpublish(unittest.TestCase):
         store = _store()
         self.assertFalse(store.unpublish("no-id", "u1"))
 
+    def test_quota_blocks_publish(self):
+        store = _store()
+        store.set_quota("u1", 1)
+        _listing(store, avatar_id="av1")  # first - allowed
+        with self.assertRaises(ValueError):
+            _listing(store, avatar_id="av2", name="Second Avatar")  # blocked by quota
+
+    def test_quota_allows_up_to_limit(self):
+        store = _store()
+        store.set_quota("u1", 3)
+        for i in range(3):
+            _listing(store, avatar_id=f"av{i}", name=f"Avatar {i}")
+        # 4th should fail
+        with self.assertRaises(ValueError):
+            _listing(store, avatar_id="av_extra", name="Extra")
+
+    def test_no_quota_is_unlimited(self):
+        store = _store()
+        # No quota set → can publish many
+        for i in range(5):
+            _listing(store, avatar_id=f"av{i}", name=f"Avatar {i}")
+
+    def test_get_quota_returns_none_when_not_set(self):
+        store = _store()
+        self.assertIsNone(store.get_quota("u1"))
+
+    def test_get_quota_returns_value_when_set(self):
+        store = _store()
+        store.set_quota("u1", 10)
+        self.assertEqual(store.get_quota("u1"), 10)
+
+    def test_active_listing_count(self):
+        store = _store()
+        _listing(store, avatar_id="av1")
+        _listing(store, avatar_id="av2", name="Avatar 2")
+        self.assertEqual(store.get_active_listing_count("u1"), 2)
+
+    def test_negative_quota_raises(self):
+        store = _store()
+        with self.assertRaises(ValueError):
+            store.set_quota("u1", -1)
+
+
+class TestRelatedListings(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.l1 = _listing(self.store, avatar_id="av1", name="Cute Cat", tags=["cute", "cat"], category="vrc")
+        self.l2 = _listing(self.store, avatar_id="av2", owner_id="u2", owner_username="bob",
+                           name="Cute Fox", tags=["cute", "fox"], category="vrc", description="cute fox")
+        self.l3 = _listing(self.store, avatar_id="av3", owner_id="u3", owner_username="carol",
+                           name="Scary Dragon", tags=["dragon", "scary"], category="world", description="dragon")
+
+    def test_related_returns_list(self):
+        result = self.store.get_related(self.l1.listing_id)
+        self.assertIsInstance(result, list)
+
+    def test_related_excludes_self(self):
+        result = self.store.get_related(self.l1.listing_id)
+        ids = [r["listing_id"] for r in result]
+        self.assertNotIn(self.l1.listing_id, ids)
+
+    def test_related_prefers_tag_overlap(self):
+        # l2 shares "cute" tag with l1; l3 shares nothing — l2 should rank higher
+        result = self.store.get_related(self.l1.listing_id)
+        if result:
+            self.assertEqual(result[0]["listing_id"], self.l2.listing_id)
+
+    def test_related_empty_for_unknown_listing(self):
+        result = self.store.get_related("no-such-id")
+        self.assertEqual(result, [])
+
+    def test_related_limit_respected(self):
+        result = self.store.get_related(self.l1.listing_id, limit=1)
+        self.assertLessEqual(len(result), 1)
+
 
 class TestDownload(unittest.TestCase):
     def test_download_returns_data(self):

@@ -140,6 +140,7 @@ class MarketplaceStore:
         self._download_log: List[Tuple[str, str, datetime]] = []  # (listing_id, downloader_id, ts)
         self._reports: Dict[str, ListingReport] = {}  # report_id → ListingReport
         self._credits: Dict[str, int] = {}  # user_id → credit balance
+        self._quotas: Dict[str, int] = {}  # user_id → max active listings (None/missing = unlimited)
         self._lock = threading.Lock()
 
     # --- Credits ledger ---
@@ -163,6 +164,22 @@ class MarketplaceStore:
             raise ValueError(f"残高不足 (残高: {balance}, 必要: {amount})")
         self._credits[user_id] = balance - amount
 
+    # --- Creator quota ---
+
+    def set_quota(self, user_id: str, max_listings: int) -> None:
+        """Set max number of active listings for a user (admin only). 0 = blocked."""
+        if max_listings < 0:
+            raise ValueError("max_listings must be ≥ 0")
+        self._quotas[user_id] = max_listings
+
+    def get_quota(self, user_id: str) -> Optional[int]:
+        """Return the quota for a user, or None if unlimited."""
+        return self._quotas.get(user_id)
+
+    def get_active_listing_count(self, user_id: str) -> int:
+        with self._lock:
+            return sum(1 for lst in self._listings.values() if lst.owner_id == user_id and lst.is_active)
+
     # --- Publish ---
 
     def publish(
@@ -180,6 +197,12 @@ class MarketplaceStore:
         price_credits: int = 0,
     ) -> MarketplaceListing:
         with self._lock:
+            # Enforce creator quota
+            quota = self._quotas.get(owner_id)
+            if quota is not None:
+                active_count = sum(1 for lst in self._listings.values() if lst.owner_id == owner_id and lst.is_active)
+                if active_count >= quota:
+                    raise ValueError(f"公開上限 ({quota} 件) に達しています。既存のリスティングを削除してから再試行してください")
             # Prevent duplicate listings for same avatar
             for existing in self._listings.values():
                 if existing.avatar_id == avatar_id and existing.owner_id == owner_id and existing.is_active:
@@ -459,6 +482,29 @@ class MarketplaceStore:
         ]
         rows.sort(key=lambda r: (r["score"], r["listing_count"]), reverse=True)
         return rows[:limit]
+
+    def get_related(self, listing_id: str, limit: int = 6) -> List[Dict[str, Any]]:
+        """Return listings similar to the given one, scored by shared tags + same category.
+
+        Scoring: +2 per shared tag, +1 for same category. Excludes the source listing.
+        """
+        with self._lock:
+            source = self._listings.get(listing_id)
+            if not source:
+                return []
+            candidates = [lst for lst in self._listings.values() if lst.is_active and lst.listing_id != listing_id]
+
+        src_tags = set(source.tags)
+        src_cat = source.category.lower()
+        scored: List[Tuple[float, "MarketplaceListing"]] = []
+        for lst in candidates:
+            score = 2 * len(src_tags & set(lst.tags))
+            if lst.category.lower() == src_cat:
+                score += 1
+            if score > 0:
+                scored.append((score, lst))
+        scored.sort(key=lambda x: (-x[0], -x[1].download_count))
+        return [lst.to_dict() for _, lst in scored[:limit]]
 
     def get_stats(self) -> Dict[str, Any]:
         with self._lock:

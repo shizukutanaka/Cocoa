@@ -196,12 +196,14 @@ else:
 # セキュリティ・レート制限ミドルウェア
 if FASTAPI_AVAILABLE:
     # Security response headers applied to every response
+    _API_VERSION = "2.0.0"
     _SECURITY_HEADERS = {
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "X-XSS-Protection": "1; mode=block",
         "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+        "X-API-Version": _API_VERSION,
     }
 
     def _apply_security_headers(response):
@@ -1335,6 +1337,15 @@ async def get_listing(listing_id: str):
     return listing.to_dict()
 
 
+@app.get("/api/marketplace/{listing_id}/related", tags=["marketplace"])
+async def related_listings(listing_id: str, limit: int = Query(6, ge=1, le=20)):
+    """指定リスティングに類似したアバターを取得（タグ・カテゴリが近いもの）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    items = get_marketplace().get_related(listing_id, limit=limit)
+    return {"listing_id": listing_id, "items": items, "count": len(items)}
+
+
 @app.post("/api/marketplace/{listing_id}/download", tags=["marketplace"])
 async def download_avatar(listing_id: str, current_user: dict = Depends(get_current_user)):
     """マーケットプレイスからアバターをダウンロード（クローン）"""
@@ -1524,6 +1535,46 @@ async def grant_credits(body: GrantCreditsRequest, admin: dict = Depends(get_cur
         return {"user_id": body.user_id, "granted": body.amount, "new_balance": new_balance}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+class SetQuotaRequest(BaseModel):
+    user_id: str
+    max_listings: int
+
+
+@app.post("/api/admin/quotas/set", tags=["admin"])
+async def set_listing_quota(body: SetQuotaRequest, admin: dict = Depends(get_current_admin)):
+    """ユーザーのリスティング公開上限を設定（管理者専用）。-1 で無制限に戻す"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    mp = get_marketplace()
+    if body.max_listings < 0:
+        mp._quotas.pop(body.user_id, None)  # Remove quota → unlimited
+        return {"user_id": body.user_id, "max_listings": None, "status": "unlimited"}
+    try:
+        mp.set_quota(body.user_id, body.max_listings)
+        active = mp.get_active_listing_count(body.user_id)
+        return {
+            "user_id": body.user_id,
+            "max_listings": body.max_listings,
+            "current_active": active,
+            "status": "set",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/admin/quotas/{user_id}", tags=["admin"])
+async def get_listing_quota(user_id: str, admin: dict = Depends(get_current_admin)):
+    """ユーザーのリスティング公開状況を確認（管理者専用）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    mp = get_marketplace()
+    return {
+        "user_id": user_id,
+        "max_listings": mp.get_quota(user_id),
+        "current_active": mp.get_active_listing_count(user_id),
+    }
 
 
 # ===========================================================================
