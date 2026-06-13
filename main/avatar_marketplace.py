@@ -422,18 +422,6 @@ class MarketplaceStore:
         with self._lock:
             return self._credit_locked(user_id, amount, "grant")
 
-    def _deduct_credits(self, user_id: str, amount: int) -> None:
-        """Deduct credits without a ledger entry; raises if insufficient. Call within lock.
-
-        Retained for callers that record their own ledger entry separately.
-        Prefer ``_debit_locked`` for new code so the deduction and its ledger
-        entry stay together.
-        """
-        balance = self._credits.get(user_id, 0)
-        if balance < amount:
-            raise ValueError(f"残高不足 (残高: {balance}, 必要: {amount})")
-        self._credits[user_id] = balance - amount
-
     def gift_credits(self, sender_id: str, recipient_id: str, amount: int) -> Dict[str, int]:
         """Transfer credits from sender to recipient. Returns new balances for both."""
         if amount <= 0:
