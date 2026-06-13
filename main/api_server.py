@@ -129,6 +129,7 @@ try:
     from .saved_searches import get_saved_search_store
     from .search_engine import get_search_index
     from .user_notifications import get_notification_queue
+    from .gift_card_manager import get_gift_card_manager
     from .wishlist_manager import get_wishlist_manager
     _NEW_MODULES_AVAILABLE = True
 except ImportError:
@@ -144,6 +145,7 @@ except ImportError:
     get_bundle_manager = None
     get_cart_manager = None
     get_commission_store = None
+    get_gift_card_manager = None
     get_license_manager = None
     get_moderation_queue = None
     get_referral_manager = None
@@ -4190,6 +4192,87 @@ async def set_moderation_priority(
         raise HTTPException(
             status_code=404 if "見つかりません" in msg else 400, detail=msg
         ) from e
+
+
+# ---------------------------------------------------------------------------
+# Gift card endpoints
+# ---------------------------------------------------------------------------
+
+class GiftCardPurchaseRequest(BaseModel):
+    amount: int
+    message: str = ""
+    expires_at: Optional[str] = None   # ISO-8601 datetime string
+
+
+class GiftCardRedeemRequest(BaseModel):
+    code: str
+
+
+@app.post("/api/gift-cards", status_code=201)
+async def purchase_gift_card(
+    body: GiftCardPurchaseRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """ギフトカードを購入する"""
+    if not get_gift_card_manager or not get_marketplace:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    expires_at = None
+    if body.expires_at:
+        from datetime import timezone as _tz
+        try:
+            from datetime import datetime as _dt
+            expires_at = _dt.fromisoformat(body.expires_at.replace("Z", "+00:00"))
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=_tz.utc)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"expires_at形式が不正です: {e}") from e
+    try:
+        return get_gift_card_manager().purchase(
+            payload["sub"], body.amount, get_marketplace(), body.message, expires_at
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/gift-cards/mine")
+async def list_my_gift_cards(
+    limit: int = 50,
+    offset: int = 0,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """自分が購入したギフトカード一覧を取得する"""
+    if not get_gift_card_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    return get_gift_card_manager().get_my_cards(payload["sub"], limit=limit, offset=offset)
+
+
+@app.post("/api/gift-cards/redeem")
+async def redeem_gift_card(
+    body: GiftCardRedeemRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """ギフトカードコードを使用してクレジットを受け取る"""
+    if not get_gift_card_manager or not get_marketplace:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    try:
+        return get_gift_card_manager().redeem(body.code, payload["sub"], get_marketplace())
+    except ValueError as e:
+        msg = str(e)
+        raise HTTPException(status_code=400, detail=msg) from e
+
+
+@app.get("/api/gift-cards/lookup")
+async def lookup_gift_card(code: str):
+    """コードの有効性と金額を公開確認する（購入者情報なし）"""
+    if not get_gift_card_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    result = get_gift_card_manager().lookup(code)
+    if result is None:
+        raise HTTPException(status_code=404, detail="ギフトカードが見つかりません")
+    return result
 
 
 @app.exception_handler(HTTPException)
