@@ -121,6 +121,7 @@ SAFE_MODULES = [
     "tests.test_avatar_collections",
     "tests.test_saved_searches",
     "tests.test_commissions",
+    "tests.test_cart_manager",
 ]
 
 

@@ -119,6 +119,7 @@ try:
     from .auth_manager import AuthError, get_auth_manager
     from .avatar_collections import get_collection_store
     from .avatar_marketplace import get_marketplace
+    from .cart_manager import get_cart_manager
     from .commissions import get_commission_store
     from .rate_limiter import get_client_ip, get_rate_limiter
     from .saved_searches import get_saved_search_store
@@ -135,6 +136,7 @@ except ImportError:
     get_notification_queue = None
     get_collection_store = None
     get_saved_search_store = None
+    get_cart_manager = None
     get_commission_store = None
     AuthError = Exception
 
@@ -3501,6 +3503,130 @@ async def get_user_public_tips(
     for item in result["items"]:
         item.pop("sender_id", None)
     return result
+
+
+class CartAddItemRequest(BaseModel):
+    listing_id: str
+    promo_code: str = ""
+
+
+class CartSetPromoRequest(BaseModel):
+    promo_code: str
+
+
+@app.get("/api/cart", tags=["cart"])
+async def get_cart(current_user: dict = Depends(get_current_user)):
+    """現在のカートを取得する"""
+    if not get_cart_manager:
+        return {"cart_id": "", "user_id": current_user["user_id"],
+                "items": [], "item_count": 0, "subtotal_credits": 0}
+    return get_cart_manager().get_cart(current_user["user_id"])
+
+
+@app.post("/api/cart/items", tags=["cart"], status_code=201)
+async def add_to_cart(
+    body: CartAddItemRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """カートにアイテムを追加する"""
+    if not get_cart_manager or not get_marketplace:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    mp = get_marketplace()
+    listing = mp._listings.get(body.listing_id)
+    if not listing or not listing.is_active:
+        raise HTTPException(status_code=404, detail="リスティングが見つかりません")
+    if listing.owner_id == current_user["user_id"]:
+        raise HTTPException(status_code=400, detail="自分自身のリスティングはカートに追加できません")
+    try:
+        cart = get_cart_manager().add_item(
+            user_id=current_user["user_id"],
+            listing_id=body.listing_id,
+            name=listing.name,
+            owner_id=listing.owner_id,
+            owner_username=listing.owner_username,
+            price_credits=listing.price_credits,
+            is_free=listing.is_free,
+            promo_code=body.promo_code,
+        )
+        return cart
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/cart/items/{listing_id}", tags=["cart"])
+async def remove_from_cart(
+    listing_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """カートからアイテムを削除する"""
+    if not get_cart_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_cart_manager().remove_item(current_user["user_id"], listing_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.delete("/api/cart", tags=["cart"])
+async def clear_cart(current_user: dict = Depends(get_current_user)):
+    """カートを空にする"""
+    if not get_cart_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    get_cart_manager().clear_cart(current_user["user_id"])
+    return {"message": "カートを空にしました"}
+
+
+@app.put("/api/cart/items/{listing_id}/promo", tags=["cart"])
+async def set_cart_item_promo(
+    listing_id: str,
+    body: CartSetPromoRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """カートアイテムのプロモコードを設定/更新する"""
+    if not get_cart_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_cart_manager().set_promo_code(current_user["user_id"], listing_id, body.promo_code)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.post("/api/cart/checkout", tags=["cart"], status_code=201)
+async def checkout_cart(current_user: dict = Depends(get_current_user)):
+    """カートのチェックアウトを実行する（全アイテムを一括購入）"""
+    if not get_cart_manager or not get_marketplace:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_cart_manager().checkout(current_user["user_id"], get_marketplace())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/orders", tags=["cart"])
+async def get_orders(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分の注文履歴を取得する"""
+    if not get_cart_manager:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_cart_manager().get_orders(current_user["user_id"], limit=limit, offset=offset)
+
+
+@app.get("/api/orders/{order_id}", tags=["cart"])
+async def get_order(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """特定の注文を取得する"""
+    if not get_cart_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    order = get_cart_manager().get_order(current_user["user_id"], order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="注文が見つかりません")
+    return order
 
 
 class BanUserRequest(BaseModel):
