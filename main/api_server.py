@@ -2822,6 +2822,68 @@ async def resolve_report(report_id: str, body: ResolveReportRequest, admin: dict
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+class ReportReviewRequest(BaseModel):
+    reason: str  # spam | offensive | false_info | other
+    details: str = ""
+
+
+class ResolveReviewReportRequest(BaseModel):
+    action: str  # "resolved" | "dismissed"
+    note: str = ""
+    hide: bool = False
+
+
+@app.post("/api/marketplace/reviews/{review_id}/report", tags=["marketplace"])
+async def report_review(
+    review_id: str,
+    body: ReportReviewRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """レビューを通報する"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        report = get_marketplace().report_review(
+            review_id, current_user["user_id"], body.reason, body.details
+        )
+        return report.to_dict()
+    except ValueError as e:
+        status = 404 if "見つかりません" in str(e) else 400
+        raise HTTPException(status_code=status, detail=str(e)) from e
+
+
+@app.get("/api/admin/review-reports", tags=["admin"])
+async def list_review_reports(
+    status: Optional[str] = Query(None, description="pending | resolved | dismissed"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(get_current_admin),
+):
+    """レビュー通報一覧（管理者専用）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    return get_marketplace().get_review_reports(status=status, limit=limit, offset=offset)
+
+
+@app.post("/api/admin/review-reports/{report_id}/resolve", tags=["admin"])
+async def resolve_review_report(
+    report_id: str,
+    body: ResolveReviewReportRequest,
+    admin: dict = Depends(get_current_admin),
+):
+    """レビュー通報を解決（管理者専用）。hide=trueで対象レビューも非表示化"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        report = get_marketplace().resolve_review_report(
+            report_id, admin["user_id"], body.action, body.note, hide=body.hide
+        )
+        return {"status": "resolved", "report": report.to_dict()}
+    except ValueError as e:
+        status = 404 if "見つかりません" in str(e) else 400
+        raise HTTPException(status_code=status, detail=str(e)) from e
+
+
 class ResolveDisputeRequest(BaseModel):
     decision: str  # "refund" | "release"
     note: str = ""

@@ -223,6 +223,34 @@ class ListingReport:
         }
 
 
+@dataclass
+class ReviewReport:
+    report_id: str
+    review_id: str
+    reporter_id: str
+    reason: str   # spam | offensive | false_info | other
+    details: str
+    status: str = "pending"  # pending | resolved | dismissed
+    resolved_by: str = ""
+    resolution_note: str = ""
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    resolved_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "report_id": self.report_id,
+            "review_id": self.review_id,
+            "reporter_id": self.reporter_id,
+            "reason": self.reason,
+            "details": self.details,
+            "status": self.status,
+            "resolved_by": self.resolved_by,
+            "resolution_note": self.resolution_note,
+            "created_at": self.created_at.isoformat(),
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+        }
+
+
 # ---------------------------------------------------------------------------
 # In-memory store (production: swap for DB table)
 # ---------------------------------------------------------------------------
@@ -242,6 +270,7 @@ class MarketplaceStore:
         self._disputes: Dict[str, PurchaseDispute] = {}  # dispute_id → PurchaseDispute
         self._versions: Dict[str, List[ListingVersion]] = {}  # listing_id → [ListingVersion], oldest first
         self._credit_ledger: Dict[str, List[Dict[str, Any]]] = {}  # user_id → [{amount, kind, ref_id, balance_after, ts}]
+        self._review_reports: Dict[str, ReviewReport] = {}  # report_id → ReviewReport
         self._lock = threading.Lock()
 
     # --- Credits ledger ---
@@ -1434,6 +1463,82 @@ class MarketplaceStore:
             by_status[r.status] = by_status.get(r.status, 0) + 1
             by_reason[r.reason] = by_reason.get(r.reason, 0) + 1
         return {"total": len(items), "by_status": by_status, "by_reason": by_reason}
+
+    # --- Review reports ---
+
+    _REVIEW_REPORT_REASONS = frozenset({"spam", "offensive", "false_info", "other"})
+
+    def report_review(
+        self, review_id: str, reporter_id: str, reason: str, details: str = ""
+    ) -> ReviewReport:
+        """File a report against a review. One pending report per user per review."""
+        if reason not in self._REVIEW_REPORT_REASONS:
+            raise ValueError(f"reason は {sorted(self._REVIEW_REPORT_REASONS)} のいずれかです")
+        with self._lock:
+            if self._find_review(review_id) is None:
+                raise ValueError("レビューが見つかりません")
+            for existing in self._review_reports.values():
+                if existing.review_id == review_id and existing.reporter_id == reporter_id and existing.status == "pending":
+                    raise ValueError("すでにこのレビューへの報告が審査中です")
+            report = ReviewReport(
+                report_id=secrets.token_hex(10),
+                review_id=review_id,
+                reporter_id=reporter_id,
+                reason=reason,
+                details=details.strip()[:1000],
+            )
+            self._review_reports[report.report_id] = report
+        logger.info("Review reported: %s (reason=%s)", review_id, reason)
+        return report
+
+    def get_review_reports(
+        self, status: Optional[str] = None, limit: int = 50, offset: int = 0
+    ) -> Dict[str, Any]:
+        """List review moderation reports (admin)."""
+        with self._lock:
+            items = list(self._review_reports.values())
+        if status:
+            items = [r for r in items if r.status == status]
+        items.sort(key=lambda r: r.created_at, reverse=True)
+        total = len(items)
+        page = items[offset: offset + limit]
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": [r.to_dict() for r in page],
+        }
+
+    def resolve_review_report(
+        self,
+        report_id: str,
+        moderator_id: str,
+        action: str,  # "resolved" | "dismissed"
+        note: str = "",
+        *,
+        hide: bool = False,
+    ) -> ReviewReport:
+        """Resolve a review report. If hide=True, hides the review as well."""
+        if action not in ("resolved", "dismissed"):
+            raise ValueError("action は 'resolved' または 'dismissed' のいずれかです")
+        with self._lock:
+            report = self._review_reports.get(report_id)
+            if not report:
+                raise ValueError("報告が見つかりません")
+            if report.status != "pending":
+                raise ValueError("この報告はすでに処理済みです")
+            report.status = action
+            report.resolved_by = moderator_id
+            report.resolution_note = note.strip()[:1000]
+            report.resolved_at = datetime.now(timezone.utc)
+            if hide:
+                rv = self._find_review(report.review_id)
+                if rv:
+                    rv.is_hidden = True
+        return report
 
 
 # ---------------------------------------------------------------------------

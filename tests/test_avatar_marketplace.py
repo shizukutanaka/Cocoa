@@ -1823,5 +1823,88 @@ class TestTagFeed(unittest.TestCase):
             self.assertIn(key, result)
 
 
+class TestReviewReports(unittest.TestCase):
+    def setUp(self):
+        self.store = MarketplaceStore()
+        lst = _listing(self.store)
+        self.listing_id = lst.listing_id
+        _, self.rv = self.store.review(self.listing_id, "u2", "bob", 3, "Decent")
+        self.review_id = self.rv.review_id
+
+    def test_report_review_succeeds(self):
+        report = self.store.report_review(self.review_id, "u3", "spam")
+        self.assertEqual(report.review_id, self.review_id)
+        self.assertEqual(report.status, "pending")
+
+    def test_report_review_invalid_reason_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.report_review(self.review_id, "u3", "invalid_reason")
+
+    def test_report_unknown_review_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.report_review("no-such-id", "u3", "spam")
+
+    def test_duplicate_pending_report_raises(self):
+        self.store.report_review(self.review_id, "u3", "spam")
+        with self.assertRaises(ValueError):
+            self.store.report_review(self.review_id, "u3", "spam")
+
+    def test_different_reporters_can_both_report(self):
+        self.store.report_review(self.review_id, "u3", "spam")
+        report2 = self.store.report_review(self.review_id, "u4", "offensive")
+        self.assertIsNotNone(report2)
+
+    def test_get_review_reports_returns_all(self):
+        self.store.report_review(self.review_id, "u3", "spam")
+        result = self.store.get_review_reports()
+        self.assertEqual(result["total"], 1)
+
+    def test_get_review_reports_filter_by_status(self):
+        report = self.store.report_review(self.review_id, "u3", "spam")
+        self.store.resolve_review_report(report.report_id, "mod1", "resolved")
+        pending = self.store.get_review_reports(status="pending")
+        self.assertEqual(pending["total"], 0)
+        resolved = self.store.get_review_reports(status="resolved")
+        self.assertEqual(resolved["total"], 1)
+
+    def test_resolve_report_resolved(self):
+        report = self.store.report_review(self.review_id, "u3", "offensive")
+        result = self.store.resolve_review_report(report.report_id, "mod1", "resolved", "Valid report")
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.resolved_by, "mod1")
+
+    def test_resolve_report_dismissed(self):
+        report = self.store.report_review(self.review_id, "u3", "false_info")
+        result = self.store.resolve_review_report(report.report_id, "mod1", "dismissed")
+        self.assertEqual(result.status, "dismissed")
+
+    def test_resolve_with_hide_hides_review(self):
+        report = self.store.report_review(self.review_id, "u3", "spam")
+        self.store.resolve_review_report(report.report_id, "mod1", "resolved", hide=True)
+        reviews = self.store.get_reviews(self.listing_id)
+        self.assertEqual(reviews["total"], 0)
+
+    def test_resolve_already_resolved_raises(self):
+        report = self.store.report_review(self.review_id, "u3", "spam")
+        self.store.resolve_review_report(report.report_id, "mod1", "resolved")
+        with self.assertRaises(ValueError):
+            self.store.resolve_review_report(report.report_id, "mod1", "dismissed")
+
+    def test_resolve_invalid_action_raises(self):
+        report = self.store.report_review(self.review_id, "u3", "spam")
+        with self.assertRaises(ValueError):
+            self.store.resolve_review_report(report.report_id, "mod1", "approve")
+
+    def test_resolve_unknown_report_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.resolve_review_report("no-such-id", "mod1", "resolved")
+
+    def test_review_report_to_dict(self):
+        report = self.store.report_review(self.review_id, "u3", "spam", "Clearly spam")
+        d = report.to_dict()
+        for key in ("report_id", "review_id", "reporter_id", "reason", "status", "created_at"):
+            self.assertIn(key, d)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
