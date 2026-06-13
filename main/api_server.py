@@ -122,6 +122,7 @@ try:
     from .cart_manager import get_cart_manager
     from .commissions import get_commission_store
     from .rate_limiter import get_client_ip, get_rate_limiter
+    from .referral_manager import get_referral_manager
     from .saved_searches import get_saved_search_store
     from .search_engine import get_search_index
     from .user_notifications import get_notification_queue
@@ -138,6 +139,7 @@ except ImportError:
     get_saved_search_store = None
     get_cart_manager = None
     get_commission_store = None
+    get_referral_manager = None
     AuthError = Exception
 
 # ロギング設定
@@ -3662,6 +3664,45 @@ async def get_order(
     if not order:
         raise HTTPException(status_code=404, detail="注文が見つかりません")
     return order
+
+
+@app.get("/api/referrals/my-code", tags=["referrals"])
+async def get_my_referral_code(current_user: dict = Depends(get_current_user)):
+    """自分の招待コードを取得する（存在しない場合は新規発行）"""
+    if not get_referral_manager:
+        return {"code": ""}
+    code = get_referral_manager().get_my_code(current_user["user_id"])
+    return {"code": code, "user_id": current_user["user_id"]}
+
+
+@app.get("/api/referrals/my-referrals", tags=["referrals"])
+async def get_my_referrals(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分が招待したユーザーの一覧を取得する"""
+    if not get_referral_manager:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_referral_manager().get_my_referrals(current_user["user_id"], limit=limit, offset=offset)
+
+
+@app.get("/api/referrals/my-stats", tags=["referrals"])
+async def get_my_referral_stats(current_user: dict = Depends(get_current_user)):
+    """自分の招待統計（総招待数・変換数・ボーナス合計）を取得する"""
+    if not get_referral_manager:
+        return {"referrer_id": current_user["user_id"], "total_referrals": 0,
+                "converted": 0, "pending": 0, "total_bonus_earned": 0}
+    return get_referral_manager().get_my_stats(current_user["user_id"])
+
+
+@app.get("/api/referrals/how-i-joined", tags=["referrals"])
+async def how_i_joined(current_user: dict = Depends(get_current_user)):
+    """自分がどの招待コードで登録したか（ある場合）を返す"""
+    if not get_referral_manager:
+        return None
+    return get_referral_manager().get_my_referral_info(current_user["user_id"])
 
 
 class BanUserRequest(BaseModel):
