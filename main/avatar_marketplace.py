@@ -367,6 +367,37 @@ class MarketplaceStore:
         }
         self._credit_ledger.setdefault(user_id, []).append(entry)
 
+    # ------------------------------------------------------------------
+    # Lock-internal money primitives
+    #
+    # These are the ONLY place a balance changes.  Every credit-moving path
+    # (grants, purchases, sales, gifts, refunds, dispute reversals, and the
+    # public credit()/debit() used by other subsystems) routes through them,
+    # so a balance change can never happen without a matching ledger entry.
+    # Callers MUST already hold self._lock.
+    # ------------------------------------------------------------------
+
+    def _credit_locked(self, user_id: str, amount: int, kind: str, ref_id: str = "") -> int:
+        """Add ``amount`` (>0) to a balance and record it. Returns new balance."""
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        new_bal = self._credits.get(user_id, 0) + amount
+        self._credits[user_id] = new_bal
+        self._append_ledger(user_id, amount, kind, ref_id=ref_id, balance_after=new_bal)
+        return new_bal
+
+    def _debit_locked(self, user_id: str, amount: int, kind: str, ref_id: str = "") -> int:
+        """Deduct ``amount`` (>0); raise if insufficient. Returns new balance."""
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        balance = self._credits.get(user_id, 0)
+        if balance < amount:
+            raise ValueError(f"残高不足 (残高: {balance}, 必要: {amount})")
+        new_bal = balance - amount
+        self._credits[user_id] = new_bal
+        self._append_ledger(user_id, -amount, kind, ref_id=ref_id, balance_after=new_bal)
+        return new_bal
+
     def get_credit_history(
         self, user_id: str, limit: int = 50, offset: int = 0
     ) -> Dict[str, Any]:
@@ -388,16 +419,16 @@ class MarketplaceStore:
 
     def add_credits(self, user_id: str, amount: int) -> int:
         """Add credits to a user's balance (admin grant or purchase). Returns new balance."""
-        if amount <= 0:
-            raise ValueError("amount must be positive")
         with self._lock:
-            self._credits[user_id] = self._credits.get(user_id, 0) + amount
-            bal = self._credits[user_id]
-            self._append_ledger(user_id, amount, "grant", balance_after=bal)
-            return bal
+            return self._credit_locked(user_id, amount, "grant")
 
     def _deduct_credits(self, user_id: str, amount: int) -> None:
-        """Deduct credits; raises ValueError if insufficient balance. Call within lock."""
+        """Deduct credits without a ledger entry; raises if insufficient. Call within lock.
+
+        Retained for callers that record their own ledger entry separately.
+        Prefer ``_debit_locked`` for new code so the deduction and its ledger
+        entry stay together.
+        """
         balance = self._credits.get(user_id, 0)
         if balance < amount:
             raise ValueError(f"残高不足 (残高: {balance}, 必要: {amount})")
@@ -410,14 +441,8 @@ class MarketplaceStore:
         if sender_id == recipient_id:
             raise ValueError("自分自身にギフトすることはできません")
         with self._lock:
-            self._deduct_credits(sender_id, amount)
-            self._credits[recipient_id] = self._credits.get(recipient_id, 0) + amount
-            sender_bal = self._credits.get(sender_id, 0)
-            recipient_bal = self._credits[recipient_id]
-            self._append_ledger(sender_id, -amount, "gift_sent",
-                                 ref_id=recipient_id, balance_after=sender_bal)
-            self._append_ledger(recipient_id, amount, "gift_received",
-                                 ref_id=sender_id, balance_after=recipient_bal)
+            sender_bal = self._debit_locked(sender_id, amount, "gift_sent", ref_id=recipient_id)
+            recipient_bal = self._credit_locked(recipient_id, amount, "gift_received", ref_id=sender_id)
             return {
                 "sender_balance": sender_bal,
                 "recipient_balance": recipient_bal,
@@ -429,13 +454,8 @@ class MarketplaceStore:
         Public, audited entry point for other subsystems (gift cards, refunds,
         referrals, …) so they need not touch the private balance store directly.
         """
-        if amount <= 0:
-            raise ValueError("amount must be positive")
         with self._lock:
-            new_bal = self._credits.get(user_id, 0) + amount
-            self._credits[user_id] = new_bal
-            self._append_ledger(user_id, amount, kind, ref_id=ref_id, balance_after=new_bal)
-            return new_bal
+            return self._credit_locked(user_id, amount, kind, ref_id=ref_id)
 
     def debit(self, user_id: str, amount: int, kind: str, ref_id: str = "") -> int:
         """Atomically deduct credits with a custom ledger kind. Returns new balance.
@@ -443,13 +463,8 @@ class MarketplaceStore:
         Raises ValueError if the balance is insufficient.  Public, audited
         counterpart to ``credit`` for other subsystems.
         """
-        if amount <= 0:
-            raise ValueError("amount must be positive")
         with self._lock:
-            self._deduct_credits(user_id, amount)
-            new_bal = self._credits.get(user_id, 0)
-            self._append_ledger(user_id, -amount, kind, ref_id=ref_id, balance_after=new_bal)
-            return new_bal
+            return self._debit_locked(user_id, amount, kind, ref_id=ref_id)
 
     # --- Creator quota ---
 
@@ -638,17 +653,10 @@ class MarketplaceStore:
                     applied_promo = pc
 
             if paid:
-                self._deduct_credits(downloader_id, actual_price)
-                buyer_bal = self._credits.get(downloader_id, 0)
-                self._append_ledger(downloader_id, -actual_price, "purchase",
-                                     ref_id=listing_id, balance_after=buyer_bal)
-                # Credit seller with discounted amount
-                self._credits[listing.owner_id] = (
-                    self._credits.get(listing.owner_id, 0) + actual_price
-                )
-                seller_bal = self._credits[listing.owner_id]
-                self._append_ledger(listing.owner_id, actual_price, "sale",
-                                     ref_id=listing_id, balance_after=seller_bal)
+                # Buyer pays, seller is credited — symmetric, both via the
+                # single money primitive so neither side can be forgotten.
+                self._debit_locked(downloader_id, actual_price, "purchase", ref_id=listing_id)
+                self._credit_locked(listing.owner_id, actual_price, "sale", ref_id=listing_id)
                 if applied_promo:
                     applied_promo.uses_count += 1
 
@@ -1295,17 +1303,13 @@ class MarketplaceStore:
                 # ledger.  The clawback is clamped to the seller's balance (the
                 # platform absorbs any shortfall) to keep balances non-negative.
                 amount = dispute.amount_credits
-                buyer_bal = self._credits.get(dispute.buyer_id, 0) + amount
-                self._credits[dispute.buyer_id] = buyer_bal
-                self._append_ledger(dispute.buyer_id, amount, "dispute_refund",
-                                    ref_id=dispute.listing_id, balance_after=buyer_bal)
+                self._credit_locked(dispute.buyer_id, amount, "dispute_refund",
+                                    ref_id=dispute.listing_id)
                 seller_avail = self._credits.get(dispute.seller_id, 0)
                 claw = min(seller_avail, amount)
                 if claw > 0:
-                    seller_bal = seller_avail - claw
-                    self._credits[dispute.seller_id] = seller_bal
-                    self._append_ledger(dispute.seller_id, -claw, "dispute_reversal",
-                                        ref_id=dispute.listing_id, balance_after=seller_bal)
+                    self._debit_locked(dispute.seller_id, claw, "dispute_reversal",
+                                       ref_id=dispute.listing_id)
                 if claw < amount:
                     logger.warning(
                         "Dispute clawback shortfall: dispute=%s seller=%s owed=%d clawed=%d",

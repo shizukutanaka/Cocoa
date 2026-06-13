@@ -337,23 +337,15 @@ class BundleManager:
                     skipped.append({"listing_id": listing_id, "reason": "sold_out"})
                     continue
                 if final_price > 0:
-                    # Check balance
-                    balance = marketplace_store._credits.get(buyer_id, 0)
-                    if balance < final_price:
+                    # Check balance before charging so an unaffordable item is
+                    # skipped rather than raising mid-bundle.
+                    if marketplace_store._credits.get(buyer_id, 0) < final_price:
                         skipped.append({"listing_id": listing_id, "reason": "insufficient_credits"})
                         continue
-                    marketplace_store._credits[buyer_id] = balance - final_price
-                    buyer_bal = marketplace_store._credits[buyer_id]
-                    marketplace_store._append_ledger(
-                        buyer_id, -final_price, "purchase",
-                        ref_id=listing_id, balance_after=buyer_bal,
-                    )
-                    seller_bal = marketplace_store._credits.get(lst.owner_id, 0) + final_price
-                    marketplace_store._credits[lst.owner_id] = seller_bal
-                    marketplace_store._append_ledger(
-                        lst.owner_id, final_price, "sale",
-                        ref_id=listing_id, balance_after=seller_bal,
-                    )
+                    # Buyer pays, seller is credited — both via the marketplace's
+                    # single money primitive (symmetric, ledger-recorded).
+                    marketplace_store._debit_locked(buyer_id, final_price, "purchase", ref_id=listing_id)
+                    marketplace_store._credit_locked(lst.owner_id, final_price, "sale", ref_id=listing_id)
 
                 now = datetime.now(timezone.utc)
                 lst.download_count += 1

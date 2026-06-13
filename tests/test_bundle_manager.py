@@ -41,6 +41,23 @@ class _FakeMP:
     def _append_ledger(self, user_id, amount, kind, ref_id=None, balance_after=0):
         self._ledger.append({"user_id": user_id, "amount": amount, "kind": kind})
 
+    def _credit_locked(self, user_id, amount, kind, ref_id=""):
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        self._credits[user_id] = self._credits.get(user_id, 0) + amount
+        self._append_ledger(user_id, amount, kind, ref_id=ref_id)
+        return self._credits[user_id]
+
+    def _debit_locked(self, user_id, amount, kind, ref_id=""):
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        balance = self._credits.get(user_id, 0)
+        if balance < amount:
+            raise ValueError(f"残高不足 (残高: {balance}, 必要: {amount})")
+        self._credits[user_id] = balance - amount
+        self._append_ledger(user_id, -amount, kind, ref_id=ref_id)
+        return self._credits[user_id]
+
 
 def _make_mgr() -> tuple:
     store = BundleStore()

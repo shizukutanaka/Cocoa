@@ -291,6 +291,44 @@ class TestDownloadHistory(unittest.TestCase):
         self.assertEqual(result_u3["total"], 0)
 
 
+class TestMoneyPrimitiveInvariant(unittest.TestCase):
+    """Every balance change must route through the primitive and leave a ledger trail."""
+
+    def setUp(self):
+        self.store = _store()
+
+    def _ledger_sum(self, user_id):
+        return sum(e["amount"] for e in self.store._credit_ledger.get(user_id, []))
+
+    def test_ledger_sum_equals_balance_after_grant(self):
+        self.store.add_credits("u1", 100)
+        self.assertEqual(self._ledger_sum("u1"), self.store.get_balance("u1"))
+
+    def test_ledger_sum_equals_balance_after_gift(self):
+        self.store.add_credits("sender", 100)
+        self.store.gift_credits("sender", "recv", 40)
+        self.assertEqual(self._ledger_sum("sender"), self.store.get_balance("sender"))
+        self.assertEqual(self._ledger_sum("recv"), self.store.get_balance("recv"))
+
+    def test_ledger_sum_equals_balance_after_purchase(self):
+        self.store.add_credits("buyer", 200)
+        listing = _listing(
+            self.store, avatar_id="av_p", owner_id="seller", owner_username="s",
+            name="P", description="", tags=[], category="vrc", parameters={},
+            is_free=False, price_credits=50,
+        )
+        self.store.download(listing.listing_id, "buyer")
+        # Buyer ledger sums to remaining balance; seller ledger to proceeds.
+        self.assertEqual(self._ledger_sum("buyer"), self.store.get_balance("buyer"))
+        self.assertEqual(self._ledger_sum("seller"), self.store.get_balance("seller"))
+
+    def test_credit_debit_reject_non_positive(self):
+        with self.assertRaises(ValueError):
+            self.store.credit("u1", 0, "grant")
+        with self.assertRaises(ValueError):
+            self.store.debit("u1", -1, "purchase")
+
+
 class TestPaginationClamping(unittest.TestCase):
     """Hostile/malformed pagination inputs must be clamped, not slice wrongly."""
 
