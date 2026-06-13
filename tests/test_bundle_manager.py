@@ -9,6 +9,8 @@ for _p in (str(ROOT), str(ROOT / "main")):
         sys.path.insert(0, _p)
 
 from bundle_manager import Bundle, BundleManager, BundleStore, get_bundle_manager
+from cart_manager import CartManager
+from refund_manager import RefundManager
 
 # ---------------------------------------------------------------------------
 # Fake marketplace for testing purchase_bundle
@@ -57,6 +59,16 @@ class _FakeMP:
         self._credits[user_id] = balance - amount
         self._append_ledger(user_id, -amount, kind, ref_id=ref_id)
         return self._credits[user_id]
+
+    # Public audited API (used by the refund workflow)
+    def get_balance(self, user_id):
+        return self._credits.get(user_id, 0)
+
+    def credit(self, user_id, amount, kind, ref_id=""):
+        return self._credit_locked(user_id, amount, kind, ref_id)
+
+    def debit(self, user_id, amount, kind, ref_id=""):
+        return self._debit_locked(user_id, amount, kind, ref_id)
 
 
 def _make_mgr() -> tuple:
@@ -291,6 +303,41 @@ class TestBundlePurchase(unittest.TestCase):
         self.mp._listings["lst2"].stock_remaining = 5
         self.mgr.purchase_bundle(self.bundle_id, "buyer", self.mp)
         self.assertEqual(self.mp._listings["lst2"].stock_remaining, 4)
+
+    def test_no_order_without_cart_manager(self):
+        result = self.mgr.purchase_bundle(self.bundle_id, "buyer", self.mp)
+        self.assertIsNone(result["order_id"])
+
+    def test_order_emitted_with_cart_manager(self):
+        cart = CartManager()
+        result = self.mgr.purchase_bundle(self.bundle_id, "buyer", self.mp, cart)
+        self.assertIsNotNone(result["order_id"])
+        order = cart.store.get_order(result["order_id"])
+        self.assertIsNotNone(order)
+        self.assertEqual(order.user_id, "buyer")
+        self.assertEqual(order.total_credits, result["total_charged"])
+        # Each order item carries its seller so a refund can claw back.
+        self.assertTrue(all(i.owner_id == "creator" for i in order.items))
+
+    def test_bundle_purchase_is_refundable_end_to_end(self):
+        cart = CartManager()
+        refunds = RefundManager()
+        creator_before = self.mp._credits["creator"]
+        buyer_before = self.mp._credits["buyer"]
+
+        result = self.mgr.purchase_bundle(self.bundle_id, "buyer", self.mp, cart)
+        order_id = result["order_id"]
+        charged = result["total_charged"]
+        self.assertEqual(self.mp._credits["creator"], creator_before + charged)
+
+        req = refunds.request_refund("buyer", order_id, "changed my mind", cart)
+        admin = {"sub": "admin1", "role": "admin"}
+        refunds.approve_refund(admin, req["request_id"], self.mp, cart)
+
+        # Buyer made whole; creator's proceeds clawed back; order marked refunded.
+        self.assertEqual(self.mp._credits["buyer"], buyer_before)
+        self.assertEqual(self.mp._credits["creator"], creator_before)
+        self.assertEqual(cart.store.get_order(order_id).status, "refunded")
 
 
 # ---------------------------------------------------------------------------

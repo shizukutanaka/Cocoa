@@ -26,6 +26,11 @@ try:
 except ImportError:  # pragma: no cover - support flat import in tests
     from pagination import normalize_pagination
 
+try:
+    from .cart_manager import OrderItem
+except ImportError:  # pragma: no cover - support flat import in tests
+    from cart_manager import OrderItem
+
 logger = logging.getLogger(__name__)
 
 _MIN_LISTINGS = 2
@@ -282,6 +287,7 @@ class BundleManager:
         bundle_id: str,
         buyer_id: str,
         marketplace_store: Any,
+        cart_manager: Any = None,
     ) -> Dict[str, Any]:
         """Purchase all listings in the bundle at the discounted total.
 
@@ -357,15 +363,38 @@ class BundleManager:
             purchased.append({
                 "listing_id": listing_id,
                 "name": lst.name,
+                "owner_id": lst.owner_id,
+                "owner_username": getattr(lst, "owner_username", ""),
                 "unit_price": unit_price,
                 "final_price": final_price,
                 "discount_percent": discount,
             })
             total_charged += final_price
 
+        # Emit an Order so the bundle purchase is refundable through the same
+        # workflow as a cart checkout (each item carries its seller + price so
+        # a refund can claw the proceeds back symmetrically).
+        order_id = None
+        if cart_manager is not None and purchased:
+            order_items = [
+                OrderItem(
+                    listing_id=p["listing_id"],
+                    name=p["name"],
+                    owner_id=p["owner_id"],
+                    owner_username=p["owner_username"],
+                    unit_price=p["unit_price"],
+                    final_price=p["final_price"],
+                    quantity=1,
+                    discount_percent=p["discount_percent"],
+                )
+                for p in purchased
+            ]
+            order = cart_manager.store.create_order(buyer_id, order_items, total_charged)
+            order_id = order.order_id
+
         logger.info(
-            "Bundle purchase: %s by %s — %d items, %d credits",
-            bundle_id, buyer_id, len(purchased), total_charged,
+            "Bundle purchase: %s by %s — %d items, %d credits (order=%s)",
+            bundle_id, buyer_id, len(purchased), total_charged, order_id,
         )
         return {
             "bundle_id": bundle_id,
@@ -374,6 +403,7 @@ class BundleManager:
             "purchased": purchased,
             "skipped": skipped,
             "total_charged": total_charged,
+            "order_id": order_id,
         }
 
     def list_my_bundles(

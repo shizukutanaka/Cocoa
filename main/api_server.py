@@ -3804,9 +3804,10 @@ async def purchase_bundle(
     """バンドルを購入する（割引適用、購入済みアイテムはスキップ）"""
     if not get_bundle_manager or not get_marketplace:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
+    cart = get_cart_manager() if get_cart_manager else None
     try:
         return get_bundle_manager().purchase_bundle(
-            bundle_id, current_user["user_id"], get_marketplace()
+            bundle_id, current_user["user_id"], get_marketplace(), cart
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
