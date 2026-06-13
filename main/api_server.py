@@ -1521,6 +1521,21 @@ async def delete_saved_search(search_id: str, current_user: dict = Depends(get_c
     return {"status": "deleted", "search_id": search_id}
 
 
+@app.put("/api/search/saved/{search_id}/notify", tags=["search"])
+async def set_saved_search_notify(
+    search_id: str,
+    enabled: bool = True,
+    current_user: dict = Depends(get_current_user),
+):
+    """保存検索に一致する新着リスティングの通知を有効/無効にする"""
+    if not get_saved_search_store:
+        raise HTTPException(status_code=503, detail="保存検索モジュールが利用できません")
+    ss = get_saved_search_store().set_notify_on_match(current_user["user_id"], search_id, enabled)
+    if ss is None:
+        raise HTTPException(status_code=404, detail="保存検索が見つかりません")
+    return ss.to_dict()
+
+
 @app.post("/api/search/saved/{search_id}/use", tags=["search"])
 async def use_saved_search(search_id: str, current_user: dict = Depends(get_current_user)):
     """保存済み検索プリセットを適用（last_used / use_count を更新し検索パラメータを返す）"""
@@ -1641,6 +1656,19 @@ async def publish_avatar(body: PublishRequest, current_user: dict = Depends(get_
                     body=f"{current_user.get('username', 'クリエイター')} が「{listing.name}」を公開しました",
                     payload={"listing_id": listing.listing_id, "owner_id": current_user["user_id"]},
                 )
+        # Notify users whose saved searches match this listing
+        if get_saved_search_store and get_notification_queue:
+            matches = get_saved_search_store().find_matches(listing)
+            notified_ids = {current_user["user_id"]}  # don't notify the publisher
+            for ss in matches:
+                if ss.user_id not in notified_ids:
+                    get_notification_queue().push(
+                        ss.user_id, "saved_search_match",
+                        title="保存検索に一致するアバターが公開されました",
+                        body=f"「{ss.name}」の検索条件に一致: {listing.name}",
+                        payload={"listing_id": listing.listing_id, "search_id": ss.search_id},
+                    )
+                    notified_ids.add(ss.user_id)
         return listing.to_dict()
     except (ValueError, PermissionError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

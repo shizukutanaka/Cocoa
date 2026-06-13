@@ -24,10 +24,11 @@ class SavedSearch:
     user_id: str
     name: str
     query: str
-    filters: Dict[str, Any]  # category, platform, tags, sort_by
+    filters: Dict[str, Any]  # category, platform, tags, sort_by, is_free, min_price, max_price
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_used: Optional[datetime] = None
     use_count: int = 0
+    notify_on_match: bool = False  # if True, push notification when a new listing matches
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -36,6 +37,7 @@ class SavedSearch:
             "name": self.name,
             "query": self.query,
             "filters": dict(self.filters),
+            "notify_on_match": self.notify_on_match,
             "created_at": self.created_at.isoformat(),
             "last_used": self.last_used.isoformat() if self.last_used else None,
             "use_count": self.use_count,
@@ -131,6 +133,42 @@ class SavedSearchStore:
             if filters is not None:
                 ss.filters = dict(filters)
             return ss
+
+    def set_notify_on_match(self, user_id: str, search_id: str, enabled: bool) -> Optional[SavedSearch]:
+        """Toggle notification-on-match for a saved search. Returns updated search or None."""
+        with self._lock:
+            ss = self._searches.get(search_id)
+            if not ss or ss.user_id != user_id:
+                return None
+            ss.notify_on_match = enabled
+            return ss
+
+    @staticmethod
+    def _listing_matches(ss: "SavedSearch", listing: Any) -> bool:
+        """Return True if listing satisfies the saved search criteria."""
+        q = ss.query.lower().strip()
+        if q:
+            searchable = f"{listing.name} {listing.category} {' '.join(listing.tags)}".lower()
+            if q not in searchable:
+                return False
+        f = ss.filters
+        if f.get("category") and listing.category != f["category"]:
+            return False
+        if f.get("tags"):
+            required = {t.lower() for t in f["tags"]}
+            if not required.issubset({t.lower() for t in listing.tags}):
+                return False
+        if f.get("is_free") is not None and listing.is_free != bool(f["is_free"]):
+            return False
+        if f.get("min_price") is not None and listing.price_credits < int(f["min_price"]):
+            return False
+        return not (f.get("max_price") is not None and listing.price_credits > int(f["max_price"]))
+
+    def find_matches(self, listing: Any) -> List["SavedSearch"]:
+        """Return all notify-enabled saved searches that match the given listing."""
+        with self._lock:
+            candidates = [ss for ss in self._searches.values() if ss.notify_on_match]
+        return [ss for ss in candidates if self._listing_matches(ss, listing)]
 
     def stats(self, user_id: str) -> Dict[str, Any]:
         searches = self.list(user_id)

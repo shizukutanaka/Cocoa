@@ -186,5 +186,97 @@ class TestSavedSearchSingleton(unittest.TestCase):
         self.assertIs(a, b)
 
 
+class _FakeListing:
+    """Minimal listing-like object for testing _listing_matches."""
+    def __init__(self, name="Test Avatar", category="vrc", tags=None,
+                 is_free=True, price_credits=0):
+        self.name = name
+        self.category = category
+        self.tags = tags or []
+        self.is_free = is_free
+        self.price_credits = price_credits
+
+
+class TestSavedSearchNotify(unittest.TestCase):
+    def setUp(self):
+        self.store = SavedSearchStore()
+
+    def test_notify_on_match_default_false(self):
+        ss = self.store.create("u1", "My Search")
+        self.assertFalse(ss.notify_on_match)
+
+    def test_set_notify_on_match_enables(self):
+        ss = self.store.create("u1", "Alert Search")
+        updated = self.store.set_notify_on_match("u1", ss.search_id, True)
+        self.assertIsNotNone(updated)
+        self.assertTrue(updated.notify_on_match)
+
+    def test_set_notify_on_match_wrong_user_returns_none(self):
+        ss = self.store.create("u1", "My Search")
+        result = self.store.set_notify_on_match("u2", ss.search_id, True)
+        self.assertIsNone(result)
+
+    def test_find_matches_empty_if_none_enabled(self):
+        self.store.create("u1", "Search", query="fantasy")
+        listing = _FakeListing(name="Fantasy Avatar")
+        matches = self.store.find_matches(listing)
+        self.assertEqual(matches, [])
+
+    def test_find_matches_query_hit(self):
+        ss = self.store.create("u1", "Fantasy", query="fantasy")
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        listing = _FakeListing(name="Cool Fantasy Avatar")
+        matches = self.store.find_matches(listing)
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].search_id, ss.search_id)
+
+    def test_find_matches_query_miss(self):
+        ss = self.store.create("u1", "Mecha", query="mecha")
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        listing = _FakeListing(name="Fantasy Avatar")
+        matches = self.store.find_matches(listing)
+        self.assertEqual(matches, [])
+
+    def test_find_matches_category_filter(self):
+        ss = self.store.create("u1", "VRC Only", filters={"category": "vrc"})
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        hit = _FakeListing(category="vrc")
+        miss = _FakeListing(category="vrchat")
+        self.assertEqual(len(self.store.find_matches(hit)), 1)
+        self.assertEqual(len(self.store.find_matches(miss)), 0)
+
+    def test_find_matches_tags_filter(self):
+        ss = self.store.create("u1", "Cute Tags", filters={"tags": ["cute", "vrc"]})
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        hit = _FakeListing(tags=["cute", "vrc", "anime"])
+        miss = _FakeListing(tags=["cute"])
+        self.assertEqual(len(self.store.find_matches(hit)), 1)
+        self.assertEqual(len(self.store.find_matches(miss)), 0)
+
+    def test_find_matches_is_free_filter(self):
+        ss = self.store.create("u1", "Free Only", filters={"is_free": True})
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        hit = _FakeListing(is_free=True)
+        miss = _FakeListing(is_free=False, price_credits=100)
+        self.assertEqual(len(self.store.find_matches(hit)), 1)
+        self.assertEqual(len(self.store.find_matches(miss)), 0)
+
+    def test_find_matches_price_range_filter(self):
+        ss = self.store.create("u1", "Budget", filters={"min_price": 50, "max_price": 150})
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        hit = _FakeListing(is_free=False, price_credits=100)
+        too_cheap = _FakeListing(is_free=False, price_credits=30)
+        too_expensive = _FakeListing(is_free=False, price_credits=200)
+        self.assertEqual(len(self.store.find_matches(hit)), 1)
+        self.assertEqual(len(self.store.find_matches(too_cheap)), 0)
+        self.assertEqual(len(self.store.find_matches(too_expensive)), 0)
+
+    def test_to_dict_includes_notify_on_match(self):
+        ss = self.store.create("u1", "Search")
+        d = ss.to_dict()
+        self.assertIn("notify_on_match", d)
+        self.assertFalse(d["notify_on_match"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
