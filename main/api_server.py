@@ -2652,6 +2652,19 @@ async def my_creator_analytics(current_user: dict = Depends(get_current_user)):
     return get_marketplace().get_creator_analytics(current_user["user_id"])
 
 
+@app.get("/api/marketplace/{listing_id}/analytics", tags=["marketplace"])
+async def listing_analytics(listing_id: str, current_user: dict = Depends(get_current_user)):
+    """リスティング個別の分析情報（オーナー専用）：日別ダウンロード数・ユニークDL数・評価内訳"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        return get_marketplace().get_listing_analytics(listing_id, current_user["user_id"])
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @app.post("/api/admin/listings/{listing_id}/feature", tags=["admin"])
 async def feature_listing(listing_id: str, admin: dict = Depends(get_current_admin)):
     """リスティングをフィーチャーに追加（管理者専用）"""

@@ -2079,5 +2079,68 @@ class TestTips(unittest.TestCase):
         self.assertIn("gift_sent", kinds)
 
 
+class TestListingAnalytics(unittest.TestCase):
+    def setUp(self):
+        self.store = MarketplaceStore()
+        lst = _listing(self.store, owner_id="creator1")
+        self.listing_id = lst.listing_id
+        self.store.add_credits("buyer1", 1000)
+        self.store.add_credits("buyer2", 1000)
+
+    def test_analytics_returns_listing_id(self):
+        result = self.store.get_listing_analytics(self.listing_id, "creator1")
+        self.assertEqual(result["listing_id"], self.listing_id)
+
+    def test_analytics_counts_downloads(self):
+        self.store.download(self.listing_id, "buyer1")
+        self.store.download(self.listing_id, "buyer2")
+        result = self.store.get_listing_analytics(self.listing_id, "creator1")
+        self.assertEqual(result["total_downloads"], 2)
+
+    def test_analytics_unique_downloaders(self):
+        self.store.download(self.listing_id, "buyer1")
+        self.store.download(self.listing_id, "buyer1")  # same buyer twice
+        result = self.store.get_listing_analytics(self.listing_id, "creator1")
+        self.assertEqual(result["unique_downloaders"], 1)
+
+    def test_analytics_review_count(self):
+        self.store.review(self.listing_id, "buyer1", "b1", 5, "Great!")
+        self.store.review(self.listing_id, "buyer2", "b2", 4, "Good!")
+        result = self.store.get_listing_analytics(self.listing_id, "creator1")
+        self.assertEqual(result["total_reviews"], 2)
+
+    def test_analytics_average_rating(self):
+        self.store.review(self.listing_id, "buyer1", "b1", 5, "Great!")
+        self.store.review(self.listing_id, "buyer2", "b2", 3, "OK")
+        result = self.store.get_listing_analytics(self.listing_id, "creator1")
+        self.assertEqual(result["average_rating"], 4.0)
+
+    def test_analytics_rating_distribution(self):
+        self.store.review(self.listing_id, "buyer1", "b1", 5, "Excellent!")
+        result = self.store.get_listing_analytics(self.listing_id, "creator1")
+        self.assertEqual(result["rating_distribution"][5], 1)
+        self.assertEqual(result["rating_distribution"][1], 0)
+
+    def test_analytics_downloads_by_day(self):
+        self.store.download(self.listing_id, "buyer1")
+        result = self.store.get_listing_analytics(self.listing_id, "creator1")
+        self.assertIsInstance(result["downloads_by_day"], dict)
+        self.assertEqual(sum(result["downloads_by_day"].values()), 1)
+
+    def test_analytics_non_owner_raises(self):
+        with self.assertRaises(PermissionError):
+            self.store.get_listing_analytics(self.listing_id, "other_user")
+
+    def test_analytics_unknown_listing_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.get_listing_analytics("no-such-id", "creator1")
+
+    def test_analytics_zero_downloads(self):
+        result = self.store.get_listing_analytics(self.listing_id, "creator1")
+        self.assertEqual(result["total_downloads"], 0)
+        self.assertEqual(result["unique_downloaders"], 0)
+        self.assertEqual(result["downloads_by_day"], {})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1382,6 +1382,46 @@ class MarketplaceStore:
             "categories": list({lst.category for lst in active}),
         }
 
+    def get_listing_analytics(self, listing_id: str, owner_id: str) -> Dict[str, Any]:
+        """Download/rating analytics for a single listing.
+
+        Only the listing owner may call this (pass owner_id for enforcement).
+        Returns download counts by day, reviewer count, and rating breakdown.
+        """
+        with self._lock:
+            listing = self._listings.get(listing_id)
+            if not listing:
+                raise ValueError("リスティングが見つかりません")
+            if listing.owner_id != owner_id:
+                raise PermissionError("このリスティングの所有者のみが分析情報を取得できます")
+            logs = [(lid, did, ts) for lid, did, ts in self._download_log if lid == listing_id]
+            review_count = len(self._reviews.get(listing_id, {}))
+
+        from collections import Counter
+        day_counts: Counter = Counter()
+        unique_downloaders: set = set()
+        for _, did, ts in logs:
+            day_counts[ts.strftime("%Y-%m-%d")] += 1
+            unique_downloaders.add(did)
+
+        dist: Dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for stars in self._votes.get(listing_id, {}).values():
+            if 1 <= stars <= 5:
+                dist[stars] += 1
+        rating_total = sum(dist.values())
+        avg = round(sum(k * v for k, v in dist.items()) / rating_total, 2) if rating_total else 0.0
+
+        return {
+            "listing_id": listing_id,
+            "name": listing.name,
+            "total_downloads": listing.download_count,
+            "unique_downloaders": len(unique_downloaders),
+            "total_reviews": review_count,
+            "average_rating": avg,
+            "rating_distribution": dist,
+            "downloads_by_day": dict(day_counts),
+        }
+
     def get_creator_analytics(self, owner_id: str) -> Dict[str, Any]:
         """Per-creator dashboard stats."""
         with self._lock:
