@@ -125,6 +125,7 @@ SAFE_MODULES = [
     "tests.test_referral_manager",
     "tests.test_license_manager",
     "tests.test_bundle_manager",
+    "tests.test_wishlist_manager",
 ]
 
 

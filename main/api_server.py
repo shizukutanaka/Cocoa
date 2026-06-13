@@ -128,6 +128,7 @@ try:
     from .saved_searches import get_saved_search_store
     from .search_engine import get_search_index
     from .user_notifications import get_notification_queue
+    from .wishlist_manager import get_wishlist_manager
     _NEW_MODULES_AVAILABLE = True
 except ImportError:
     _NEW_MODULES_AVAILABLE = False
@@ -144,6 +145,7 @@ except ImportError:
     get_commission_store = None
     get_license_manager = None
     get_referral_manager = None
+    get_wishlist_manager = None
     AuthError = Exception
 
 # ロギング設定
@@ -3899,6 +3901,65 @@ async def admin_revoke_license(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get("/api/wishlist", tags=["wishlist"])
+async def get_my_wishlist(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分のウィッシュリストを取得する"""
+    if not get_wishlist_manager:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_wishlist_manager().get_wishlist(current_user["user_id"], limit=limit, offset=offset)
+
+
+@app.put("/api/wishlist/{listing_id}", tags=["wishlist"], status_code=201)
+async def add_to_wishlist(
+    listing_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """ウィッシュリストにリスティングを追加する"""
+    if not get_wishlist_manager or not get_marketplace:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_wishlist_manager().add_item(current_user["user_id"], listing_id, get_marketplace())
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.delete("/api/wishlist/{listing_id}", tags=["wishlist"])
+async def remove_from_wishlist(
+    listing_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """ウィッシュリストからリスティングを削除する"""
+    if not get_wishlist_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    removed = get_wishlist_manager().remove_item(current_user["user_id"], listing_id)
+    return {"removed": removed, "listing_id": listing_id}
+
+
+@app.get("/api/wishlist/{listing_id}/check", tags=["wishlist"])
+async def check_wishlist(
+    listing_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """リスティングがウィッシュリストに含まれているか確認する"""
+    if not get_wishlist_manager:
+        return {"in_wishlist": False}
+    return {"in_wishlist": get_wishlist_manager().contains(current_user["user_id"], listing_id)}
+
+
+@app.delete("/api/wishlist", tags=["wishlist"])
+async def clear_my_wishlist(current_user: dict = Depends(get_current_user)):
+    """ウィッシュリストを全て削除する"""
+    if not get_wishlist_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    removed = get_wishlist_manager().clear_wishlist(current_user["user_id"])
+    return {"removed": removed}
 
 
 @app.get("/api/referrals/my-code", tags=["referrals"])
