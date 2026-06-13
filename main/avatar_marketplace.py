@@ -417,6 +417,34 @@ class MarketplaceStore:
                 "recipient_balance": recipient_bal,
             }
 
+    def credit(self, user_id: str, amount: int, kind: str, ref_id: str = "") -> int:
+        """Atomically add credits with a custom ledger kind. Returns new balance.
+
+        Public, audited entry point for other subsystems (gift cards, refunds,
+        referrals, …) so they need not touch the private balance store directly.
+        """
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        with self._lock:
+            new_bal = self._credits.get(user_id, 0) + amount
+            self._credits[user_id] = new_bal
+            self._append_ledger(user_id, amount, kind, ref_id=ref_id, balance_after=new_bal)
+            return new_bal
+
+    def debit(self, user_id: str, amount: int, kind: str, ref_id: str = "") -> int:
+        """Atomically deduct credits with a custom ledger kind. Returns new balance.
+
+        Raises ValueError if the balance is insufficient.  Public, audited
+        counterpart to ``credit`` for other subsystems.
+        """
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        with self._lock:
+            self._deduct_credits(user_id, amount)
+            new_bal = self._credits.get(user_id, 0)
+            self._append_ledger(user_id, -amount, kind, ref_id=ref_id, balance_after=new_bal)
+            return new_bal
+
     # --- Creator quota ---
 
     def set_quota(self, user_id: str, max_listings: int) -> None:

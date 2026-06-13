@@ -51,6 +51,15 @@ class _FakeMarketplace:
         self._ledger.append({"user_id": user_id, "delta": delta, "kind": kind,
                               "ref_id": ref_id, "balance_after": balance_after})
 
+    def credit(self, user_id, amount, kind, ref_id=""):
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        with self._lock:
+            new_bal = self._credits.get(user_id, 0) + amount
+            self._credits[user_id] = new_bal
+            self._append_ledger(user_id, amount, kind, ref_id=ref_id, balance_after=new_bal)
+            return new_bal
+
 
 def _admin_payload(sub="admin1"):
     return {"sub": sub, "role": "admin"}

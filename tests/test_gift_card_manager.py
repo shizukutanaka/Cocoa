@@ -42,6 +42,27 @@ class _FakeMarketplace:
         with self._lock:
             self._credits[user_id] = self._credits.get(user_id, 0) + amount
 
+    def credit(self, user_id, amount, kind, ref_id=""):
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        with self._lock:
+            new_bal = self._credits.get(user_id, 0) + amount
+            self._credits[user_id] = new_bal
+            self._append_ledger(user_id, amount, kind, ref_id=ref_id, balance_after=new_bal)
+            return new_bal
+
+    def debit(self, user_id, amount, kind, ref_id=""):
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        with self._lock:
+            balance = self._credits.get(user_id, 0)
+            if balance < amount:
+                raise ValueError(f"残高不足 (残高: {balance}, 必要: {amount})")
+            new_bal = balance - amount
+            self._credits[user_id] = new_bal
+            self._append_ledger(user_id, -amount, kind, ref_id=ref_id, balance_after=new_bal)
+            return new_bal
+
 
 class TestGiftCard(unittest.TestCase):
     def _card(self, **kwargs):
@@ -215,6 +236,13 @@ class TestGiftCardManager(unittest.TestCase):
         self.mgr.purchase("buyer", 100, self.mkt)
         entry = next(e for e in self.mkt._ledger if e["kind"] == "gift_card_purchase")
         self.assertEqual(entry["delta"], -100)
+
+    def test_purchase_over_max_does_not_debit(self):
+        # Regression: an invalid (over-cap) amount must never burn credits.
+        self.mkt._credits["buyer"] = 1000
+        with self.assertRaises(ValueError):
+            self.mgr.purchase("buyer", _MAX_AMOUNT + 1, self.mkt)
+        self.assertEqual(self.mkt._credits["buyer"], 1000)
 
     def test_purchase_with_message(self):
         result = self.mgr.purchase("buyer", 100, self.mkt, message="Happy Birthday!")

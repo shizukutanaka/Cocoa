@@ -366,6 +366,58 @@ class TestCredits(unittest.TestCase):
             self.store.gift_credits("u_sender", "u_receiver", 0)
 
 
+class TestCreditDebit(unittest.TestCase):
+    """Public audited credit/debit API used by other subsystems."""
+
+    def setUp(self):
+        self.store = _store()
+
+    def test_credit_increases_balance_and_returns_new(self):
+        new_bal = self.store.credit("u1", 100, "refund")
+        self.assertEqual(new_bal, 100)
+        self.assertEqual(self.store.get_balance("u1"), 100)
+
+    def test_credit_records_ledger_kind(self):
+        self.store.credit("u1", 50, "gift_card_redeem", ref_id="card1")
+        hist = self.store.get_credit_history("u1")
+        entry = hist["items"][0]
+        self.assertEqual(entry["kind"], "gift_card_redeem")
+        self.assertEqual(entry["amount"], 50)
+        self.assertEqual(entry["ref_id"], "card1")
+
+    def test_credit_zero_or_negative_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.credit("u1", 0, "refund")
+        with self.assertRaises(ValueError):
+            self.store.credit("u1", -5, "refund")
+
+    def test_debit_decreases_balance_and_returns_new(self):
+        self.store.add_credits("u1", 100)
+        new_bal = self.store.debit("u1", 30, "gift_card_purchase")
+        self.assertEqual(new_bal, 70)
+        self.assertEqual(self.store.get_balance("u1"), 70)
+
+    def test_debit_records_negative_ledger_amount(self):
+        self.store.add_credits("u1", 100)
+        self.store.debit("u1", 40, "gift_card_purchase")
+        hist = self.store.get_credit_history("u1")
+        entry = hist["items"][0]
+        self.assertEqual(entry["kind"], "gift_card_purchase")
+        self.assertEqual(entry["amount"], -40)
+
+    def test_debit_insufficient_raises_and_preserves_balance(self):
+        self.store.add_credits("u1", 20)
+        with self.assertRaises(ValueError):
+            self.store.debit("u1", 50, "gift_card_purchase")
+        self.assertEqual(self.store.get_balance("u1"), 20)
+
+    def test_debit_zero_or_negative_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.debit("u1", 0, "gift_card_purchase")
+        with self.assertRaises(ValueError):
+            self.store.debit("u1", -5, "gift_card_purchase")
+
+
 class TestRating(unittest.TestCase):
     def test_rate_valid(self):
         store = _store()

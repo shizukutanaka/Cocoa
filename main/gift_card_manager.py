@@ -174,17 +174,14 @@ class GiftCardManager:
         expires_at: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """Create a gift card, deducting credits from purchaser."""
-        # Deduct credits first (raises ValueError if insufficient)
-        with marketplace_store._lock:
-            balance = marketplace_store._credits.get(purchaser_id, 0)
-            if balance < amount:
-                raise ValueError(f"クレジットが不足しています（残高: {balance}、必要: {amount}）")
-            marketplace_store._credits[purchaser_id] = balance - amount
-            new_bal = marketplace_store._credits[purchaser_id]
-            marketplace_store._append_ledger(
-                purchaser_id, -amount, "gift_card_purchase",
-                balance_after=new_bal,
-            )
+        # Validate amount range BEFORE moving any credits, so an invalid
+        # request can never debit the purchaser without issuing a card.
+        if amount <= 0 or amount > _MAX_AMOUNT:
+            raise ValueError(f"ギフトカードの金額は1〜{_MAX_AMOUNT}クレジットの範囲で設定してください")
+
+        # Deduct credits via the marketplace's audited public API
+        # (raises ValueError if insufficient balance).
+        marketplace_store.debit(purchaser_id, amount, "gift_card_purchase")
 
         card = self.store.create(purchaser_id, amount, message, expires_at)
         logger.info("Gift card created: %s by %s (%d credits)", card.card_id, purchaser_id, amount)
@@ -199,13 +196,9 @@ class GiftCardManager:
         """Redeem a gift card code, adding credits to redeemer."""
         card = self.store.redeem(code, redeemer_id)
 
-        with marketplace_store._lock:
-            new_bal = marketplace_store._credits.get(redeemer_id, 0) + card.amount
-            marketplace_store._credits[redeemer_id] = new_bal
-            marketplace_store._append_ledger(
-                redeemer_id, card.amount, "gift_card_redeem",
-                ref_id=card.card_id, balance_after=new_bal,
-            )
+        new_bal = marketplace_store.credit(
+            redeemer_id, card.amount, "gift_card_redeem", ref_id=card.card_id
+        )
 
         logger.info("Gift card redeemed: %s by %s (%d credits)", card.card_id, redeemer_id, card.amount)
         return {

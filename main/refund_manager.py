@@ -201,14 +201,10 @@ class RefundManager:
         if req.status != "pending":
             raise ValueError(f"保留中のリクエストのみ承認できます (現在: {req.status})")
 
-        # Return credits to buyer
-        with marketplace_store._lock:
-            new_bal = marketplace_store._credits.get(req.user_id, 0) + req.total_credits
-            marketplace_store._credits[req.user_id] = new_bal
-            marketplace_store._append_ledger(
-                req.user_id, req.total_credits, "refund",
-                ref_id=req.request_id, balance_after=new_bal,
-            )
+        # Return credits to buyer via the marketplace's audited public API
+        new_bal = marketplace_store.credit(
+            req.user_id, req.total_credits, "refund", ref_id=req.request_id
+        )
 
         # Mark order refunded
         order = cart_manager.store.get_order(req.order_id)
