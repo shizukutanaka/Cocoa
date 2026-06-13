@@ -1,0 +1,329 @@
+"""Tests for main/refund_manager.py"""
+import sys
+import threading
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+for _p in (str(ROOT), str(ROOT / "main")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from refund_manager import (
+    REFUND_WINDOW_HOURS,
+    RefundManager,
+    RefundRequest,
+    RefundStore,
+    get_refund_manager,
+)
+
+
+class _FakeOrder:
+    def __init__(self, order_id, user_id, total_credits, status="completed", age_hours=0):
+        self.order_id = order_id
+        self.user_id = user_id
+        self.total_credits = total_credits
+        self.status = status
+        self.created_at = datetime.now(timezone.utc) - timedelta(hours=age_hours)
+
+
+class _FakeCartStore:
+    def __init__(self, orders=None):
+        self._orders = {o.order_id: o for o in (orders or [])}
+
+    def get_order(self, order_id):
+        return self._orders.get(order_id)
+
+
+class _FakeCartManager:
+    def __init__(self, orders=None):
+        self.store = _FakeCartStore(orders)
+
+
+class _FakeMarketplace:
+    def __init__(self, credits=None):
+        self._lock = threading.Lock()
+        self._credits = credits or {}
+        self._ledger = []
+
+    def _append_ledger(self, user_id, delta, kind, ref_id="", balance_after=0):
+        self._ledger.append({"user_id": user_id, "delta": delta, "kind": kind,
+                              "ref_id": ref_id, "balance_after": balance_after})
+
+
+def _admin_payload(sub="admin1"):
+    return {"sub": sub, "role": "admin"}
+
+
+def _user_payload(sub="u1"):
+    return {"sub": sub, "role": "user"}
+
+
+class TestRefundRequest(unittest.TestCase):
+    def test_to_dict_keys(self):
+        req = RefundRequest(
+            request_id="r1", order_id="o1", user_id="u1",
+            total_credits=100, reason="changed mind",
+        )
+        d = req.to_dict()
+        for key in ("request_id", "order_id", "user_id", "total_credits",
+                    "reason", "status", "admin_notes", "resolved_by",
+                    "created_at", "resolved_at"):
+            self.assertIn(key, d)
+
+    def test_default_status_pending(self):
+        req = RefundRequest(
+            request_id="r1", order_id="o1", user_id="u1",
+            total_credits=50, reason="test",
+        )
+        self.assertEqual(req.status, "pending")
+
+
+class TestRefundStore(unittest.TestCase):
+    def setUp(self):
+        self.store = RefundStore()
+
+    def test_create_returns_request(self):
+        req = self.store.create("o1", "u1", 100, "reason")
+        self.assertEqual(req.order_id, "o1")
+        self.assertEqual(req.user_id, "u1")
+        self.assertEqual(req.total_credits, 100)
+        self.assertEqual(req.status, "pending")
+
+    def test_create_duplicate_pending_raises(self):
+        self.store.create("o1", "u1", 100, "reason")
+        with self.assertRaises(ValueError):
+            self.store.create("o1", "u1", 100, "duplicate")
+
+    def test_create_after_rejected_allowed(self):
+        req = self.store.create("o1", "u1", 100, "reason")
+        self.store.update(req.request_id, "rejected", "denied", "admin1")
+        # rejected → can create again for same order
+        req2 = self.store.create("o1", "u1", 100, "retry")
+        self.assertNotEqual(req.request_id, req2.request_id)
+
+    def test_get_existing(self):
+        req = self.store.create("o1", "u1", 100, "reason")
+        found = self.store.get(req.request_id)
+        self.assertIsNotNone(found)
+        self.assertEqual(found.request_id, req.request_id)
+
+    def test_get_unknown_returns_none(self):
+        self.assertIsNone(self.store.get("nope"))
+
+    def test_get_by_order(self):
+        req = self.store.create("o1", "u1", 100, "reason")
+        found = self.store.get_by_order("o1")
+        self.assertIsNotNone(found)
+        self.assertEqual(found.request_id, req.request_id)
+
+    def test_list_all(self):
+        self.store.create("o1", "u1", 100, "r1")
+        self.store.create("o2", "u2", 200, "r2")
+        result = self.store.list_requests()
+        self.assertEqual(result["total"], 2)
+
+    def test_list_filter_status(self):
+        req = self.store.create("o1", "u1", 100, "r1")
+        self.store.create("o2", "u2", 200, "r2")
+        self.store.update(req.request_id, "approved", "", "admin1")
+        result = self.store.list_requests(status="pending")
+        self.assertEqual(result["total"], 1)
+
+    def test_list_filter_user(self):
+        self.store.create("o1", "u1", 100, "r1")
+        self.store.create("o2", "u2", 200, "r2")
+        result = self.store.list_requests(user_id="u1")
+        self.assertEqual(result["total"], 1)
+
+    def test_update_sets_status_and_resolved_at(self):
+        req = self.store.create("o1", "u1", 100, "reason")
+        updated = self.store.update(req.request_id, "approved", "ok", "admin1")
+        self.assertEqual(updated.status, "approved")
+        self.assertIsNotNone(updated.resolved_at)
+        self.assertEqual(updated.resolved_by, "admin1")
+
+    def test_update_unknown_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.update("nope", "approved", "", "admin1")
+
+    def test_reason_truncated(self):
+        req = self.store.create("o1", "u1", 100, "x" * 1500)
+        self.assertEqual(len(req.reason), 1000)
+
+    def test_pagination(self):
+        for i in range(5):
+            self.store.create(f"o{i}", "u1", 10 * (i + 1), "r")
+        result = self.store.list_requests(limit=2, offset=0)
+        self.assertEqual(result["total"], 5)
+        self.assertEqual(len(result["items"]), 2)
+        self.assertTrue(result["has_more"])
+        self.assertEqual(result["next_offset"], 2)
+
+
+class TestRefundManagerRequest(unittest.TestCase):
+    def _setup(self, age_hours=0, status="completed"):
+        order = _FakeOrder("o1", "u1", 300, status=status, age_hours=age_hours)
+        cart = _FakeCartManager([order])
+        mgr = RefundManager()
+        return mgr, cart
+
+    def test_request_refund_success(self):
+        mgr, cart = self._setup()
+        result = mgr.request_refund("u1", "o1", "no longer needed", cart)
+        self.assertEqual(result["order_id"], "o1")
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(result["total_credits"], 300)
+
+    def test_request_refund_wrong_user_raises(self):
+        mgr, cart = self._setup()
+        with self.assertRaises(ValueError):
+            mgr.request_refund("other_user", "o1", "reason", cart)
+
+    def test_request_refund_unknown_order_raises(self):
+        mgr, cart = self._setup()
+        with self.assertRaises(ValueError):
+            mgr.request_refund("u1", "unknown_order", "reason", cart)
+
+    def test_request_refund_past_window_raises(self):
+        mgr, cart = self._setup(age_hours=REFUND_WINDOW_HOURS + 1)
+        with self.assertRaises(ValueError):
+            mgr.request_refund("u1", "o1", "too late", cart)
+
+    def test_request_refund_non_completed_order_raises(self):
+        mgr, cart = self._setup(status="refunded")
+        with self.assertRaises(ValueError):
+            mgr.request_refund("u1", "o1", "already refunded", cart)
+
+    def test_request_refund_empty_reason_raises(self):
+        mgr, cart = self._setup()
+        with self.assertRaises(ValueError):
+            mgr.request_refund("u1", "o1", "  ", cart)
+
+    def test_request_refund_duplicate_pending_raises(self):
+        mgr, cart = self._setup()
+        mgr.request_refund("u1", "o1", "reason", cart)
+        with self.assertRaises(ValueError):
+            mgr.request_refund("u1", "o1", "again", cart)
+
+
+class TestRefundManagerAdmin(unittest.TestCase):
+    def _setup(self):
+        order = _FakeOrder("o1", "u1", 500)
+        cart = _FakeCartManager([order])
+        mkt = _FakeMarketplace(credits={"u1": 100})
+        mgr = RefundManager()
+        mgr.request_refund("u1", "o1", "want refund", cart)
+        # get request_id
+        result = mgr.store.list_requests()
+        request_id = result["items"][0]["request_id"]
+        return mgr, cart, mkt, request_id
+
+    def test_approve_returns_credits(self):
+        mgr, cart, mkt, rid = self._setup()
+        result = mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        self.assertEqual(result["credits_returned"], 500)
+        self.assertEqual(mkt._credits["u1"], 600)  # 100 + 500
+
+    def test_approve_records_ledger(self):
+        mgr, cart, mkt, rid = self._setup()
+        mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        entry = next(e for e in mkt._ledger if e["kind"] == "refund")
+        self.assertEqual(entry["delta"], 500)
+
+    def test_approve_marks_order_refunded(self):
+        mgr, cart, mkt, rid = self._setup()
+        mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        order = cart.store.get_order("o1")
+        self.assertEqual(order.status, "refunded")
+
+    def test_approve_non_admin_raises(self):
+        mgr, cart, mkt, rid = self._setup()
+        with self.assertRaises(PermissionError):
+            mgr.approve_refund(_user_payload(), rid, mkt, cart)
+
+    def test_approve_unknown_request_raises(self):
+        mgr, cart, mkt, _ = self._setup()
+        with self.assertRaises(ValueError):
+            mgr.approve_refund(_admin_payload(), "nope", mkt, cart)
+
+    def test_approve_already_approved_raises(self):
+        mgr, cart, mkt, rid = self._setup()
+        mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        with self.assertRaises(ValueError):
+            mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+
+    def test_reject_sets_status(self):
+        mgr, cart, mkt, rid = self._setup()
+        result = mgr.reject_refund(_admin_payload(), rid, notes="invalid claim")
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["admin_notes"], "invalid claim")
+
+    def test_reject_non_admin_raises(self):
+        mgr, cart, mkt, rid = self._setup()
+        with self.assertRaises(PermissionError):
+            mgr.reject_refund(_user_payload(), rid)
+
+    def test_reject_unknown_raises(self):
+        mgr = RefundManager()
+        with self.assertRaises(ValueError):
+            mgr.reject_refund(_admin_payload(), "nope")
+
+    def test_reject_already_rejected_raises(self):
+        mgr, cart, mkt, rid = self._setup()
+        mgr.reject_refund(_admin_payload(), rid)
+        with self.assertRaises(ValueError):
+            mgr.reject_refund(_admin_payload(), rid)
+
+    def test_list_refunds_admin(self):
+        mgr, cart, mkt, rid = self._setup()
+        result = mgr.list_refunds(_admin_payload())
+        self.assertEqual(result["total"], 1)
+
+    def test_list_refunds_non_admin_raises(self):
+        mgr = RefundManager()
+        with self.assertRaises(PermissionError):
+            mgr.list_refunds(_user_payload())
+
+    def test_list_refunds_filter_status(self):
+        mgr, cart, mkt, rid = self._setup()
+        mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        result = mgr.list_refunds(_admin_payload(), status="approved")
+        self.assertEqual(result["total"], 1)
+        result2 = mgr.list_refunds(_admin_payload(), status="pending")
+        self.assertEqual(result2["total"], 0)
+
+    def test_list_refunds_invalid_status_raises(self):
+        mgr = RefundManager()
+        with self.assertRaises(ValueError):
+            mgr.list_refunds(_admin_payload(), status="archived")
+
+    def test_get_refund_by_id(self):
+        mgr, cart, mkt, rid = self._setup()
+        result = mgr.get_refund(rid)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["request_id"], rid)
+
+    def test_get_refund_unknown_returns_none(self):
+        mgr = RefundManager()
+        self.assertIsNone(mgr.get_refund("nope"))
+
+    def test_get_my_refunds_pagination(self):
+        order = _FakeOrder("o1", "u1", 100)
+        cart = _FakeCartManager([order])
+        mgr = RefundManager()
+        mgr.request_refund("u1", "o1", "reason", cart)
+        result = mgr.get_my_refunds("u1")
+        self.assertEqual(result["total"], 1)
+
+
+class TestRefundManagerSingleton(unittest.TestCase):
+    def test_singleton(self):
+        a = get_refund_manager()
+        b = get_refund_manager()
+        self.assertIs(a, b)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

@@ -130,6 +130,7 @@ try:
     from .search_engine import get_search_index
     from .user_notifications import get_notification_queue
     from .gift_card_manager import get_gift_card_manager
+    from .refund_manager import get_refund_manager
     from .wishlist_manager import get_wishlist_manager
     _NEW_MODULES_AVAILABLE = True
 except ImportError:
@@ -149,6 +150,7 @@ except ImportError:
     get_license_manager = None
     get_moderation_queue = None
     get_referral_manager = None
+    get_refund_manager = None
     get_wishlist_manager = None
     AuthError = Exception
 
@@ -4192,6 +4194,103 @@ async def set_moderation_priority(
         raise HTTPException(
             status_code=404 if "見つかりません" in msg else 400, detail=msg
         ) from e
+
+
+# ---------------------------------------------------------------------------
+# Refund endpoints
+# ---------------------------------------------------------------------------
+
+class RefundRequestModel(BaseModel):
+    order_id: str
+    reason: str
+
+
+class RefundRejectRequest(BaseModel):
+    notes: str = ""
+
+
+@app.post("/api/refunds", status_code=201)
+async def request_refund(
+    body: RefundRequestModel,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """注文に対する払い戻しを申請する"""
+    if not get_refund_manager or not get_cart_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    try:
+        return get_refund_manager().request_refund(
+            payload["sub"], body.order_id, body.reason, get_cart_manager()
+        )
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/refunds/mine")
+async def my_refunds(
+    limit: int = 50,
+    offset: int = 0,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """自分の払い戻しリクエスト一覧を取得する"""
+    if not get_refund_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    return get_refund_manager().get_my_refunds(payload["sub"], limit=limit, offset=offset)
+
+
+@app.get("/api/admin/refunds")
+async def admin_list_refunds(
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """管理者: 払い戻しリクエスト一覧"""
+    if not get_refund_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    try:
+        return get_refund_manager().list_refunds(payload, status=status, limit=limit, offset=offset)
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+@app.post("/api/admin/refunds/{request_id}/approve")
+async def admin_approve_refund(
+    request_id: str,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """管理者: 払い戻しを承認してクレジットを返還する"""
+    if not get_refund_manager or not get_marketplace or not get_cart_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    try:
+        return get_refund_manager().approve_refund(
+            payload, request_id, get_marketplace(), get_cart_manager()
+        )
+    except (ValueError, PermissionError) as e:
+        msg = str(e)
+        code = 403 if "権限" in msg else 400
+        raise HTTPException(status_code=code, detail=msg) from e
+
+
+@app.post("/api/admin/refunds/{request_id}/reject")
+async def admin_reject_refund(
+    request_id: str,
+    body: RefundRejectRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """管理者: 払い戻し申請を却下する"""
+    if not get_refund_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    payload = _verify_token(credentials.credentials)
+    try:
+        return get_refund_manager().reject_refund(payload, request_id, body.notes)
+    except (ValueError, PermissionError) as e:
+        msg = str(e)
+        code = 403 if "権限" in msg else 400
+        raise HTTPException(status_code=code, detail=msg) from e
 
 
 # ---------------------------------------------------------------------------

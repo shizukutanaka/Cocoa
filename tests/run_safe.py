@@ -128,6 +128,7 @@ SAFE_MODULES = [
     "tests.test_wishlist_manager",
     "tests.test_moderation_queue",
     "tests.test_gift_card_manager",
+    "tests.test_refund_manager",
 ]
 
 
