@@ -802,6 +802,47 @@ class TestReviews(unittest.TestCase):
         self.assertEqual(result["total"], 0)
 
 
+class TestReviewSorting(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+        self.listing = _listing(self.store)
+        self.lid = self.listing.listing_id
+        _, self.r1 = self.store.review(self.lid, "u2", "bob", 2, "Not great")
+        _, self.r2 = self.store.review(self.lid, "u3", "carol", 5, "Excellent!")
+        _, self.r3 = self.store.review(self.lid, "u4", "dave", 3, "OK")
+
+    def test_default_sort_is_newest_first(self):
+        items = self.store.get_reviews(self.lid)["items"]
+        dates = [item["created_at"] for item in items]
+        self.assertEqual(dates, sorted(dates, reverse=True))
+
+    def test_sort_by_rating_high(self):
+        items = self.store.get_reviews(self.lid, sort_by="rating_high")["items"]
+        stars = [item["stars"] for item in items]
+        self.assertEqual(stars, sorted(stars, reverse=True))
+
+    def test_sort_by_rating_low(self):
+        items = self.store.get_reviews(self.lid, sort_by="rating_low")["items"]
+        stars = [item["stars"] for item in items]
+        self.assertEqual(stars, sorted(stars))
+
+    def test_sort_by_helpful(self):
+        self.store.vote_review_helpful(self.r2.review_id, "u5", True)
+        self.store.vote_review_helpful(self.r2.review_id, "u6", True)
+        self.store.vote_review_helpful(self.r1.review_id, "u5", True)
+        items = self.store.get_reviews(self.lid, sort_by="helpful")["items"]
+        helpful_counts = [item["helpful_count"] for item in items]
+        self.assertEqual(helpful_counts, sorted(helpful_counts, reverse=True))
+
+    def test_sort_by_newest_explicit(self):
+        items_default = self.store.get_reviews(self.lid)["items"]
+        items_newest = self.store.get_reviews(self.lid, sort_by="newest")["items"]
+        self.assertEqual(
+            [i["review_id"] for i in items_default],
+            [i["review_id"] for i in items_newest],
+        )
+
+
 class TestCreatorAnalyticsExtended(unittest.TestCase):
     def setUp(self):
         self.store = _store()

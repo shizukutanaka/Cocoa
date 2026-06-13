@@ -1368,6 +1368,15 @@ async def search_suggest(
     return {"suggestions": idx.suggest(prefix, limit)}
 
 
+@app.get("/api/search/trending", tags=["search"])
+async def trending_searches(limit: int = Query(10, ge=1, le=50)):
+    """最近人気の検索クエリ一覧（公開）"""
+    if not get_search_index:
+        return {"queries": []}
+    analytics = get_search_index().query_analytics(top_n=limit)
+    return {"queries": analytics.get("top_queries", [])[:limit]}
+
+
 # ---------------------------------------------------------------------------
 # Saved search presets
 # ---------------------------------------------------------------------------
@@ -1753,11 +1762,12 @@ async def list_reviews(
     listing_id: str,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    sort_by: str = Query("newest", description="newest | helpful | rating_high | rating_low"),
 ):
     """リスティングのレビュー一覧取得"""
     if not get_marketplace:
         return {"total": 0, "items": []}
-    return get_marketplace().get_reviews(listing_id, limit=limit, offset=offset)
+    return get_marketplace().get_reviews(listing_id, limit=limit, offset=offset, sort_by=sort_by)
 
 
 @app.delete("/api/marketplace/{listing_id}/reviews/mine", tags=["marketplace"])

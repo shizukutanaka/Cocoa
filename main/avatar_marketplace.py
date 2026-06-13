@@ -578,13 +578,27 @@ class MarketplaceStore:
                 self._reviews[listing_id][user_id] = rv
             return listing.average_rating, rv
 
-    def get_reviews(self, listing_id: str, limit: int = 20, offset: int = 0) -> Dict[str, Any]:
-        """Return paginated reviews for a listing, newest first."""
+    def get_reviews(
+        self,
+        listing_id: str,
+        limit: int = 20,
+        offset: int = 0,
+        sort_by: str = "newest",  # newest | helpful | rating_high | rating_low
+    ) -> Dict[str, Any]:
+        """Return paginated reviews for a listing."""
         listing = self._listings.get(listing_id)
         if not listing:
             return {"total": 0, "items": []}
         with self._lock:
-            items = sorted(self._reviews[listing_id].values(), key=lambda r: r.created_at, reverse=True)
+            items = list(self._reviews[listing_id].values())
+        if sort_by == "helpful":
+            items.sort(key=lambda r: (r.helpful_count, r.created_at), reverse=True)
+        elif sort_by == "rating_high":
+            items.sort(key=lambda r: (r.stars, r.created_at), reverse=True)
+        elif sort_by == "rating_low":
+            items.sort(key=lambda r: r.stars)
+        else:  # newest
+            items.sort(key=lambda r: r.created_at, reverse=True)
         total = len(items)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
