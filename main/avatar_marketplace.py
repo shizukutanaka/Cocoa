@@ -114,6 +114,7 @@ class Review:
     text: str
     helpful_count: int = 0
     unhelpful_count: int = 0
+    is_hidden: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -127,6 +128,7 @@ class Review:
             "text": self.text,
             "helpful_count": self.helpful_count,
             "unhelpful_count": self.unhelpful_count,
+            "is_hidden": self.is_hidden,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -584,6 +586,7 @@ class MarketplaceStore:
         limit: int = 20,
         offset: int = 0,
         sort_by: str = "newest",  # newest | helpful | rating_high | rating_low
+        include_hidden: bool = False,
     ) -> Dict[str, Any]:
         """Return paginated reviews for a listing."""
         listing = self._listings.get(listing_id)
@@ -591,6 +594,8 @@ class MarketplaceStore:
             return {"total": 0, "items": []}
         with self._lock:
             items = list(self._reviews[listing_id].values())
+        if not include_hidden:
+            items = [r for r in items if not r.is_hidden]
         if sort_by == "helpful":
             items.sort(key=lambda r: (r.helpful_count, r.created_at), reverse=True)
         elif sort_by == "rating_high":
@@ -626,6 +631,25 @@ class MarketplaceStore:
                 if rv.review_id == review_id:
                     return rv
         return None
+
+    def hide_review(self, review_id: str) -> Review:
+        """Hide a review from public view (moderator action)."""
+        with self._lock:
+            rv = self._find_review(review_id)
+            if rv is None:
+                raise ValueError("レビューが見つかりません")
+            rv.is_hidden = True
+        logger.info("Review hidden: %s", review_id)
+        return rv
+
+    def unhide_review(self, review_id: str) -> Review:
+        """Restore a previously hidden review."""
+        with self._lock:
+            rv = self._find_review(review_id)
+            if rv is None:
+                raise ValueError("レビューが見つかりません")
+            rv.is_hidden = False
+        return rv
 
     def add_review_reply(
         self, review_id: str, user_id: str, username: str, text: str
@@ -1209,6 +1233,31 @@ class MarketplaceStore:
             license_details=f"Cloned from listing {listing_id}. {source.license_details}".strip(),
         )
         return cloned
+
+    def transfer_listing(
+        self,
+        listing_id: str,
+        requester_id: str,
+        new_owner_id: str,
+        new_owner_username: str,
+    ) -> "MarketplaceListing":
+        """Transfer ownership of a listing to another user.
+
+        Only the current owner may initiate a transfer.
+        The listing remains active; all reviews/ratings/downloads are preserved.
+        """
+        if requester_id == new_owner_id:
+            raise ValueError("自分自身に譲渡することはできません")
+        with self._lock:
+            listing = self._listings.get(listing_id)
+            if not listing:
+                raise ValueError("リスティングが見つかりません")
+            if listing.owner_id != requester_id:
+                raise PermissionError("このリスティングの所有者のみが譲渡できます")
+            listing.owner_id = new_owner_id
+            listing.owner_username = new_owner_username
+        logger.info("Listing %s transferred from %s to %s", listing_id, requester_id, new_owner_id)
+        return listing
 
     def get_stats(self) -> Dict[str, Any]:
         with self._lock:

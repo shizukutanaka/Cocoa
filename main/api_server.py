@@ -2907,6 +2907,58 @@ async def bulk_listing_action(body: BulkListingActionRequest, admin: dict = Depe
     }
 
 
+class TransferListingRequest(BaseModel):
+    new_owner_id: str
+    new_owner_username: str
+
+
+@app.post("/api/marketplace/{listing_id}/transfer", tags=["marketplace"])
+async def transfer_listing(
+    listing_id: str,
+    body: TransferListingRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """リスティングの所有権を別のユーザーに譲渡する（現在のオーナーのみ）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        listing = get_marketplace().transfer_listing(
+            listing_id,
+            requester_id=current_user["user_id"],
+            new_owner_id=body.new_owner_id,
+            new_owner_username=body.new_owner_username,
+        )
+        return listing.to_dict()
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404 if "見つかりません" in str(e) else 400, detail=str(e)) from e
+
+
+@app.post("/api/admin/reviews/{review_id}/hide", tags=["admin"])
+async def hide_review(review_id: str, admin: dict = Depends(get_current_admin)):
+    """レビューを非表示にする（モデレーター専用）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        rv = get_marketplace().hide_review(review_id)
+        return rv.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.post("/api/admin/reviews/{review_id}/unhide", tags=["admin"])
+async def unhide_review(review_id: str, admin: dict = Depends(get_current_admin)):
+    """非表示のレビューを再表示する（モデレーター専用）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        rv = get_marketplace().unhide_review(review_id)
+        return rv.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @app.get("/api/admin/tags", tags=["admin"])
 async def list_all_tags(
     limit: int = Query(100, ge=1, le=500),

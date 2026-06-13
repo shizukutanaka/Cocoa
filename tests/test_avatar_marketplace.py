@@ -1673,6 +1673,91 @@ class TestCategories(unittest.TestCase):
             self.assertIn("count", entry)
 
 
+class TestReviewHiding(unittest.TestCase):
+    def setUp(self):
+        self.store = MarketplaceStore()
+        lst = _listing(self.store)
+        self.listing_id = lst.listing_id
+        _, self.rv = self.store.review(self.listing_id, "u2", "bob", 4, "Good avatar")
+        self.review_id = self.rv.review_id
+
+    def test_review_visible_by_default(self):
+        result = self.store.get_reviews(self.listing_id)
+        self.assertEqual(result["total"], 1)
+        self.assertFalse(result["items"][0]["is_hidden"])
+
+    def test_hide_review_removes_from_list(self):
+        self.store.hide_review(self.review_id)
+        result = self.store.get_reviews(self.listing_id)
+        self.assertEqual(result["total"], 0)
+
+    def test_hide_review_visible_with_include_hidden(self):
+        self.store.hide_review(self.review_id)
+        result = self.store.get_reviews(self.listing_id, include_hidden=True)
+        self.assertEqual(result["total"], 1)
+        self.assertTrue(result["items"][0]["is_hidden"])
+
+    def test_unhide_review_restores_visibility(self):
+        self.store.hide_review(self.review_id)
+        self.store.unhide_review(self.review_id)
+        result = self.store.get_reviews(self.listing_id)
+        self.assertEqual(result["total"], 1)
+
+    def test_hide_unknown_review_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.hide_review("no-such-review-id")
+
+    def test_unhide_unknown_review_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.unhide_review("no-such-review-id")
+
+    def test_review_to_dict_includes_is_hidden(self):
+        d = self.rv.to_dict()
+        self.assertIn("is_hidden", d)
+
+
+class TestListingTransfer(unittest.TestCase):
+    def setUp(self):
+        self.store = MarketplaceStore()
+        lst = _listing(self.store, owner_id="owner1")
+        self.listing_id = lst.listing_id
+
+    def test_transfer_changes_owner(self):
+        result = self.store.transfer_listing(self.listing_id, "owner1", "owner2", "newuser")
+        self.assertEqual(result.owner_id, "owner2")
+        self.assertEqual(result.owner_username, "newuser")
+
+    def test_transfer_persisted(self):
+        self.store.transfer_listing(self.listing_id, "owner1", "owner2", "newuser")
+        listing = self.store.get_listing(self.listing_id)
+        self.assertEqual(listing.owner_id, "owner2")
+
+    def test_transfer_non_owner_raises(self):
+        with self.assertRaises(PermissionError):
+            self.store.transfer_listing(self.listing_id, "other_user", "owner2", "newuser")
+
+    def test_transfer_to_self_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.transfer_listing(self.listing_id, "owner1", "owner1", "owner1")
+
+    def test_transfer_unknown_listing_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.transfer_listing("no-such-id", "owner1", "owner2", "newuser")
+
+    def test_transfer_preserves_download_count(self):
+        self.store.add_credits("downloader", 1000)
+        self.store.download(self.listing_id, "downloader")
+        self.store.transfer_listing(self.listing_id, "owner1", "owner2", "newuser")
+        listing = self.store.get_listing(self.listing_id)
+        self.assertEqual(listing.download_count, 1)
+
+    def test_transfer_preserves_reviews(self):
+        self.store.review(self.listing_id, "reviewer", "reviewer", 5, "Great!")
+        self.store.transfer_listing(self.listing_id, "owner1", "owner2", "newuser")
+        reviews = self.store.get_reviews(self.listing_id)
+        self.assertEqual(reviews["total"], 1)
+
+
 class TestTagFeed(unittest.TestCase):
     def setUp(self):
         self.store = MarketplaceStore()
