@@ -123,6 +123,7 @@ SAFE_MODULES = [
     "tests.test_commissions",
     "tests.test_cart_manager",
     "tests.test_referral_manager",
+    "tests.test_license_manager",
 ]
 
 

@@ -121,6 +121,7 @@ try:
     from .avatar_marketplace import get_marketplace
     from .cart_manager import get_cart_manager
     from .commissions import get_commission_store
+    from .license_manager import get_license_manager
     from .rate_limiter import get_client_ip, get_rate_limiter
     from .referral_manager import get_referral_manager
     from .saved_searches import get_saved_search_store
@@ -139,6 +140,7 @@ except ImportError:
     get_saved_search_store = None
     get_cart_manager = None
     get_commission_store = None
+    get_license_manager = None
     get_referral_manager = None
     AuthError = Exception
 
@@ -3664,6 +3666,105 @@ async def get_order(
     if not order:
         raise HTTPException(status_code=404, detail="注文が見つかりません")
     return order
+
+
+class ActivateLicenseRequest(BaseModel):
+    note: str = ""
+
+
+class RevokeLicenseRequest(BaseModel):
+    reason: str = ""
+
+
+@app.get("/api/licenses/mine", tags=["licenses"])
+async def get_my_licenses(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分が保有するライセンスキーの一覧を取得する"""
+    if not get_license_manager:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_license_manager().get_my_licenses(current_user["user_id"], limit=limit, offset=offset)
+
+
+@app.post("/api/licenses/{key_id}/activate", tags=["licenses"])
+async def activate_license(
+    key_id: str,
+    body: ActivateLicenseRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """ライセンスキーをアクティベートする"""
+    if not get_license_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_license_manager().activate_key(key_id, current_user["user_id"], body.note)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/licenses/{key_id}/revoke", tags=["licenses"])
+async def revoke_license(
+    key_id: str,
+    body: RevokeLicenseRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """ライセンスキーを失効させる（オーナー専用）"""
+    if not get_license_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_license_manager().revoke_key(key_id, current_user["user_id"], body.reason)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get("/api/licenses/verify", tags=["licenses"])
+async def verify_license(key: str = Query(..., description="ライセンスキー文字列")):
+    """ライセンスキーが有効か検証する（認証不要）"""
+    if not get_license_manager:
+        return {"valid": False, "reason": "service_unavailable"}
+    return get_license_manager().verify_key(key)
+
+
+@app.get("/api/marketplace/{listing_id}/licenses", tags=["licenses"])
+async def get_listing_licenses(
+    listing_id: str,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """リスティングに対して発行済みのライセンスキー一覧（オーナー専用）"""
+    if not get_license_manager:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    try:
+        return get_license_manager().get_listing_licenses(
+            listing_id, current_user["user_id"], limit=limit, offset=offset
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+@app.post("/api/admin/licenses/{key_id}/revoke", tags=["admin"])
+async def admin_revoke_license(
+    key_id: str,
+    body: RevokeLicenseRequest,
+    admin: dict = Depends(get_current_admin),
+):
+    """管理者がライセンスキーを強制失効させる"""
+    if not get_license_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_license_manager().revoke_key(
+            key_id, admin["sub"], body.reason, is_admin=True
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @app.get("/api/referrals/my-code", tags=["referrals"])
