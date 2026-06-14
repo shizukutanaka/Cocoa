@@ -408,24 +408,74 @@ class MarketplaceStore:
         a credit system.  Returns the per-user discrepancies (empty when sound).
         """
         with self._lock:
-            users = set(self._credits) | set(self._credit_ledger)
-            discrepancies = []
-            for uid in sorted(users):
-                balance = self._credits.get(uid, 0)
-                ledger_sum = sum(e["amount"] for e in self._credit_ledger.get(uid, []))
-                if balance != ledger_sum:
-                    discrepancies.append({
-                        "user_id": uid,
-                        "balance": balance,
-                        "ledger_sum": ledger_sum,
-                        "difference": balance - ledger_sum,
-                    })
+            discrepancies, users_checked = self._ledger_discrepancies(
+                self._credits, self._credit_ledger
+            )
         return {
             "consistent": not discrepancies,
-            "users_checked": len(users),
+            "users_checked": users_checked,
             "discrepancy_count": len(discrepancies),
             "discrepancies": discrepancies,
         }
+
+    @staticmethod
+    def _ledger_discrepancies(
+        credits: Dict[str, int], ledger: Dict[str, List[Dict[str, Any]]]
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Return (discrepancies, users_checked) where balance != sum(ledger)."""
+        users = set(credits) | set(ledger)
+        discrepancies = []
+        for uid in sorted(users):
+            balance = credits.get(uid, 0)
+            ledger_sum = sum(e["amount"] for e in ledger.get(uid, []))
+            if balance != ledger_sum:
+                discrepancies.append({
+                    "user_id": uid,
+                    "balance": balance,
+                    "ledger_sum": ledger_sum,
+                    "difference": balance - ledger_sum,
+                })
+        return discrepancies, len(users)
+
+    def export_credit_state(self) -> Dict[str, Any]:
+        """Serialize money-critical state (balances + ledger) to a JSON-safe
+        dict for durable snapshotting.  Pair with ``import_credit_state``.
+        """
+        with self._lock:
+            return {
+                "version": 1,
+                "credits": dict(self._credits),
+                "ledger": {
+                    uid: [dict(e) for e in entries]
+                    for uid, entries in self._credit_ledger.items()
+                },
+            }
+
+    def import_credit_state(self, state: Dict[str, Any], *, verify: bool = True) -> Dict[str, Any]:
+        """Restore balances + ledger from an ``export_credit_state`` snapshot.
+
+        With ``verify=True`` (default) the snapshot is integrity-checked BEFORE
+        it is committed — a snapshot whose balances don't match their ledger is
+        rejected with ValueError, so corrupt persisted state can never silently
+        poison the live credit supply.
+        """
+        if not isinstance(state, dict) or "credits" not in state:
+            raise ValueError("invalid snapshot: missing 'credits'")
+        credits = {str(k): int(v) for k, v in state.get("credits", {}).items()}
+        ledger = {
+            str(k): [dict(e) for e in v]
+            for k, v in state.get("ledger", {}).items()
+        }
+        if verify:
+            discrepancies, _ = self._ledger_discrepancies(credits, ledger)
+            if discrepancies:
+                raise ValueError(
+                    f"snapshot integrity check failed: {len(discrepancies)} discrepancies"
+                )
+        with self._lock:
+            self._credits = credits
+            self._credit_ledger = ledger
+        return {"users_loaded": len(set(credits) | set(ledger))}
 
     def get_credit_history(
         self, user_id: str, limit: int = 50, offset: int = 0

@@ -355,6 +355,52 @@ class TestMoneyPrimitiveInvariant(unittest.TestCase):
         self.assertTrue(report["consistent"])
         self.assertEqual(report["users_checked"], 0)
 
+    def test_snapshot_roundtrip_restores_balances_and_ledger(self):
+        import json
+        self.store.add_credits("a", 100)
+        self.store.add_credits("b", 50)
+        self.store.gift_credits("a", "b", 30)
+        snap = self.store.export_credit_state()
+        json.dumps(snap)  # must be JSON-serializable
+
+        restored = _store()
+        result = restored.import_credit_state(snap)
+        self.assertEqual(result["users_loaded"], 2)
+        self.assertEqual(restored.get_balance("a"), 70)
+        self.assertEqual(restored.get_balance("b"), 80)
+        self.assertTrue(restored.verify_ledger_integrity()["consistent"])
+        # Ledger history survives the round-trip.
+        self.assertGreater(restored.get_credit_history("a")["total"], 0)
+
+    def test_import_rejects_corrupt_snapshot(self):
+        self.store.add_credits("a", 100)
+        snap = self.store.export_credit_state()
+        snap["credits"]["a"] = 999  # balance no longer matches ledger
+        with self.assertRaises(ValueError):
+            _store().import_credit_state(snap)
+
+    def test_import_corrupt_snapshot_allowed_when_verify_false(self):
+        self.store.add_credits("a", 100)
+        snap = self.store.export_credit_state()
+        snap["credits"]["a"] = 999
+        target = _store()
+        target.import_credit_state(snap, verify=False)
+        self.assertEqual(target.get_balance("a"), 999)
+        self.assertFalse(target.verify_ledger_integrity()["consistent"])
+
+    def test_import_invalid_snapshot_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.import_credit_state({"no_credits": True})
+
+    def test_import_replaces_existing_state(self):
+        self.store.add_credits("old_user", 500)
+        source = _store()
+        source.add_credits("a", 10)
+        self.store.import_credit_state(source.export_credit_state())
+        # Prior state is replaced, not merged.
+        self.assertEqual(self.store.get_balance("old_user"), 0)
+        self.assertEqual(self.store.get_balance("a"), 10)
+
 
 class TestPaginationClamping(unittest.TestCase):
     """Hostile/malformed pagination inputs must be clamped, not slice wrongly."""
