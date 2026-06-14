@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _DEFAULT_RATE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
 _AUTH_RATE = int(os.getenv("RATE_LIMIT_AUTH_PER_MINUTE", "10"))
+_PURCHASE_RATE = int(os.getenv("RATE_LIMIT_PURCHASE_PER_MINUTE", "30"))
 _WINDOW_SECONDS = 60
 _BURST_MULTIPLIER = 2  # allow burst up to 2x normal rate for <5 seconds
 
@@ -91,6 +93,42 @@ _ENDPOINT_OVERRIDES: Dict[str, EndpointLimit] = {
 }
 
 
+# Pattern overrides for templated routes (path params).  A concrete request
+# path like /api/marketplace/abc123/download won't match the exact-key table,
+# and worse, each id would otherwise get its OWN rate-limit bucket — letting a
+# script spend across many listings, each with a full quota.  Each entry maps a
+# regex over the concrete path to a *canonical* bucket name + limit; the
+# canonical name is used as the window key so every id shares one bucket per
+# client.  Exact overrides above take precedence.
+_PATTERN_OVERRIDES: List[Tuple["re.Pattern[str]", str, EndpointLimit]] = [
+    (re.compile(r"^/api/marketplace/[^/]+/download$"),
+     "/api/marketplace/{id}/download", EndpointLimit(_PURCHASE_RATE)),
+    (re.compile(r"^/api/marketplace/[^/]+/clone$"),
+     "/api/marketplace/{id}/clone", EndpointLimit(_PURCHASE_RATE)),
+    (re.compile(r"^/api/bundles/[^/]+/purchase$"),
+     "/api/bundles/{id}/purchase", EndpointLimit(_AUTH_RATE)),
+    (re.compile(r"^/api/licenses/[^/]+/(activate|revoke)$"),
+     "/api/licenses/{id}/activate", EndpointLimit(_AUTH_RATE)),
+]
+
+
+def _resolve_limit(endpoint: str) -> Tuple[str, Optional[EndpointLimit]]:
+    """Return (canonical_bucket_name, override) for a concrete request path.
+
+    Exact overrides win; otherwise the first matching pattern supplies both the
+    limit and a canonical bucket name (so templated routes share one bucket per
+    client). No match → (endpoint, None) meaning the default rate, bucketed by
+    the path as-is.
+    """
+    exact = _ENDPOINT_OVERRIDES.get(endpoint)
+    if exact is not None:
+        return endpoint, exact
+    for pattern, canonical, limit in _PATTERN_OVERRIDES:
+        if pattern.match(endpoint):
+            return canonical, limit
+    return endpoint, None
+
+
 # ---------------------------------------------------------------------------
 # Rate limiter registry
 # ---------------------------------------------------------------------------
@@ -125,11 +163,11 @@ class RateLimiter:
         Returns (allowed, headers_dict).
         headers_dict contains X-RateLimit-* values for the response.
         """
-        override = _ENDPOINT_OVERRIDES.get(endpoint)
+        canonical, override = _resolve_limit(endpoint)
         effective_max = max_requests or (override.max_requests if override else _DEFAULT_RATE)
         effective_window = override.window_seconds if override else window_seconds
 
-        window_key = f"{client_key}:{endpoint}"
+        window_key = f"{client_key}:{canonical}"
         window = self._get_window(window_key, effective_max, effective_window)
         allowed, remaining, retry_after = window.is_allowed()
 

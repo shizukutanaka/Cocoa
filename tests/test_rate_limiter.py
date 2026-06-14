@@ -139,6 +139,37 @@ class TestRateLimiter(unittest.TestCase):
         ok, _ = self.limiter.check("ip-x", path)
         self.assertFalse(ok)  # blocked at the auth-tier limit, not 60
 
+    def test_templated_download_uses_purchase_rate(self):
+        from rate_limiter import _PURCHASE_RATE
+        ok, headers = self.limiter.check("user:u1", "/api/marketplace/abc/download")
+        self.assertTrue(ok)
+        self.assertEqual(headers["X-RateLimit-Limit"], str(_PURCHASE_RATE))
+
+    def test_templated_routes_share_one_bucket_across_ids(self):
+        # The core bug: each listing id must NOT get its own quota — all
+        # downloads by a client share one canonical bucket.
+        from rate_limiter import _PURCHASE_RATE
+        for i in range(_PURCHASE_RATE):
+            ok, _ = self.limiter.check("user:u1", f"/api/marketplace/listing{i}/download")
+            self.assertTrue(ok)
+        # One more, on yet another distinct id, must now be blocked.
+        ok, _ = self.limiter.check("user:u1", "/api/marketplace/another/download")
+        self.assertFalse(ok)
+
+    def test_bundle_purchase_templated_uses_auth_rate(self):
+        from rate_limiter import _AUTH_RATE
+        ok, headers = self.limiter.check("user:u1", "/api/bundles/xyz/purchase")
+        self.assertTrue(ok)
+        self.assertEqual(headers["X-RateLimit-Limit"], str(_AUTH_RATE))
+
+    def test_different_clients_have_independent_buckets(self):
+        from rate_limiter import _PURCHASE_RATE
+        for i in range(_PURCHASE_RATE):
+            self.limiter.check("user:u1", f"/api/marketplace/l{i}/download")
+        # A different client is unaffected.
+        ok, _ = self.limiter.check("user:u2", "/api/marketplace/l0/download")
+        self.assertTrue(ok)
+
 
 class TestClientIpExtraction(unittest.TestCase):
     def test_extract_forwarded_for(self):
