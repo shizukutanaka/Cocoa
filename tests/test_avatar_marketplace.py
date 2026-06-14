@@ -1273,6 +1273,34 @@ class TestPurchaseDisputes(unittest.TestCase):
         self.assertEqual(self.store.get_balance("u_buyer"), buyer_before)
         self.assertEqual(self.store.get_balance("u_seller"), seller_before)
 
+    def test_dispute_clamp_books_platform_subsidy_and_conserves_total(self):
+        # Seller spends proceeds, so the refund clawback is clamped. The gap
+        # must be booked to the platform account, keeping total credits
+        # conserved (no silent system-wide injection).
+        self.store.debit("u_seller", self.store.get_balance("u_seller"), "withdrawal")
+        total_before = sum(self.store._credits.values())
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        total_after = sum(self.store._credits.values())
+        self.assertEqual(total_after, total_before)  # conserved across all accounts
+        from avatar_marketplace import PLATFORM_ACCOUNT
+        self.assertEqual(self.store.get_balance(PLATFORM_ACCOUNT), -50)
+        kinds = [e["kind"] for e in self.store._credit_ledger[PLATFORM_ACCOUNT]]
+        self.assertIn("dispute_subsidy", kinds)
+        # Per-user integrity still holds (platform balance == its ledger sum).
+        self.assertTrue(self.store.verify_ledger_integrity()["consistent"])
+
+    def test_dispute_full_clawback_books_no_subsidy(self):
+        # Seller still holds the proceeds → full clawback, no platform subsidy.
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        from avatar_marketplace import PLATFORM_ACCOUNT
+        self.assertEqual(self.store.get_balance(PLATFORM_ACCOUNT), 0)
+
     def test_resolve_dispute_clawback_clamped_when_seller_spent(self):
         # Seller spends their proceeds before the dispute resolves.
         self.store.debit("u_seller", self.store.get_balance("u_seller"),

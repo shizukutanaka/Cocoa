@@ -63,6 +63,13 @@ class _FakeMarketplace:
     def get_balance(self, user_id):
         return self._credits.get(user_id, 0)
 
+    def record_platform_subsidy(self, amount, ref_id="", kind="platform_subsidy"):
+        with self._lock:
+            new_bal = self._credits.get("__platform__", 0) - amount
+            self._credits["__platform__"] = new_bal
+            self._append_ledger("__platform__", -amount, kind, ref_id=ref_id, balance_after=new_bal)
+            return new_bal
+
     def credit(self, user_id, amount, kind, ref_id=""):
         if amount <= 0:
             raise ValueError("amount must be positive")
@@ -389,6 +396,23 @@ class TestRefundClawback(unittest.TestCase):
         self.assertEqual(mkt._credits["s1"], 0)        # not negative
         self.assertEqual(result["reclaimed_from_sellers"], 200)
         self.assertEqual(mkt._credits["u1"], 500)      # buyer still fully refunded
+
+    def test_clamped_refund_books_platform_subsidy_and_conserves_total(self):
+        # The 300 shortfall must be booked to the platform account so the
+        # refund is zero-sum system-wide, not a silent credit injection.
+        mgr, cart, mkt, rid = self._setup(seller_balance=200)
+        total_before = sum(mkt._credits.values())
+        mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        total_after = sum(mkt._credits.values())
+        self.assertEqual(total_after, total_before)        # conserved
+        self.assertEqual(mkt._credits["__platform__"], -300)
+        subsidy = next(e for e in mkt._ledger if e["kind"] == "refund_subsidy")
+        self.assertEqual(subsidy["delta"], -300)
+
+    def test_full_clawback_books_no_subsidy(self):
+        mgr, cart, mkt, rid = self._setup(seller_balance=500)
+        mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        self.assertEqual(mkt._credits.get("__platform__", 0), 0)
 
     def test_clawback_multiple_sellers(self):
         items = [_FakeOrderItem("s1", 300), _FakeOrderItem("s2", 200)]

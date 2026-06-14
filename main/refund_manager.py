@@ -251,6 +251,7 @@ class RefundManager:
 
         # Claw back each seller's proceeds (best-effort, clamped to balance).
         reclaimed = 0
+        shortfall = 0
         if order is not None:
             for item in getattr(order, "items", []):
                 owed = item.final_price * getattr(item, "quantity", 1)
@@ -264,10 +265,18 @@ class RefundManager:
                     )
                     reclaimed += claw
                 if claw < owed:
+                    shortfall += owed - claw
                     logger.warning(
                         "Refund clawback shortfall: order=%s seller=%s owed=%d reclaimed=%d",
                         req.order_id, item.owner_id, owed, claw,
                     )
+        # Book any unreclaimed amount as a platform subsidy so the refund is
+        # zero-sum across all accounts and the injection is audited (not a
+        # silent system-wide credit injection).
+        if shortfall > 0 and hasattr(marketplace_store, "record_platform_subsidy"):
+            marketplace_store.record_platform_subsidy(
+                shortfall, ref_id=req.order_id, kind="refund_subsidy"
+            )
 
         # Return credits to buyer via the marketplace's audited public API.
         # Guard the zero-amount case (a fully-free order) since credit() rejects

@@ -173,6 +173,11 @@ _DISPUTE_REASONS = frozenset({
     "not_as_described", "corrupted_file", "duplicate_charge", "unauthorized", "other"
 })
 
+# Reserved system account. When the platform absorbs a refund/dispute clawback
+# shortfall (a seller already spent the proceeds), the gap is booked here as a
+# negative balance so the injection is audited and the economy stays zero-sum.
+PLATFORM_ACCOUNT = "__platform__"
+
 
 @dataclass
 class PurchaseDispute:
@@ -416,6 +421,25 @@ class MarketplaceStore:
         self._credits[user_id] = new_bal
         self._append_ledger(user_id, -amount, kind, ref_id=ref_id, balance_after=new_bal)
         return new_bal
+
+    def _subsidize_locked(self, amount: int, ref_id: str = "", kind: str = "platform_subsidy") -> int:
+        """Book a platform subsidy: the platform funds ``amount`` (>0), going
+        negative on the reserved PLATFORM_ACCOUNT.  Unlike _debit_locked this
+        permits a negative balance — the platform account is a deficit ledger,
+        not a user wallet.  Records a ledger entry so the injection is audited
+        and refunds stay zero-sum across all accounts.  Caller holds self._lock.
+        """
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        new_bal = self._credits.get(PLATFORM_ACCOUNT, 0) - amount
+        self._credits[PLATFORM_ACCOUNT] = new_bal
+        self._append_ledger(PLATFORM_ACCOUNT, -amount, kind, ref_id=ref_id, balance_after=new_bal)
+        return new_bal
+
+    def record_platform_subsidy(self, amount: int, ref_id: str = "", kind: str = "platform_subsidy") -> int:
+        """Public, locked wrapper around ``_subsidize_locked``."""
+        with self._lock:
+            return self._subsidize_locked(amount, ref_id=ref_id, kind=kind)
 
     def _record_download_locked(self, listing_id: str, user_id: str, ts: datetime) -> None:
         """Append to the download log AND update the ownership index. Hold lock."""
@@ -1464,6 +1488,10 @@ class MarketplaceStore:
                     self._debit_locked(dispute.seller_id, claw, "dispute_reversal",
                                        ref_id=dispute.listing_id)
                 if claw < amount:
+                    # Platform funds the gap; book it so the refund is zero-sum
+                    # across all accounts and the injection is audited.
+                    self._subsidize_locked(amount - claw, ref_id=dispute.listing_id,
+                                           kind="dispute_subsidy")
                     logger.warning(
                         "Dispute clawback shortfall: dispute=%s seller=%s owed=%d clawed=%d",
                         dispute_id, dispute.seller_id, amount, claw,
