@@ -135,6 +135,37 @@ class RefundStore:
             req.resolved_at = datetime.now(timezone.utc)
             return req
 
+    def transition(
+        self,
+        request_id: str,
+        from_status: str,
+        to_status: str,
+        *,
+        notes: str = "",
+        resolved_by: str = "",
+    ) -> RefundRequest:
+        """Atomically move a request from ``from_status`` to ``to_status``.
+
+        Compare-and-set under a single lock: raises if the request is not
+        currently in ``from_status``.  This is what makes approval/rejection
+        safe against concurrent callers (or a double-click) — only the first
+        transition wins, so credits can never be moved twice for one request.
+        """
+        with self._lock:
+            req = self._requests.get(request_id)
+            if not req:
+                raise ValueError("払い戻しリクエストが見つかりません")
+            if req.status != from_status:
+                raise ValueError(
+                    f"{from_status}状態のリクエストのみ処理できます (現在: {req.status})"
+                )
+            req.status = to_status
+            if notes:
+                req.admin_notes = notes.strip()[:_MAX_NOTES_LEN]
+            req.resolved_by = resolved_by
+            req.resolved_at = datetime.now(timezone.utc)
+            return req
+
 
 class RefundManager:
     """Business logic for the refund workflow."""
@@ -209,11 +240,12 @@ class RefundManager:
         blocked and no balance goes negative.
         """
         self._require_admin(admin_payload)
-        req = self.store.get(request_id)
-        if not req:
-            raise ValueError("払い戻しリクエストが見つかりません")
-        if req.status != "pending":
-            raise ValueError(f"保留中のリクエストのみ承認できます (現在: {req.status})")
+        admin_id = admin_payload.get("sub", "")
+        # Atomically claim the request (pending → approved) BEFORE moving any
+        # credits.  Concurrent approvals / double-clicks all race here and only
+        # one wins; the losers raise "not pending" and move nothing, so the
+        # buyer can never be refunded twice.
+        req = self.store.transition(request_id, "pending", "approved", resolved_by=admin_id)
 
         order = cart_manager.store.get_order(req.order_id)
 
@@ -237,23 +269,26 @@ class RefundManager:
                         req.order_id, item.owner_id, owed, claw,
                     )
 
-        # Return credits to buyer via the marketplace's audited public API
-        new_bal = marketplace_store.credit(
-            req.user_id, req.total_credits, "refund", ref_id=req.request_id
-        )
+        # Return credits to buyer via the marketplace's audited public API.
+        # Guard the zero-amount case (a fully-free order) since credit() rejects
+        # non-positive amounts.
+        if req.total_credits > 0:
+            new_bal = marketplace_store.credit(
+                req.user_id, req.total_credits, "refund", ref_id=req.request_id
+            )
+        else:
+            new_bal = marketplace_store.get_balance(req.user_id)
 
         # Mark order refunded
         if order is not None:
             order.status = "refunded"
 
-        admin_id = admin_payload.get("sub", "")
-        updated = self.store.update(request_id, "approved", "", admin_id)
         logger.info(
             "Refund approved: %s by admin %s (%d credits → %s, %d reclaimed from sellers)",
             request_id, admin_id, req.total_credits, req.user_id, reclaimed,
         )
         return {
-            "request": updated.to_dict(),
+            "request": req.to_dict(),
             "credits_returned": req.total_credits,
             "new_balance": new_bal,
             "reclaimed_from_sellers": reclaimed,
@@ -267,13 +302,12 @@ class RefundManager:
     ) -> Dict[str, Any]:
         """Reject a refund request (no credits returned)."""
         self._require_admin(admin_payload)
-        req = self.store.get(request_id)
-        if not req:
-            raise ValueError("払い戻しリクエストが見つかりません")
-        if req.status != "pending":
-            raise ValueError(f"保留中のリクエストのみ却下できます (現在: {req.status})")
         admin_id = admin_payload.get("sub", "")
-        updated = self.store.update(request_id, "rejected", notes, admin_id)
+        # Atomic claim so an approve and a reject (or two rejects) can't both
+        # win for the same request.
+        updated = self.store.transition(
+            request_id, "pending", "rejected", notes=notes, resolved_by=admin_id
+        )
         logger.info("Refund rejected: %s by admin %s", request_id, admin_id)
         return updated.to_dict()
 

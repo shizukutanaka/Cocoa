@@ -404,6 +404,74 @@ class TestRefundClawback(unittest.TestCase):
         self.assertEqual(result["reclaimed_from_sellers"], 500)
 
 
+class TestRefundConcurrency(unittest.TestCase):
+    """Concurrent approvals must not double-refund (TOCTOU on status)."""
+
+    def _setup(self, seller_balance=500):
+        item = _FakeOrderItem(owner_id="s1", final_price=500)
+        order = _FakeOrder("o1", "u1", 500, items=[item])
+        cart = _FakeCartManager([order])
+        mkt = _FakeMarketplace(credits={"u1": 0, "s1": seller_balance})
+        mgr = RefundManager()
+        mgr.request_refund("u1", "o1", "want refund", cart)
+        rid = mgr.store.list_requests()["items"][0]["request_id"]
+        return mgr, cart, mkt, rid
+
+    def test_concurrent_approvals_refund_once(self):
+        mgr, cart, mkt, rid = self._setup()
+        n = 24
+        barrier = threading.Barrier(n)
+        successes = []
+        failures = []
+        lock = threading.Lock()
+
+        def worker():
+            barrier.wait()  # maximise contention on the claim
+            try:
+                mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+                with lock:
+                    successes.append(1)
+            except ValueError:
+                with lock:
+                    failures.append(1)
+
+        threads = [threading.Thread(target=worker) for _ in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Exactly one approval may win; the buyer is refunded exactly once.
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(len(failures), n - 1)
+        self.assertEqual(mkt._credits["u1"], 500)   # not 500 * n
+        self.assertEqual(mkt._credits["s1"], 0)
+
+    def test_concurrent_approve_and_reject_one_wins(self):
+        mgr, cart, mkt, rid = self._setup()
+        results = []
+        lock = threading.Lock()
+        barrier = threading.Barrier(2)
+
+        def do(fn):
+            barrier.wait()
+            try:
+                fn()
+                with lock:
+                    results.append("ok")
+            except ValueError:
+                with lock:
+                    results.append("err")
+
+        t1 = threading.Thread(target=do, args=(lambda: mgr.approve_refund(_admin_payload(), rid, mkt, cart),))
+        t2 = threading.Thread(target=do, args=(lambda: mgr.reject_refund(_admin_payload(), rid),))
+        t1.start(); t2.start(); t1.join(); t2.join()
+        # Exactly one of approve/reject wins.
+        self.assertEqual(results.count("ok"), 1)
+        # Buyer credited at most once (0 if reject won, 500 if approve won).
+        self.assertIn(mkt._credits["u1"], (0, 500))
+
+
 class TestRefundManagerSingleton(unittest.TestCase):
     def test_singleton(self):
         a = get_refund_manager()
