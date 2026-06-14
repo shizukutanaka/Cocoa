@@ -401,6 +401,53 @@ class TestMoneyPrimitiveInvariant(unittest.TestCase):
         self.assertEqual(self.store.get_balance("old_user"), 0)
         self.assertEqual(self.store.get_balance("a"), 10)
 
+    def test_save_load_file_roundtrip(self):
+        import tempfile
+        self.store.add_credits("a", 100)
+        self.store.gift_credits("a", "b", 40)
+        with tempfile.TemporaryDirectory() as d:
+            # Nested dir is created automatically.
+            path = str(Path(d) / "state" / "credits.json")
+            self.store.save_credit_state(path)
+            self.assertTrue(Path(path).exists())
+            restored = _store()
+            result = restored.load_credit_state(path)
+            self.assertTrue(result["loaded"])
+            self.assertEqual(restored.get_balance("a"), 60)
+            self.assertEqual(restored.get_balance("b"), 40)
+
+    def test_load_missing_file_is_graceful(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            result = self.store.load_credit_state(str(Path(d) / "absent.json"))
+            self.assertFalse(result["loaded"])
+            self.assertEqual(result["users_loaded"], 0)
+
+    def test_save_is_atomic_no_tmp_left_behind(self):
+        import tempfile
+        self.store.add_credits("a", 10)
+        with tempfile.TemporaryDirectory() as d:
+            path = str(Path(d) / "credits.json")
+            self.store.save_credit_state(path)
+            leftovers = [p.name for p in Path(d).iterdir() if p.suffix == ".tmp"]
+            self.assertEqual(leftovers, [])
+
+    def test_load_rejects_corrupt_file(self):
+        import json
+        import tempfile
+        self.store.add_credits("a", 100)
+        with tempfile.TemporaryDirectory() as d:
+            path = str(Path(d) / "credits.json")
+            self.store.save_credit_state(path)
+            # Tamper with the persisted file so balance != ledger.
+            with open(path) as f:
+                data = json.load(f)
+            data["credits"]["a"] = 999
+            with open(path, "w") as f:
+                json.dump(data, f)
+            with self.assertRaises(ValueError):
+                _store().load_credit_state(path)
+
 
 class TestPaginationClamping(unittest.TestCase):
     """Hostile/malformed pagination inputs must be clamped, not slice wrongly."""

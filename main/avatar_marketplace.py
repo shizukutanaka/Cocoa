@@ -12,6 +12,7 @@ Features:
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 import threading
 from dataclasses import dataclass, field
@@ -476,6 +477,49 @@ class MarketplaceStore:
             self._credits = credits
             self._credit_ledger = ledger
         return {"users_loaded": len(set(credits) | set(ledger))}
+
+    def save_credit_state(self, path: str) -> None:
+        """Atomically persist the money state to a JSON file.
+
+        Writes to a temp file in the same directory and os.replace()s it into
+        place, so a crash mid-write can never leave a half-written (corrupt)
+        snapshot at ``path`` — the old file stays intact until the new one is
+        complete.
+        """
+        import json
+        import tempfile
+
+        state = self.export_credit_state()
+        directory = os.path.dirname(os.path.abspath(path))
+        os.makedirs(directory, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(state, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)  # atomic on POSIX
+        except Exception:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
+
+    def load_credit_state(self, path: str, *, verify: bool = True) -> Dict[str, Any]:
+        """Load money state from a JSON file written by ``save_credit_state``.
+
+        Returns ``{"loaded": False, "users_loaded": 0}`` if the file does not
+        exist (first run), so callers can blindly load on startup.  A corrupt
+        snapshot is rejected by the integrity check in ``import_credit_state``.
+        """
+        import json
+
+        if not os.path.exists(path):
+            return {"loaded": False, "users_loaded": 0}
+        with open(path, encoding="utf-8") as f:
+            state = json.load(f)
+        result = self.import_credit_state(state, verify=verify)
+        result["loaded"] = True
+        return result
 
     def get_credit_history(
         self, user_id: str, limit: int = 50, offset: int = 0
