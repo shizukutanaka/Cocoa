@@ -2361,6 +2361,33 @@ class TestTips(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.send_tip("sender", "alice", "sender", 100)
 
+    def test_public_tips_view_omits_sender_id_and_message(self):
+        # Privacy: the public tips feed must not leak the tipper's stable id
+        # or the private tip message.
+        self.store.send_tip("sender", "alice", "recipient", 100, "secret note for you")
+        pub = self.store.get_tips_received("recipient", public=True)
+        item = pub["items"][0]
+        self.assertNotIn("sender_id", item)
+        self.assertNotIn("message", item)
+        # ...but the intended public fields remain.
+        self.assertEqual(item["sender_username"], "alice")
+        self.assertEqual(item["amount"], 100)
+
+    def test_owner_tips_view_keeps_sender_id_and_message(self):
+        # The recipient's own (authenticated) view still sees full detail.
+        self.store.send_tip("sender", "alice", "recipient", 100, "secret note")
+        priv = self.store.get_tips_received("recipient")
+        item = priv["items"][0]
+        self.assertEqual(item["sender_id"], "sender")
+        self.assertEqual(item["message"], "secret note")
+
+    def test_tip_to_public_dict_directly(self):
+        tip = self.store.send_tip("sender", "alice", "recipient", 25, "hi")
+        d = tip.to_public_dict()
+        self.assertNotIn("sender_id", d)
+        self.assertNotIn("message", d)
+        self.assertEqual(d["amount"], 25)
+
     def test_send_zero_tip_raises(self):
         with self.assertRaises(ValueError):
             self.store.send_tip("sender", "alice", "recipient", 0)

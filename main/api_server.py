@@ -3557,11 +3557,9 @@ async def get_user_public_tips(
     if not get_marketplace:
         return {"total": 0, "offset": offset, "limit": limit,
                 "has_more": False, "next_offset": None, "items": []}
-    result = get_marketplace().get_tips_received(user_id, limit=limit, offset=offset)
-    # Strip sender_id from public view
-    for item in result["items"]:
-        item.pop("sender_id", None)
-    return result
+    # public=True returns the public-safe view (no sender_id, no private
+    # message), enforced at the model layer rather than ad-hoc stripping here.
+    return get_marketplace().get_tips_received(user_id, limit=limit, offset=offset, public=True)
 
 
 class CartAddItemRequest(BaseModel):

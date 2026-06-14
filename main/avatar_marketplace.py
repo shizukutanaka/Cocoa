@@ -263,6 +263,20 @@ class Tip:
             "created_at": self.created_at.isoformat(),
         }
 
+    def to_public_dict(self) -> Dict[str, Any]:
+        """Public-safe view: sender username + amount only.
+
+        Omits sender_id (stable identifier) and message (private note from the
+        sender to the recipient) so a public tips feed cannot leak either.
+        """
+        return {
+            "tip_id": self.tip_id,
+            "sender_username": self.sender_username,
+            "recipient_id": self.recipient_id,
+            "amount": self.amount,
+            "created_at": self.created_at.isoformat(),
+        }
+
 
 @dataclass
 class ListingReport:
@@ -2075,9 +2089,13 @@ class MarketplaceStore:
         return tip
 
     def get_tips_received(
-        self, recipient_id: str, limit: int = 20, offset: int = 0
+        self, recipient_id: str, limit: int = 20, offset: int = 0, *, public: bool = False
     ) -> Dict[str, Any]:
-        """Return paginated tips received by a user, newest first."""
+        """Return paginated tips received by a user, newest first.
+
+        With ``public=True`` each item is the public-safe view (no sender_id,
+        no private message) for the unauthenticated tips feed.
+        """
         with self._lock:
             items = [t for t in self._tips if t.recipient_id == recipient_id]
         items = list(reversed(items))  # newest first
@@ -2085,13 +2103,14 @@ class MarketplaceStore:
         offset, limit = normalize_pagination(offset, limit)
         page = items[offset: offset + limit]
         has_more = offset + limit < total
+        render = (lambda t: t.to_public_dict()) if public else (lambda t: t.to_dict())
         return {
             "total": total,
             "offset": offset,
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [t.to_dict() for t in page],
+            "items": [render(t) for t in page],
         }
 
     def get_tips_sent(
