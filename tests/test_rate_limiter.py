@@ -170,6 +170,35 @@ class TestRateLimiter(unittest.TestCase):
         ok, _ = self.limiter.check("user:u2", "/api/marketplace/l0/download")
         self.assertTrue(ok)
 
+    def test_mass_reporting_across_listings_is_capped(self):
+        # The abuse vector: per-target dedup doesn't stop reporting MANY
+        # distinct listings. Canonical bucketing caps total report rate.
+        from rate_limiter import _AUTH_RATE
+        for i in range(_AUTH_RATE):
+            ok, _ = self.limiter.check("user:spammer", f"/api/marketplace/listing{i}/report")
+            self.assertTrue(ok)
+        ok, _ = self.limiter.check("user:spammer", "/api/marketplace/yet-another/report")
+        self.assertFalse(ok)
+
+    def test_listing_and_review_reports_use_separate_buckets(self):
+        from rate_limiter import _AUTH_RATE
+        # Exhaust listing-report bucket.
+        for i in range(_AUTH_RATE):
+            self.limiter.check("user:u1", f"/api/marketplace/l{i}/report")
+        blocked, _ = self.limiter.check("user:u1", "/api/marketplace/lX/report")
+        self.assertFalse(blocked)
+        # Review-report bucket is independent and still open.
+        ok, _ = self.limiter.check("user:u1", "/api/marketplace/reviews/r1/report")
+        self.assertTrue(ok)
+
+    def test_dispute_filing_is_capped_across_listings(self):
+        from rate_limiter import _AUTH_RATE
+        for i in range(_AUTH_RATE):
+            ok, _ = self.limiter.check("user:u1", f"/api/marketplace/l{i}/dispute")
+            self.assertTrue(ok)
+        ok, _ = self.limiter.check("user:u1", "/api/marketplace/lZ/dispute")
+        self.assertFalse(ok)
+
 
 class TestClientIpExtraction(unittest.TestCase):
     def test_extract_forwarded_for(self):

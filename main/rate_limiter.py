@@ -109,6 +109,16 @@ _PATTERN_OVERRIDES: List[Tuple["re.Pattern[str]", str, EndpointLimit]] = [
      "/api/bundles/{id}/purchase", EndpointLimit(_AUTH_RATE)),
     (re.compile(r"^/api/licenses/[^/]+/(activate|revoke)$"),
      "/api/licenses/{id}/activate", EndpointLimit(_AUTH_RATE)),
+    # Abuse-prone moderation actions: templated routes would otherwise bucket
+    # per target id, so a user could mass-report thousands of distinct
+    # listings/reviews (the per-target dedup only blocks repeats on the SAME
+    # target). Canonical bucketing caps each action across ALL targets.
+    (re.compile(r"^/api/marketplace/reviews/[^/]+/report$"),
+     "/api/marketplace/reviews/{id}/report", EndpointLimit(_AUTH_RATE)),
+    (re.compile(r"^/api/marketplace/[^/]+/report$"),
+     "/api/marketplace/{id}/report", EndpointLimit(_AUTH_RATE)),
+    (re.compile(r"^/api/marketplace/[^/]+/dispute$"),
+     "/api/marketplace/{id}/dispute", EndpointLimit(_AUTH_RATE)),
 ]
 
 
