@@ -291,6 +291,42 @@ class TestDownloadHistory(unittest.TestCase):
         self.assertEqual(result_u3["total"], 0)
 
 
+class TestDownloadOwnershipIndex(unittest.TestCase):
+    """O(1) ownership index stays consistent with the download log."""
+
+    def setUp(self):
+        self.store = _store()
+        self.listing = _listing(self.store)
+
+    def test_has_downloaded_true_after_download(self):
+        self.assertFalse(self.store.has_downloaded(self.listing.listing_id, "u2"))
+        self.store.download(self.listing.listing_id, "u2")
+        self.assertTrue(self.store.has_downloaded(self.listing.listing_id, "u2"))
+
+    def test_has_downloaded_isolated_per_user(self):
+        self.store.download(self.listing.listing_id, "u2")
+        self.assertFalse(self.store.has_downloaded(self.listing.listing_id, "u3"))
+
+    def test_get_downloaded_ids_returns_copy(self):
+        self.store.download(self.listing.listing_id, "u2")
+        ids = self.store.get_downloaded_ids("u2")
+        self.assertIn(self.listing.listing_id, ids)
+        ids.add("tampered")  # mutating the copy must not affect the store
+        self.assertNotIn("tampered", self.store.get_downloaded_ids("u2"))
+
+    def test_index_matches_download_log(self):
+        # Index membership must agree with the authoritative log for every pair.
+        l2 = _listing(self.store, avatar_id="av2", name="Second")
+        self.store.download(self.listing.listing_id, "u2")
+        self.store.download(l2.listing_id, "u2")
+        self.store.download(self.listing.listing_id, "u3")
+        log_pairs = {(lid, did) for lid, did, _ in self.store._download_log}
+        for lid, did in log_pairs:
+            self.assertTrue(self.store.has_downloaded(lid, did))
+        self.assertEqual(self.store.get_downloaded_ids("u2"),
+                         {self.listing.listing_id, l2.listing_id})
+
+
 class TestMoneyPrimitiveInvariant(unittest.TestCase):
     """Every balance change must route through the primitive and leave a ledger trail."""
 

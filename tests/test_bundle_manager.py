@@ -40,6 +40,12 @@ class _FakeMP:
     def add(self, listing: _FakeListing) -> None:
         self._listings[listing.listing_id] = listing
 
+    def _record_download_locked(self, listing_id, user_id, ts):
+        self._download_log.append((listing_id, user_id, ts))
+
+    def get_downloaded_ids(self, user_id):
+        return {lid for lid, did, _ in self._download_log if did == user_id}
+
     def _append_ledger(self, user_id, amount, kind, ref_id=None, balance_after=0):
         self._ledger.append({"user_id": user_id, "amount": amount, "kind": kind})
 

@@ -17,7 +17,7 @@ import secrets
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 try:
     from .pagination import normalize_pagination
@@ -343,6 +343,10 @@ class MarketplaceStore:
         self._votes: Dict[str, Dict[str, int]] = {}  # listing_id → {user_id: stars}
         self._reviews: Dict[str, Dict[str, Review]] = {}  # listing_id → {user_id: Review}
         self._download_log: List[Tuple[str, str, datetime]] = []  # (listing_id, downloader_id, ts)
+        # Ownership index: user_id → set of downloaded listing_ids. Maintained
+        # alongside _download_log so "has user X downloaded listing Y?" is O(1)
+        # instead of an O(total_downloads) scan of the log on hot paths.
+        self._downloads_by_user: Dict[str, Set[str]] = {}
         self._reports: Dict[str, ListingReport] = {}  # report_id → ListingReport
         self._credits: Dict[str, int] = {}  # user_id → credit balance
         self._quotas: Dict[str, int] = {}  # user_id → max active listings (None/missing = unlimited)
@@ -412,6 +416,20 @@ class MarketplaceStore:
         self._credits[user_id] = new_bal
         self._append_ledger(user_id, -amount, kind, ref_id=ref_id, balance_after=new_bal)
         return new_bal
+
+    def _record_download_locked(self, listing_id: str, user_id: str, ts: datetime) -> None:
+        """Append to the download log AND update the ownership index. Hold lock."""
+        self._download_log.append((listing_id, user_id, ts))
+        self._downloads_by_user.setdefault(user_id, set()).add(listing_id)
+
+    def _has_downloaded_locked(self, user_id: str, listing_id: str) -> bool:
+        """O(1) ownership check. Caller holds self._lock."""
+        return listing_id in self._downloads_by_user.get(user_id, ())
+
+    def get_downloaded_ids(self, user_id: str) -> Set[str]:
+        """Return a copy of the set of listing_ids the user has downloaded."""
+        with self._lock:
+            return set(self._downloads_by_user.get(user_id, ()))
 
     def verify_ledger_integrity(self) -> Dict[str, Any]:
         """Audit invariant: for every user, sum(ledger amounts) == balance.
@@ -792,7 +810,7 @@ class MarketplaceStore:
                 listing.stock_remaining -= 1
                 if listing.stock_remaining <= 0:
                     logger.info("Listing sold out: %s", listing_id)
-            self._download_log.append((listing_id, downloader_id, now))
+            self._record_download_locked(listing_id, downloader_id, now)
             result: Dict[str, Any] = {
                 "source_listing_id": listing_id,
                 "source_avatar_id": listing.avatar_id,
@@ -1382,9 +1400,8 @@ class MarketplaceStore:
                 raise ValueError("リスティングが見つかりません")
             if listing.is_free or listing.price_credits == 0:
                 raise ValueError("無料リスティングは争議の対象外です")
-            # Verify buyer actually downloaded this listing
-            downloaded = any(lid == listing_id and did == buyer_id for lid, did, _ in self._download_log)
-            if not downloaded:
+            # Verify buyer actually downloaded this listing (O(1) via index)
+            if not self._has_downloaded_locked(buyer_id, listing_id):
                 raise ValueError("ダウンロード履歴がありません")
             # One open dispute per buyer/listing pair
             for d in self._disputes.values():
@@ -1502,12 +1519,9 @@ class MarketplaceStore:
         return [lst.to_dict() for _, lst in scored[:limit]]
 
     def has_downloaded(self, listing_id: str, user_id: str) -> bool:
-        """Return True if user_id appears in the download log for listing_id."""
+        """Return True if user_id has downloaded listing_id (O(1) via index)."""
         with self._lock:
-            return any(
-                lid == listing_id and did == user_id
-                for lid, did, _ in self._download_log
-            )
+            return self._has_downloaded_locked(user_id, listing_id)
 
     def get_rating_distribution(self, listing_id: str) -> Dict[str, Any]:
         """Return per-star vote counts and average for a listing."""

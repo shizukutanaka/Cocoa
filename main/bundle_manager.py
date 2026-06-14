@@ -309,9 +309,8 @@ class BundleManager:
         skipped = []
         total_charged = 0
 
-        # Check already-owned: scan download log
-        with marketplace_store._lock:
-            downloaded_ids = {lid for lid, did, _ in marketplace_store._download_log if did == buyer_id}
+        # Already-owned set, via the marketplace's O(1) ownership index.
+        downloaded_ids = marketplace_store.get_downloaded_ids(buyer_id)
 
         for listing_id in bundle.listing_ids:
             with marketplace_store._lock:
@@ -358,7 +357,7 @@ class BundleManager:
                 lst.updated_at = now
                 if lst.stock_remaining is not None:
                     lst.stock_remaining = max(0, lst.stock_remaining - 1)
-                marketplace_store._download_log.append((listing_id, buyer_id, now))
+                marketplace_store._record_download_locked(listing_id, buyer_id, now)
 
             purchased.append({
                 "listing_id": listing_id,
