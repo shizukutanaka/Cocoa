@@ -328,6 +328,33 @@ class TestMoneyPrimitiveInvariant(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.debit("u1", -1, "purchase")
 
+    def test_integrity_consistent_after_operations(self):
+        self.store.add_credits("a", 100)
+        self.store.add_credits("b", 50)
+        self.store.gift_credits("a", "b", 30)
+        report = self.store.verify_ledger_integrity()
+        self.assertTrue(report["consistent"])
+        self.assertEqual(report["discrepancy_count"], 0)
+        self.assertGreaterEqual(report["users_checked"], 2)
+
+    def test_integrity_detects_injected_drift(self):
+        # Simulate a rogue mutation that bypasses the money primitives.
+        self.store.add_credits("a", 100)
+        self.store._credits["a"] = 999  # drift: balance no longer matches ledger
+        report = self.store.verify_ledger_integrity()
+        self.assertFalse(report["consistent"])
+        self.assertEqual(report["discrepancy_count"], 1)
+        d = report["discrepancies"][0]
+        self.assertEqual(d["user_id"], "a")
+        self.assertEqual(d["balance"], 999)
+        self.assertEqual(d["ledger_sum"], 100)
+        self.assertEqual(d["difference"], 899)
+
+    def test_integrity_empty_store(self):
+        report = self.store.verify_ledger_integrity()
+        self.assertTrue(report["consistent"])
+        self.assertEqual(report["users_checked"], 0)
+
 
 class TestPaginationClamping(unittest.TestCase):
     """Hostile/malformed pagination inputs must be clamped, not slice wrongly."""

@@ -2278,6 +2278,14 @@ async def grant_credits(body: GrantCreditsRequest, admin: dict = Depends(get_cur
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@app.get("/api/admin/credits/integrity", tags=["admin"])
+async def credit_ledger_integrity(admin: dict = Depends(get_current_admin)):
+    """クレジット台帳の整合性監査（残高＝台帳合計）（管理者専用）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    return get_marketplace().verify_ledger_integrity()
+
+
 class SetQuotaRequest(BaseModel):
     user_id: str
     max_listings: int

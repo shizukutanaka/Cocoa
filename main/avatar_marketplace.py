@@ -398,6 +398,35 @@ class MarketplaceStore:
         self._append_ledger(user_id, -amount, kind, ref_id=ref_id, balance_after=new_bal)
         return new_bal
 
+    def verify_ledger_integrity(self) -> Dict[str, Any]:
+        """Audit invariant: for every user, sum(ledger amounts) == balance.
+
+        The money primitives are the only code that mutates a balance, and each
+        records a matching ledger entry, so this should always be consistent.
+        A discrepancy therefore means either some code bypassed the primitives
+        or restored/persisted state is corrupt — a loud, actionable signal for
+        a credit system.  Returns the per-user discrepancies (empty when sound).
+        """
+        with self._lock:
+            users = set(self._credits) | set(self._credit_ledger)
+            discrepancies = []
+            for uid in sorted(users):
+                balance = self._credits.get(uid, 0)
+                ledger_sum = sum(e["amount"] for e in self._credit_ledger.get(uid, []))
+                if balance != ledger_sum:
+                    discrepancies.append({
+                        "user_id": uid,
+                        "balance": balance,
+                        "ledger_sum": ledger_sum,
+                        "difference": balance - ledger_sum,
+                    })
+        return {
+            "consistent": not discrepancies,
+            "users_checked": len(users),
+            "discrepancy_count": len(discrepancies),
+            "discrepancies": discrepancies,
+        }
+
     def get_credit_history(
         self, user_id: str, limit: int = 50, offset: int = 0
     ) -> Dict[str, Any]:
