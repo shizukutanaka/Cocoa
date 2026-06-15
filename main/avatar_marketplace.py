@@ -676,6 +676,17 @@ class MarketplaceStore:
         owner_username = owner_username.strip()[:100]
         license_details = license_details.strip()[:500]
         tags = [t.lower().strip() for t in tags[:20]]
+        # Limit parameters payload size: avatar params are shallow key-value dicts;
+        # unbounded dicts allow memory/serialization DoS.
+        import json as _json
+        if len(parameters) > 500:
+            raise ValueError("parametersのキー数は500以下にしてください")
+        try:
+            _param_json = _json.dumps(parameters, ensure_ascii=False)
+        except (TypeError, ValueError) as _e:
+            raise ValueError(f"parametersをJSONにシリアライズできません: {_e}") from _e
+        if len(_param_json) > 65536:
+            raise ValueError("parametersのサイズは64KB以下にしてください")
 
         with self._lock:
             # Enforce creator quota
