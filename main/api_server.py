@@ -21,6 +21,7 @@ try:
     from fastapi import (
         Depends,
         FastAPI,
+        Header,
         HTTPException,
         Query,
         Request,
@@ -49,6 +50,9 @@ except ImportError:
     Response = None
     Request = None
     def Query(default=None, **_kw):
+        return default
+
+    def Header(default=None, **_kw):
         return default
 
     def Depends(x=None):
@@ -133,9 +137,11 @@ try:
     from .membership_manager import get_membership_manager
     from .refund_manager import get_refund_manager
     from .wishlist_manager import get_wishlist_manager
+    from .idempotency import get_idempotency_store
     _NEW_MODULES_AVAILABLE = True
 except ImportError:
     _NEW_MODULES_AVAILABLE = False
+    get_idempotency_store = None
     get_auth_manager = None
     get_marketplace = None
     get_rate_limiter = None
@@ -3497,26 +3503,35 @@ class TipRequest(BaseModel):
 async def send_tip(
     body: TipRequest,
     current_user: dict = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     """クリエイターにチップを送る（クレジット転送＋感謝メッセージ）"""
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     try:
-        tip = get_marketplace().send_tip(
-            sender_id=current_user["user_id"],
-            sender_username=current_user.get("username", ""),
-            recipient_id=body.recipient_id,
-            amount=body.amount,
-            message=body.message,
-        )
-        if get_notification_queue:
+        idem_key = f"{current_user['user_id']}:{idempotency_key}" if idempotency_key else None
+        store = get_idempotency_store() if get_idempotency_store else None
+        is_replay = store is not None and idem_key and store.seen(idem_key)
+
+        def _do_tip():
+            t = get_marketplace().send_tip(
+                sender_id=current_user["user_id"],
+                sender_username=current_user.get("username", ""),
+                recipient_id=body.recipient_id,
+                amount=body.amount,
+                message=body.message,
+            )
+            return t.to_dict()
+
+        tip_dict = store.get_or_execute(idem_key, _do_tip) if store else _do_tip()
+        if not is_replay and get_notification_queue:
             get_notification_queue().push(
                 body.recipient_id, "tip_received",
                 title="チップが届きました！",
                 body=f"{current_user.get('username', 'ユーザー')} から {body.amount} クレジットのチップ",
-                payload={"tip_id": tip.tip_id, "amount": body.amount},
+                payload={"tip_id": tip_dict.get("tip_id"), "amount": body.amount},
             )
-        return tip.to_dict()
+        return tip_dict
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -4390,6 +4405,7 @@ class GiftCardRedeemRequest(BaseModel):
 async def purchase_gift_card(
     body: GiftCardPurchaseRequest,
     credentials: HTTPAuthorizationCredentials = Depends(security),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     """ギフトカードを購入する"""
     if not get_gift_card_manager or not get_marketplace:
@@ -4406,9 +4422,13 @@ async def purchase_gift_card(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"expires_at形式が不正です: {e}") from e
     try:
-        return get_gift_card_manager().purchase(
+        idem_key = f"{payload['sub']}:{idempotency_key}" if idempotency_key else None
+        store = get_idempotency_store() if get_idempotency_store else None
+        return (store.get_or_execute(idem_key, lambda: get_gift_card_manager().purchase(
             payload["sub"], body.amount, get_marketplace(), body.message, expires_at
-        )
+        )) if store else get_gift_card_manager().purchase(
+            payload["sub"], body.amount, get_marketplace(), body.message, expires_at
+        ))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -4430,13 +4450,20 @@ async def list_my_gift_cards(
 async def redeem_gift_card(
     body: GiftCardRedeemRequest,
     credentials: HTTPAuthorizationCredentials = Depends(security),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     """ギフトカードコードを使用してクレジットを受け取る"""
     if not get_gift_card_manager or not get_marketplace:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     payload = _verify_token(credentials.credentials)
     try:
-        return get_gift_card_manager().redeem(body.code, payload["sub"], get_marketplace())
+        # The gift card code itself is a natural idempotency key — one code, one redemption.
+        # We also accept an explicit Idempotency-Key header to guard the HTTP retry window.
+        idem_key = f"{payload['sub']}:{idempotency_key or body.code}"
+        store = get_idempotency_store() if get_idempotency_store else None
+        return (store.get_or_execute(idem_key, lambda: get_gift_card_manager().redeem(
+            body.code, payload["sub"], get_marketplace()
+        )) if store else get_gift_card_manager().redeem(body.code, payload["sub"], get_marketplace()))
     except ValueError as e:
         msg = str(e)
         raise HTTPException(status_code=400, detail=msg) from e

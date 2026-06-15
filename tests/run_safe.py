@@ -131,6 +131,7 @@ SAFE_MODULES = [
     "tests.test_refund_manager",
     "tests.test_membership_manager",
     "tests.test_pagination",
+    "tests.test_idempotency",
 ]
 
 
