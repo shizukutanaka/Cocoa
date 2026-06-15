@@ -260,10 +260,15 @@ class RefundManager:
                 available = marketplace_store.get_balance(item.owner_id)
                 claw = min(available, owed)
                 if claw > 0:
-                    marketplace_store.debit(
-                        item.owner_id, claw, "sale_reversal", ref_id=req.order_id
-                    )
-                    reclaimed += claw
+                    try:
+                        marketplace_store.debit(
+                            item.owner_id, claw, "sale_reversal", ref_id=req.order_id
+                        )
+                        reclaimed += claw
+                    except ValueError:
+                        # Balance changed concurrently since get_balance; treat as
+                        # zero available so the shortfall is absorbed by the platform.
+                        claw = 0
                 if claw < owed:
                     shortfall += owed - claw
                     logger.warning(
