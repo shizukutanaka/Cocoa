@@ -790,6 +790,19 @@ class MarketplaceStore:
             listing.is_active = False
             return True
 
+    def admin_deactivate(self, listing_id: str) -> bool:
+        """Force-deactivate a listing regardless of owner (admin/moderator action).
+
+        Returns True if the listing existed and was deactivated, False if not found.
+        Idempotent — calling on an already-inactive listing is safe and returns True.
+        """
+        with self._lock:
+            listing = self._listings.get(listing_id)
+            if not listing:
+                return False
+            listing.is_active = False
+            return True
+
     # --- Download / Clone ---
 
     def download(

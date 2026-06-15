@@ -100,6 +100,24 @@ class TestUnpublish(unittest.TestCase):
         store = _store()
         self.assertFalse(store.unpublish("no-id", "u1"))
 
+    def test_admin_deactivate_bypasses_owner_check(self):
+        store = _store()
+        listing = _listing(store)
+        ok = store.admin_deactivate(listing.listing_id)
+        self.assertTrue(ok)
+        self.assertFalse(listing.is_active)
+
+    def test_admin_deactivate_unknown_returns_false(self):
+        store = _store()
+        self.assertFalse(store.admin_deactivate("no-such-id"))
+
+    def test_admin_deactivate_idempotent(self):
+        store = _store()
+        listing = _listing(store)
+        store.admin_deactivate(listing.listing_id)
+        ok = store.admin_deactivate(listing.listing_id)  # second call: already inactive
+        self.assertTrue(ok)
+
     def test_quota_blocks_publish(self):
         store = _store()
         store.set_quota("u1", 1)

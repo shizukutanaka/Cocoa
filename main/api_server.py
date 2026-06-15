@@ -4110,6 +4110,7 @@ class ModerationEnqueueRequest(BaseModel):
 class ModerationUpdateRequest(BaseModel):
     status: str
     notes: str = ""
+    action: str = ""   # "remove_listing" → force-deactivates the reported listing on resolve
 
 
 class ModerationAssignRequest(BaseModel):
@@ -4194,7 +4195,17 @@ async def update_moderation_status(
     if not get_moderation_queue:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     try:
-        return get_moderation_queue().update_status(item_id, body.status, body.notes).to_dict()
+        item = get_moderation_queue().update_status(item_id, body.status, body.notes)
+        # When resolving a listing_report with action="remove_listing", force-deactivate
+        # the listing so it becomes unpurchasable atomically with the moderation decision.
+        if (
+            body.action == "remove_listing"
+            and item.kind == "listing_report"
+            and body.status == "resolved"
+            and get_marketplace
+        ):
+            get_marketplace().admin_deactivate(item.subject_id)
+        return item.to_dict()
     except ValueError as e:
         msg = str(e)
         raise HTTPException(
