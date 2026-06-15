@@ -394,7 +394,7 @@ class UserStore:
             if entry["key_hash"] == key_hash:
                 entry["last_used"] = datetime.now(timezone.utc).isoformat()
                 user = self._by_id.get(entry["user_id"])
-                if not user or not user.is_active:
+                if not user or not user.is_active or user.is_banned:
                     return None
                 return {
                     "sub": user.user_id,
@@ -491,6 +491,8 @@ class AuthManager:
         user = self.store.get_by_id(payload["sub"])
         if not user or not user.is_active:
             raise AuthError("account_disabled", "アカウントが無効です")
+        if user.is_banned:
+            raise AuthError("account_banned", "アカウントが停止されています")
         return payload
 
     def refresh(self, refresh_token: str) -> TokenPair:
@@ -502,6 +504,8 @@ class AuthManager:
         user = self.store.get_by_id(payload["sub"])
         if not user or not user.is_active:
             raise AuthError("account_disabled", "アカウントが無効です")
+        if user.is_banned:
+            raise AuthError("account_banned", "アカウントが停止されています")
 
         # Rotate refresh token
         self.store.revoke_jti(jti)
