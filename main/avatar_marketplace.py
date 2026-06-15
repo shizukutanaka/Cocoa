@@ -1066,8 +1066,11 @@ class MarketplaceStore:
         if not text:
             raise ValueError("返信内容を入力してください")
         with self._lock:
-            if self._find_review(review_id) is None:
+            target = self._find_review(review_id)
+            if target is None:
                 raise ValueError("レビューが見つかりません")
+            if target.is_hidden:
+                raise ValueError("非表示のレビューには返信できません")
             reply = ReviewReply(
                 reply_id=secrets.token_hex(8),
                 review_id=review_id,
@@ -1104,6 +1107,8 @@ class MarketplaceStore:
             review = self._find_review(review_id)
             if review is None:
                 raise ValueError("レビューが見つかりません")
+            if review.is_hidden:
+                raise ValueError("非表示のレビューには投票できません")
             if review.user_id == user_id:
                 raise ValueError("自分のレビューには投票できません")
             votes = self._review_votes.setdefault(review_id, {})
@@ -1307,21 +1312,22 @@ class MarketplaceStore:
     def get_user_listings(self, owner_id: str) -> List[MarketplaceListing]:
         return [lst for lst in self._listings.values() if lst.owner_id == owner_id and lst.is_active]
 
-    def deactivate_all_listings(self, owner_id: str) -> int:
+    def deactivate_all_listings(self, owner_id: str) -> List[str]:
         """Force-deactivate every active listing owned by ``owner_id``.
 
         Called when the owner's account is deleted so orphaned listings don't
-        remain purchasable. Returns the count of listings deactivated.
+        remain purchasable. Returns the ids of the listings that were
+        deactivated so the caller can sync external indexes (e.g. search).
         """
-        count = 0
+        deactivated: List[str] = []
         with self._lock:
             for lst in self._listings.values():
                 if lst.owner_id == owner_id and lst.is_active:
                     lst.is_active = False
-                    count += 1
-        if count:
-            logger.info("Deactivated %d listings for deleted user %s", count, owner_id)
-        return count
+                    deactivated.append(lst.listing_id)
+        if deactivated:
+            logger.info("Deactivated %d listings for deleted user %s", len(deactivated), owner_id)
+        return deactivated
 
     def get_trending(self, limit: int = 10, days: int = 7) -> List[Dict[str, Any]]:
         """Top listings by recent downloads (within `days` days), falling back to all-time if none."""

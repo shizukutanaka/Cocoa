@@ -128,8 +128,9 @@ class TestUnpublish(unittest.TestCase):
         store = _store()
         l1 = _listing(store, avatar_id="av1")
         l2 = _listing(store, avatar_id="av2", name="Second")
-        count = store.deactivate_all_listings("u1")
-        self.assertEqual(count, 2)
+        deactivated = store.deactivate_all_listings("u1")
+        self.assertEqual(len(deactivated), 2)
+        self.assertCountEqual(deactivated, [l1.listing_id, l2.listing_id])
         self.assertFalse(l1.is_active)
         self.assertFalse(l2.is_active)
 
@@ -143,7 +144,7 @@ class TestUnpublish(unittest.TestCase):
 
     def test_deactivate_all_listings_no_active_returns_zero(self):
         store = _store()
-        self.assertEqual(store.deactivate_all_listings("u_nobody"), 0)
+        self.assertEqual(store.deactivate_all_listings("u_nobody"), [])
 
     def test_quota_blocks_publish(self):
         store = _store()
@@ -1596,6 +1597,11 @@ class TestReviewReplies(unittest.TestCase):
     def test_add_reply_unknown_review_raises(self):
         with self.assertRaises(ValueError):
             self.store.add_review_reply("no-such-review", "u1", "alice", "Hello")
+
+    def test_add_reply_hidden_review_raises(self):
+        self.store.hide_review(self.review_id)
+        with self.assertRaises(ValueError):
+            self.store.add_review_reply(self.review_id, "u1", "alice", "Hello")
 
     def test_delete_reply_own(self):
         reply = self.store.add_review_reply(self.review_id, "u1", "alice", "My reply")

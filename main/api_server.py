@@ -2707,7 +2707,14 @@ async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
     # can't be purchased. Other stores (credits, tips) retain records for audit.
     listings_removed = 0
     if get_marketplace:
-        listings_removed = get_marketplace().deactivate_all_listings(user_id)
+        deactivated_ids = get_marketplace().deactivate_all_listings(user_id)
+        listings_removed = len(deactivated_ids)
+        # Keep the search index consistent — a deactivated listing must not
+        # remain discoverable in search results.
+        if get_search_index and deactivated_ids:
+            idx = get_search_index()
+            for lid in deactivated_ids:
+                idx.remove(lid)
     return {"user_id": user_id, "status": "deleted", "listings_deactivated": listings_removed}
 
 
@@ -3093,6 +3100,10 @@ async def bulk_listing_action(body: BulkListingActionRequest, admin: dict = Depe
             if body.action == "unpublish":
                 with mp._lock:
                     listing.is_active = False
+                # Remove from the search index too — an unpublished listing
+                # must not keep appearing in public search results.
+                if get_search_index:
+                    get_search_index().remove(lid)
             else:
                 with mp._lock:
                     mp._listings.pop(lid, None)
@@ -3305,7 +3316,13 @@ async def delete_own_account(current_user: dict = Depends(get_current_user)):
     user.is_active = False
     if get_marketplace:
         try:
-            get_marketplace().deactivate_all_listings(current_user["user_id"])
+            deactivated_ids = get_marketplace().deactivate_all_listings(current_user["user_id"])
+            # Drop the deactivated listings from the search index so they don't
+            # keep showing up in public search results.
+            if get_search_index and deactivated_ids:
+                idx = get_search_index()
+                for lid in deactivated_ids:
+                    idx.remove(lid)
         except Exception:
             pass
     return {"status": "deleted", "user_id": current_user["user_id"]}
@@ -4295,6 +4312,10 @@ async def update_moderation_status(
             and get_marketplace
         ):
             get_marketplace().admin_deactivate(item.subject_id)
+            # Keep the search index consistent — a removed listing must not
+            # keep appearing in public search results.
+            if get_search_index:
+                get_search_index().remove(item.subject_id)
         return item.to_dict()
     except ValueError as e:
         msg = str(e)
