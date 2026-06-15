@@ -823,6 +823,11 @@ class MarketplaceStore:
                 raise ValueError("在庫がありません (sold out)")
             paid = not listing.is_free and listing.owner_id != downloader_id
 
+            # Re-download: buyer already owns this listing — let them re-download
+            # for free rather than charging a second time.
+            if paid and self._has_downloaded_locked(downloader_id, listing_id):
+                paid = False
+
             actual_price = listing.price_credits
             applied_promo: Optional[PromoCode] = None
             if paid and promo_code:

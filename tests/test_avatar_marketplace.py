@@ -614,6 +614,14 @@ class TestCredits(unittest.TestCase):
         self.assertIsNotNone(data)
         self.assertEqual(self.store.get_balance("u_seller"), 0)
 
+    def test_re_download_paid_listing_free_for_prior_buyer(self):
+        self.store.add_credits("u_buyer", 100)
+        self.store.download(self.paid_listing.listing_id, "u_buyer")  # pays 50
+        self.assertEqual(self.store.get_balance("u_buyer"), 50)
+        # Second download: already owns it, free
+        self.store.download(self.paid_listing.listing_id, "u_buyer")
+        self.assertEqual(self.store.get_balance("u_buyer"), 50)  # not charged again
+
     def test_insufficient_credits_raises(self):
         self.store.add_credits("u_buyer", 20)
         with self.assertRaises(ValueError):
