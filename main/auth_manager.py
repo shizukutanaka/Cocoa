@@ -1000,12 +1000,33 @@ def get_auth_manager() -> AuthManager:
         with _am_lock:
             if _auth_manager is None:
                 _auth_manager = AuthManager()
-                # Seed a default admin for dev (override via env)
-                dev_admin_password = os.getenv("COCOA_ADMIN_PASSWORD", "Admin1234!")
+                # Warn loudly if the JWT signing secret was not set explicitly.
+                # The module falls back to a random per-process secret, which is
+                # secure but invalidates all tokens on restart and cannot be
+                # shared across worker processes — production must set it.
+                if not os.getenv("COCOA_JWT_SECRET"):
+                    logger.warning(
+                        "COCOA_JWT_SECRET is not set — using a random per-process "
+                        "secret. Tokens will not survive restarts or work across "
+                        "workers. Set COCOA_JWT_SECRET in production."
+                    )
+                # Seed a default admin for dev. Never ship a known constant
+                # password: if COCOA_ADMIN_PASSWORD is unset, generate a random
+                # one and log it once so a local dev can read it, rather than
+                # exposing the well-known "admin/Admin1234!" default-credentials.
                 if os.getenv("COCOA_CREATE_DEFAULT_ADMIN", "true").lower() == "true":
+                    configured_pw = os.getenv("COCOA_ADMIN_PASSWORD")
+                    admin_password = configured_pw or (secrets.token_urlsafe(16) + "A1!")
                     try:
-                        _auth_manager.register("admin", "admin@cocoa.local", dev_admin_password, role="admin")
-                        logger.info("Default admin account created (change password in production!)")
+                        _auth_manager.register("admin", "admin@cocoa.local", admin_password, role="admin")
+                        if configured_pw:
+                            logger.info("Default admin account created from COCOA_ADMIN_PASSWORD")
+                        else:
+                            logger.warning(
+                                "Default admin account created with a RANDOM password "
+                                "(set COCOA_ADMIN_PASSWORD to choose one): %s",
+                                admin_password,
+                            )
                     except ValueError:
                         pass  # Already exists
     return _auth_manager
