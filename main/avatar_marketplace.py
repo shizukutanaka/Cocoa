@@ -26,6 +26,9 @@ except ImportError:  # pragma: no cover - support flat import in tests
 
 logger = logging.getLogger(__name__)
 
+_MAX_PRICE_CREDITS = int(os.getenv("MAX_PRICE_CREDITS", "10_000_000"))  # 10M cap
+_MAX_GRANT_CREDITS = int(os.getenv("MAX_GRANT_CREDITS", "100_000_000"))  # 100M cap per grant
+
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -598,6 +601,10 @@ class MarketplaceStore:
 
     def add_credits(self, user_id: str, amount: int) -> int:
         """Add credits to a user's balance (admin grant or purchase). Returns new balance."""
+        if amount <= 0:
+            raise ValueError("付与額は1以上にしてください")
+        if amount > _MAX_GRANT_CREDITS:
+            raise ValueError(f"1回の付与上限は {_MAX_GRANT_CREDITS} クレジットです")
         with self._lock:
             return self._credit_locked(user_id, amount, "grant")
 
@@ -683,6 +690,8 @@ class MarketplaceStore:
         import json as _json
         if price_credits < 0:
             raise ValueError("price_credits must be ≥ 0")
+        if price_credits > _MAX_PRICE_CREDITS:
+            raise ValueError(f"price_credits must be ≤ {_MAX_PRICE_CREDITS}")
         if len(parameters) > 500:
             raise ValueError("parametersのキー数は500以下にしてください")
         try:
@@ -788,6 +797,8 @@ class MarketplaceStore:
             if price_credits is not None:
                 if price_credits < 0:
                     raise ValueError("price_credits must be ≥ 0")
+                if price_credits > _MAX_PRICE_CREDITS:
+                    raise ValueError(f"price_credits must be ≤ {_MAX_PRICE_CREDITS}")
                 if price_credits != listing.price_credits:
                     price_changed = True
                 listing.price_credits = price_credits

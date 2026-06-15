@@ -273,6 +273,12 @@ class UserStore:
     # --- CRUD ---
 
     def create_user(self, username: str, email: str, password: str, role: str = "user") -> UserRecord:
+        if not (1 <= len(username) <= 64):
+            raise ValueError("ユーザー名は1〜64文字にしてください")
+        if len(email) > 254:
+            raise ValueError("メールアドレスが長すぎます (最大254文字)")
+        if len(password) > 1024:
+            raise ValueError("パスワードが長すぎます (最大1024文字)")
         if username in self._by_username:
             raise ValueError(f"Username '{username}' already exists")
         if email in self._by_email:

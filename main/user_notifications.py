@@ -16,7 +16,9 @@ try:
 except ImportError:  # pragma: no cover - support flat import in tests
     from pagination import normalize_pagination
 
-_MAX_QUEUE = 200  # max stored notifications per user (oldest discarded)
+_MAX_QUEUE = 200        # max stored notifications per user (oldest discarded)
+_MAX_TITLE_LEN = 200   # notification title truncation
+_MAX_BODY_LEN = 1000   # notification body truncation
 
 # ---------------------------------------------------------------------------
 # Notification templates
@@ -107,8 +109,8 @@ class NotificationQueue:
                 notification_id=self._next_id(),
                 user_id=user_id,
                 kind=kind,
-                title=title,
-                body=body,
+                title=title[:_MAX_TITLE_LEN],
+                body=body[:_MAX_BODY_LEN],
                 payload=payload or {},
             )
             q = self._queues.setdefault(user_id, [])
