@@ -160,6 +160,31 @@ class TestAuthManager(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.auth.register("alice", "alice2@x.com", "Alice123!")
 
+    def test_username_uniqueness_is_case_insensitive(self):
+        # "Alice" must collide with the existing "alice" (anti-impersonation).
+        with self.assertRaises(ValueError):
+            self.auth.register("Alice", "other@x.com", "Alice123!")
+
+    def test_login_is_case_insensitive_on_username(self):
+        tokens = self.auth.login("ALICE", "Alice123!")
+        self.assertIsNotNone(tokens.access_token)
+
+    def test_email_uniqueness_is_case_insensitive(self):
+        # Same mailbox with different casing must not create a second account.
+        with self.assertRaises(ValueError):
+            self.auth.register("alice2", "Alice@X.com", "Alice123!")
+
+    def test_email_normalized_to_lowercase(self):
+        user = self.auth.register("mixedcase", "Mixed@CASE.Com", "Mixed123!")
+        self.assertEqual(user.email, "mixed@case.com")
+        # Reset-by-email must find it regardless of the casing supplied.
+        self.assertIsNotNone(self.auth.request_password_reset("MIXED@case.com"))
+
+    def test_username_whitespace_trimmed(self):
+        user = self.auth.register("  spacey  ", "spacey@x.com", "Spacey12!")
+        self.assertEqual(user.username, "spacey")
+        self.assertIsNotNone(self.auth.login("spacey", "Spacey12!").access_token)
+
     def test_weak_password_rejected(self):
         with self.assertRaises(ValueError):
             self.auth.register("bob", "bob@x.com", "short")

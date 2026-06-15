@@ -272,14 +272,28 @@ class UserStore:
 
     # --- CRUD ---
 
+    @staticmethod
+    def _uname_key(username: str) -> str:
+        """Case-insensitive, whitespace-trimmed key for username uniqueness/lookup
+        so 'alice', 'Alice', and ' alice ' resolve to one account (anti-impersonation)."""
+        return username.strip().casefold()
+
+    @staticmethod
+    def _email_key(email: str) -> str:
+        """Normalized email (trimmed, lowercased) so 'Alice@X.com' and 'alice@x.com'
+        are one account and password-reset/login-by-email can't miss on casing."""
+        return email.strip().lower()
+
     def create_user(self, username: str, email: str, password: str, role: str = "user") -> UserRecord:
+        username = username.strip()
+        email = self._email_key(email)
         if not (1 <= len(username) <= 64):
             raise ValueError("ユーザー名は1〜64文字にしてください")
         if len(email) > 254:
             raise ValueError("メールアドレスが長すぎます (最大254文字)")
         if len(password) > 1024:
             raise ValueError("パスワードが長すぎます (最大1024文字)")
-        if username in self._by_username:
+        if self._uname_key(username) in self._by_username:
             raise ValueError(f"Username '{username}' already exists")
         if email in self._by_email:
             raise ValueError(f"Email '{email}' already registered")
@@ -294,7 +308,7 @@ class UserStore:
             role=role,
         )
         self._by_id[user.user_id] = user
-        self._by_username[username] = user.user_id
+        self._by_username[self._uname_key(username)] = user.user_id
         self._by_email[email] = user.user_id
         logger.info("User created: %s (role=%s)", username, role)
         return user
@@ -303,11 +317,11 @@ class UserStore:
         return self._by_id.get(user_id)
 
     def get_by_username(self, username: str) -> Optional[UserRecord]:
-        uid = self._by_username.get(username)
+        uid = self._by_username.get(self._uname_key(username))
         return self._by_id.get(uid) if uid else None
 
     def get_by_email(self, email: str) -> Optional[UserRecord]:
-        uid = self._by_email.get(email)
+        uid = self._by_email.get(self._email_key(email))
         return self._by_id.get(uid) if uid else None
 
     def list_users(self) -> List[UserRecord]:
@@ -316,8 +330,9 @@ class UserStore:
     def delete_user(self, user_id: str) -> bool:
         user = self._by_id.pop(user_id, None)
         if user:
-            self._by_username.pop(user.username, None)
-            self._by_email.pop(user.email, None)
+            # user.username/email are stored already-normalized; key the same way.
+            self._by_username.pop(self._uname_key(user.username), None)
+            self._by_email.pop(self._email_key(user.email), None)
             return True
         return False
 
