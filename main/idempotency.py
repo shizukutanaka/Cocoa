@@ -25,6 +25,8 @@ from typing import Any, Callable, Dict, Optional
 _DEFAULT_MAX_ENTRIES = 10_000
 _DEFAULT_TTL_SECONDS = 24 * 60 * 60  # 24h
 
+_MISSING = object()  # sentinel distinguishing "not cached" from "cached None"
+
 
 class IdempotencyStore:
     """Thread-safe at-most-once execution cache keyed by an idempotency key."""
@@ -42,15 +44,16 @@ class IdempotencyStore:
 
     # -- internal helpers (call under self._lock) --------------------------
 
-    def _get_locked(self, key: str) -> Optional[Any]:
+    def _get_locked(self, key: str) -> Any:
+        """Return the cached result or ``_MISSING`` if absent/expired."""
         entry = self._results.get(key)
         if entry is None:
-            return None
+            return _MISSING
         result, stored_at = entry
         if time.time() - stored_at > self._ttl:
             self._results.pop(key, None)
             self._key_locks.pop(key, None)
-            return None
+            return _MISSING
         self._results.move_to_end(key)  # LRU touch
         return result
 
@@ -84,7 +87,7 @@ class IdempotencyStore:
         with per_key:
             with self._lock:
                 cached = self._get_locked(key)
-            if cached is not None:
+            if cached is not _MISSING:
                 return cached
             result = fn()
             with self._lock:
@@ -94,7 +97,7 @@ class IdempotencyStore:
     def seen(self, key: str) -> bool:
         """Return True if a (non-expired) result is cached for ``key``."""
         with self._lock:
-            return self._get_locked(key) is not None
+            return self._get_locked(key) is not _MISSING
 
     def size(self) -> int:
         with self._lock:

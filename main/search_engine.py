@@ -207,7 +207,9 @@ class SearchIndex:
                         scored.append(d)
             candidates = scored
         else:
-            # No query — return all (score=0)
+            # No query — return all (score=0); copy to avoid mutating canonical objects
+            import copy as _copy_mod
+            candidates = [_copy_mod.copy(doc) for doc in candidates]
             for doc in candidates:
                 doc.score = 0.0
 

@@ -2497,6 +2497,19 @@ async def my_collections(current_user: dict = Depends(get_current_user)):
     return {"collections": get_collection_store().list_user_collections(uid, requester_id=uid)}
 
 
+@app.get("/api/collections/public", tags=["collections"])
+async def browse_public_collections_early(
+    q: str = Query("", description="コレクション名・説明の検索"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """公開コレクションを閲覧（認証不要）"""
+    if not get_collection_store:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_collection_store().browse_public(query=q, limit=limit, offset=offset)
+
+
 @app.get("/api/collections/{collection_id}", tags=["collections"])
 async def get_collection(collection_id: str, current_user: dict = Depends(get_current_user)):
     """コレクション詳細（公開または自分のもの）"""
@@ -2580,17 +2593,6 @@ async def user_public_collections(user_id: str, current_user: dict = Depends(get
     return {"collections": get_collection_store().list_user_collections(user_id, requester_id=current_user["user_id"])}
 
 
-@app.get("/api/collections/public", tags=["collections"])
-async def browse_public_collections(
-    q: str = Query("", description="コレクション名・説明の検索"),
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-):
-    """公開コレクションを閲覧（認証不要）"""
-    if not get_collection_store:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
-    return get_collection_store().browse_public(query=q, limit=limit, offset=offset)
 
 
 # ===========================================================================

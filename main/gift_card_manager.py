@@ -189,7 +189,14 @@ class GiftCardManager:
         # (raises ValueError if insufficient balance).
         marketplace_store.debit(purchaser_id, amount, "gift_card_purchase")
 
-        card = self.store.create(purchaser_id, amount, message, expires_at)
+        try:
+            card = self.store.create(purchaser_id, amount, message, expires_at)
+        except Exception:
+            # Refund the deducted credits so the purchaser is not charged for a
+            # card that was never issued.
+            marketplace_store.credit(purchaser_id, amount, "gift_card_purchase_refund")
+            raise
+
         logger.info("Gift card created: %s by %s (%d credits)", card.card_id, purchaser_id, amount)
         return card.to_dict()
 

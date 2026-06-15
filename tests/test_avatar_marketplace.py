@@ -2613,7 +2613,7 @@ class TestTips(unittest.TestCase):
         self.store.send_tip("sender", "alice", "recipient", 100)
         history = self.store.get_credit_history("sender")
         kinds = {entry["kind"] for entry in history["items"]}
-        self.assertIn("gift_sent", kinds)
+        self.assertIn("tip_sent", kinds)
 
 
 class TestListingAnalytics(unittest.TestCase):

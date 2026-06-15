@@ -1978,6 +1978,8 @@ class MarketplaceStore:
             report = self._reports.get(report_id)
             if not report:
                 raise ValueError("Report not found")
+            if report.status != "pending":
+                raise ValueError("このレポートはすでに処理済みです")
             report.status = action
             report.resolved_by = moderator_id
             report.resolution_note = note.strip()[:1000]
@@ -2195,8 +2197,6 @@ class MarketplaceStore:
         if amount > self._MAX_TIP_AMOUNT:
             raise ValueError(f"1回のチップは{self._MAX_TIP_AMOUNT}クレジットまでです")
         message = message.strip()[:self._MAX_TIP_MESSAGE_LEN]
-        # Transfer credits (validates sender balance, raises ValueError if insufficient)
-        self.gift_credits(sender_id, recipient_id, amount)
         tip = Tip(
             tip_id=secrets.token_hex(8),
             sender_id=sender_id,
@@ -2205,7 +2205,10 @@ class MarketplaceStore:
             amount=amount,
             message=message,
         )
+        # Credit transfer and tip record creation are atomic: either both happen or neither.
         with self._lock:
+            self._debit_locked(sender_id, amount, "tip_sent", ref_id=recipient_id)
+            self._credit_locked(recipient_id, amount, "tip_received", ref_id=sender_id)
             self._tips.append(tip)
         logger.info("Tip sent: %s → %s (%d credits)", sender_id, recipient_id, amount)
         return tip
