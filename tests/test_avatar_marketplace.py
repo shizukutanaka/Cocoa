@@ -124,6 +124,27 @@ class TestUnpublish(unittest.TestCase):
         ok = store.admin_deactivate(listing.listing_id)  # second call: already inactive
         self.assertTrue(ok)
 
+    def test_deactivate_all_listings_removes_all(self):
+        store = _store()
+        l1 = _listing(store, avatar_id="av1")
+        l2 = _listing(store, avatar_id="av2", name="Second")
+        count = store.deactivate_all_listings("u1")
+        self.assertEqual(count, 2)
+        self.assertFalse(l1.is_active)
+        self.assertFalse(l2.is_active)
+
+    def test_deactivate_all_listings_only_affects_owner(self):
+        store = _store()
+        l_u1 = _listing(store, avatar_id="av1", owner_id="u1", owner_username="alice")
+        l_u2 = _listing(store, avatar_id="av2", owner_id="u2", owner_username="bob")
+        store.deactivate_all_listings("u1")
+        self.assertFalse(l_u1.is_active)
+        self.assertTrue(l_u2.is_active)
+
+    def test_deactivate_all_listings_no_active_returns_zero(self):
+        store = _store()
+        self.assertEqual(store.deactivate_all_listings("u_nobody"), 0)
+
     def test_quota_blocks_publish(self):
         store = _store()
         store.set_quota("u1", 1)

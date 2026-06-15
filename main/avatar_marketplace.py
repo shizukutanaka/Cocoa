@@ -1256,6 +1256,22 @@ class MarketplaceStore:
     def get_user_listings(self, owner_id: str) -> List[MarketplaceListing]:
         return [lst for lst in self._listings.values() if lst.owner_id == owner_id and lst.is_active]
 
+    def deactivate_all_listings(self, owner_id: str) -> int:
+        """Force-deactivate every active listing owned by ``owner_id``.
+
+        Called when the owner's account is deleted so orphaned listings don't
+        remain purchasable. Returns the count of listings deactivated.
+        """
+        count = 0
+        with self._lock:
+            for lst in self._listings.values():
+                if lst.owner_id == owner_id and lst.is_active:
+                    lst.is_active = False
+                    count += 1
+        if count:
+            logger.info("Deactivated %d listings for deleted user %s", count, owner_id)
+        return count
+
     def get_trending(self, limit: int = 10, days: int = 7) -> List[Dict[str, Any]]:
         """Top listings by recent downloads (within `days` days), falling back to all-time if none."""
         from collections import Counter

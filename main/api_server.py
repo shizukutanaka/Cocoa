@@ -2635,7 +2635,12 @@ async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
     ok = auth.store.delete_user(user_id)
     if not ok:
         raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
-    return {"user_id": user_id, "status": "deleted"}
+    # Cascade: deactivate all the deleted user's listings so orphaned content
+    # can't be purchased. Other stores (credits, tips) retain records for audit.
+    listings_removed = 0
+    if get_marketplace:
+        listings_removed = get_marketplace().deactivate_all_listings(user_id)
+    return {"user_id": user_id, "status": "deleted", "listings_deactivated": listings_removed}
 
 
 @app.get("/api/marketplace/favorites", tags=["marketplace"])
