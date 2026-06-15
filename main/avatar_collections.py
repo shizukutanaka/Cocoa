@@ -72,7 +72,8 @@ class CollectionStore:
             return col
 
     def get(self, collection_id: str) -> Optional[Collection]:
-        return self._collections.get(collection_id)
+        with self._lock:
+            return self._collections.get(collection_id)
 
     def update(
         self,

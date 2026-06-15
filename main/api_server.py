@@ -398,6 +398,25 @@ async def get_current_admin(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="管理者権限が必要です")
     return current_user
 
+
+def _verify_token(token: str) -> dict:
+    """Verify a Bearer JWT and return the raw payload dict.
+    Raises HTTPException(401) on invalid/expired token.
+    Used by endpoints that need the raw payload (e.g. to pass to business logic
+    that performs its own role check via require_role()).
+    """
+    if get_auth_manager:
+        try:
+            return get_auth_manager().verify_access_token(token)
+        except AuthError as e:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=e.message) from e
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="無効なトークンです") from e
+    # Fallback: legacy API secret — return a minimal admin payload
+    if token != os.getenv("API_SECRET_TOKEN", "default-secret"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="無効なトークンです")
+    return {"sub": "system", "role": "admin"}
+
 # ルートエンドポイント
 @app.get("/")
 async def root():
@@ -828,7 +847,6 @@ class RegisterRequest(BaseModel):
     username: str
     email: str
     password: str
-    role: str = "user"
 
 
 class LoginRequest(BaseModel):
@@ -873,7 +891,7 @@ async def register(body: RegisterRequest):
         raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     try:
         auth = get_auth_manager()
-        user = auth.register(body.username, body.email, body.password, body.role)
+        user = auth.register(body.username, body.email, body.password, "user")
         verification_token = auth.create_email_verification_token(user.user_id)
         return {
             "user_id": user.user_id,
@@ -1806,6 +1824,49 @@ async def clone_listing(listing_id: str, current_user: dict = Depends(get_curren
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@app.get("/api/marketplace/mine", tags=["marketplace"])
+async def my_listings(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    include_inactive: bool = Query(False),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分のリスティング一覧を取得（クリエイター向け）"""
+    if not get_marketplace:
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_marketplace().get_user_listings_page(
+        current_user["user_id"],
+        include_inactive=include_inactive,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get("/api/marketplace/categories", tags=["marketplace"])
+async def list_categories():
+    """カテゴリ一覧と各カテゴリのリスティング数を取得"""
+    if not get_marketplace:
+        return {"items": []}
+    cats = get_marketplace().get_categories()
+    return {"items": cats, "total": len(cats)}
+
+
+@app.get("/api/marketplace/favorites", tags=["marketplace"])
+async def list_favorites(current_user: dict = Depends(get_current_user)):
+    """お気に入りリスト（ブックマーク済みのリスティング）"""
+    if not get_auth_manager or not get_marketplace:
+        return {"items": [], "total": 0}
+    bookmarks = get_auth_manager().get_bookmarks(current_user["user_id"])
+    mp = get_marketplace()
+    items = []
+    for item_id in bookmarks:
+        listing = mp.get_listing(item_id)
+        if listing and listing.is_active:
+            items.append(listing.to_dict())
+    return {"items": items, "total": len(items)}
+
+
 @app.get("/api/marketplace/{listing_id}", tags=["marketplace"])
 async def get_listing(listing_id: str):
     """マーケットプレイスのリスティング詳細を取得"""
@@ -2217,34 +2278,6 @@ async def my_credit_history(
     )
 
 
-@app.get("/api/marketplace/mine", tags=["marketplace"])
-async def my_listings(
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    include_inactive: bool = Query(False),
-    current_user: dict = Depends(get_current_user),
-):
-    """自分のリスティング一覧を取得（クリエイター向け）"""
-    if not get_marketplace:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
-    return get_marketplace().get_user_listings_page(
-        current_user["user_id"],
-        include_inactive=include_inactive,
-        limit=limit,
-        offset=offset,
-    )
-
-
-@app.get("/api/marketplace/categories", tags=["marketplace"])
-async def list_categories():
-    """カテゴリ一覧と各カテゴリのリスティング数を取得"""
-    if not get_marketplace:
-        return {"items": []}
-    cats = get_marketplace().get_categories()
-    return {"items": cats, "total": len(cats)}
-
-
 class ReviewHelpfulRequest(BaseModel):
     helpful: bool
 
@@ -2646,21 +2679,6 @@ async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
     if get_marketplace:
         listings_removed = get_marketplace().deactivate_all_listings(user_id)
     return {"user_id": user_id, "status": "deleted", "listings_deactivated": listings_removed}
-
-
-@app.get("/api/marketplace/favorites", tags=["marketplace"])
-async def list_favorites(current_user: dict = Depends(get_current_user)):
-    """お気に入りリスト（ブックマーク済みのリスティング）"""
-    if not get_auth_manager or not get_marketplace:
-        return {"items": [], "total": 0}
-    bookmarks = get_auth_manager().get_bookmarks(current_user["user_id"])
-    mp = get_marketplace()
-    items = []
-    for item_id in bookmarks:
-        listing = mp.get_listing(item_id)
-        if listing and listing.is_active:
-            items.append(listing.to_dict())
-    return {"items": items, "total": len(items)}
 
 
 @app.post("/api/marketplace/{listing_id}/favorite", tags=["marketplace"], status_code=201)

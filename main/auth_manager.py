@@ -264,7 +264,7 @@ class UserStore:
         self._by_id: Dict[str, UserRecord] = {}
         self._by_username: Dict[str, str] = {}  # username → user_id
         self._by_email: Dict[str, str] = {}      # email → user_id
-        self._revoked_jtis: set = set()           # revoked token JTI values
+        self._revoked_jtis: Dict[str, float] = {}  # jti → expiry timestamp
         self._reset_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
         self._verify_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
         self._api_keys: Dict[str, Dict] = {}     # key_prefix+hash → {user_id, name, key_id, created_at}
@@ -317,10 +317,17 @@ class UserStore:
 
     # --- Token revocation ---
 
-    def revoke_jti(self, jti: str) -> None:
-        self._revoked_jtis.add(jti)
+    def revoke_jti(self, jti: str, exp: Optional[float] = None) -> None:
+        if exp is None:
+            exp = time.time() + _REFRESH_TOKEN_EXPIRE_DAYS * 86400
+        self._revoked_jtis[jti] = exp
 
     def is_revoked(self, jti: str) -> bool:
+        now = time.time()
+        # Prune expired JTIs so the set doesn't grow forever.
+        expired = [k for k, e in self._revoked_jtis.items() if e < now]
+        for k in expired:
+            del self._revoked_jtis[k]
         return jti in self._revoked_jtis
 
     # --- Password reset ---
@@ -476,7 +483,7 @@ class AuthManager:
                 payload = _decode_token(tok)
                 jti = payload.get("jti")
                 if jti:
-                    self.store.revoke_jti(jti)
+                    self.store.revoke_jti(jti, exp=payload.get("exp"))
             except Exception:
                 pass
         logger.debug("Tokens revoked (logout)")
@@ -512,7 +519,7 @@ class AuthManager:
             raise AuthError("account_banned", "アカウントが停止されています")
 
         # Rotate refresh token
-        self.store.revoke_jti(jti)
+        self.store.revoke_jti(jti, exp=payload.get("exp"))
         new_access = create_access_token(user.user_id, user.username, user.role)
         new_refresh = create_refresh_token(user.user_id)
         return TokenPair(access_token=new_access, refresh_token=new_refresh)

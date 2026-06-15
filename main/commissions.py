@@ -231,10 +231,13 @@ class CommissionStore:
 # Singleton
 # ---------------------------------------------------------------------------
 _store: Optional[CommissionStore] = None
+_store_lock = __import__("threading").Lock()
 
 
 def get_commission_store() -> CommissionStore:
     global _store
     if _store is None:
-        _store = CommissionStore()
+        with _store_lock:
+            if _store is None:
+                _store = CommissionStore()
     return _store

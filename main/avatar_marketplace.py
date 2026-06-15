@@ -639,11 +639,13 @@ class MarketplaceStore:
         """Set max number of active listings for a user (admin only). 0 = blocked."""
         if max_listings < 0:
             raise ValueError("max_listings must be ≥ 0")
-        self._quotas[user_id] = max_listings
+        with self._lock:
+            self._quotas[user_id] = max_listings
 
     def get_quota(self, user_id: str) -> Optional[int]:
         """Return the quota for a user, or None if unlimited."""
-        return self._quotas.get(user_id)
+        with self._lock:
+            return self._quotas.get(user_id)
 
     def get_active_listing_count(self, user_id: str) -> int:
         with self._lock:
@@ -679,6 +681,8 @@ class MarketplaceStore:
         # Limit parameters payload size: avatar params are shallow key-value dicts;
         # unbounded dicts allow memory/serialization DoS.
         import json as _json
+        if price_credits < 0:
+            raise ValueError("price_credits must be ≥ 0")
         if len(parameters) > 500:
             raise ValueError("parametersのキー数は500以下にしてください")
         try:
@@ -772,9 +776,12 @@ class MarketplaceStore:
             if tags is not None:
                 listing.tags = [t.lower().strip() for t in tags[:20]]
             if parameters is not None:
+                if len(parameters) > 500:
+                    raise ValueError("parameters must have ≤ 500 keys")
                 listing.parameters = parameters
             if thumbnail_url is not None:
                 listing.thumbnail_url = thumbnail_url.strip()[:500]
+            old_is_free = listing.is_free
             if is_free is not None:
                 listing.is_free = is_free
             price_changed = False
@@ -784,7 +791,7 @@ class MarketplaceStore:
                 if price_credits != listing.price_credits:
                     price_changed = True
                 listing.price_credits = price_credits
-            if is_free is not None and is_free != listing.is_free:
+            if is_free is not None and is_free != old_is_free:
                 price_changed = True
             if license_type is not None:
                 listing.license_type = license_type
@@ -1000,9 +1007,16 @@ class MarketplaceStore:
         }
 
     def delete_review(self, listing_id: str, user_id: str) -> bool:
-        """Allow a user to delete their own review (stars are kept)."""
+        """Allow a user to delete their own review and remove their rating contribution."""
         with self._lock:
             rv = self._reviews.get(listing_id, {}).pop(user_id, None)
+            if rv is not None:
+                prev_stars = self._votes.get(listing_id, {}).pop(user_id, None)
+                if prev_stars is not None:
+                    listing = self._listings.get(listing_id)
+                    if listing:
+                        listing.rating_sum -= prev_stars
+                        listing.rating_count = max(0, listing.rating_count - 1)
         return rv is not None
 
     # --- Review replies ---
@@ -1918,6 +1932,8 @@ class MarketplaceStore:
             listing = self._listings.get(listing_id)
             if not listing:
                 raise ValueError("Listing not found")
+            if listing.owner_id == reporter_id:
+                raise ValueError("自分のリスティングを報告することはできません")
             # Prevent duplicate pending reports from same reporter
             for existing in self._reports.values():
                 if (existing.listing_id == listing_id and existing.reporter_id == reporter_id
@@ -2244,10 +2260,13 @@ class MarketplaceStore:
 # Singleton
 # ---------------------------------------------------------------------------
 _marketplace: Optional[MarketplaceStore] = None
+_marketplace_lock = threading.Lock()
 
 
 def get_marketplace() -> MarketplaceStore:
     global _marketplace
     if _marketplace is None:
-        _marketplace = MarketplaceStore()
+        with _marketplace_lock:
+            if _marketplace is None:
+                _marketplace = MarketplaceStore()
     return _marketplace

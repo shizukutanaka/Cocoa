@@ -81,7 +81,7 @@ class EndpointLimit:
 _ENDPOINT_OVERRIDES: Dict[str, EndpointLimit] = {
     "/api/auth/login": EndpointLimit(_AUTH_RATE),
     "/api/auth/register": EndpointLimit(_AUTH_RATE),
-    "/api/auth/reset-password": EndpointLimit(5),
+    "/api/auth/password-reset": EndpointLimit(5),
     "/api/auth/refresh": EndpointLimit(30),
     "/ws/monitoring": EndpointLimit(5),  # WS upgrades per minute
     # Financial / abuse-prone endpoints get auth-tier limits so they cannot be

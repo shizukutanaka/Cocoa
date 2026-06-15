@@ -99,6 +99,7 @@ class LicenseStore:
         self._by_key: Dict[str, str] = {}               # key_string → key_id
         self._holder_keys: Dict[str, List[str]] = {}    # holder_id → [key_id]
         self._listing_keys: Dict[str, List[str]] = {}   # listing_id → [key_id]
+        self._listing_owner: Dict[str, str] = {}        # listing_id → owner_id
         # (listing_id, holder_id) → key_id for uniqueness check
         self._pair_key: Dict[tuple, str] = {}
 
@@ -132,6 +133,7 @@ class LicenseStore:
             self._by_key[raw] = lk.key_id
             self._holder_keys.setdefault(holder_id, []).append(lk.key_id)
             self._listing_keys.setdefault(listing_id, []).append(lk.key_id)
+            self._listing_owner.setdefault(listing_id, owner_id)
             self._pair_key[pair] = lk.key_id
             return lk
 
@@ -169,7 +171,11 @@ class LicenseStore:
         with self._lock:
             ids = self._listing_keys.get(listing_id, [])
             all_keys = [self._keys[i] for i in ids if i in self._keys]
-        if all_keys and all_keys[0].owner_id != owner_id:
+            known_owner = (
+                all_keys[0].owner_id if all_keys
+                else self._listing_owner.get(listing_id)
+            )
+        if known_owner is not None and known_owner != owner_id:
             raise PermissionError("このリスティングのオーナーのみがライセンスを確認できます")
         total = len(all_keys)
         offset, limit = normalize_pagination(offset, limit)
