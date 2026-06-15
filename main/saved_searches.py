@@ -182,10 +182,13 @@ class SavedSearchStore:
 # Singleton
 # ---------------------------------------------------------------------------
 _store: Optional[SavedSearchStore] = None
+_store_lock = threading.Lock()
 
 
 def get_saved_search_store() -> SavedSearchStore:
     global _store
     if _store is None:
-        _store = SavedSearchStore()
+        with _store_lock:
+            if _store is None:
+                _store = SavedSearchStore()
     return _store

@@ -985,18 +985,21 @@ class AuthError(Exception):
 # Global singleton
 # ---------------------------------------------------------------------------
 _auth_manager: Optional[AuthManager] = None
+_am_lock = __import__("threading").Lock()
 
 
 def get_auth_manager() -> AuthManager:
     global _auth_manager
     if _auth_manager is None:
-        _auth_manager = AuthManager()
-        # Seed a default admin for dev (override via env)
-        dev_admin_password = os.getenv("COCOA_ADMIN_PASSWORD", "Admin1234!")
-        if os.getenv("COCOA_CREATE_DEFAULT_ADMIN", "true").lower() == "true":
-            try:
-                _auth_manager.register("admin", "admin@cocoa.local", dev_admin_password, role="admin")
-                logger.info("Default admin account created (change password in production!)")
-            except ValueError:
-                pass  # Already exists
+        with _am_lock:
+            if _auth_manager is None:
+                _auth_manager = AuthManager()
+                # Seed a default admin for dev (override via env)
+                dev_admin_password = os.getenv("COCOA_ADMIN_PASSWORD", "Admin1234!")
+                if os.getenv("COCOA_CREATE_DEFAULT_ADMIN", "true").lower() == "true":
+                    try:
+                        _auth_manager.register("admin", "admin@cocoa.local", dev_admin_password, role="admin")
+                        logger.info("Default admin account created (change password in production!)")
+                    except ValueError:
+                        pass  # Already exists
     return _auth_manager

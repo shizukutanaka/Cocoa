@@ -243,10 +243,13 @@ class NotificationQueue:
 # Singleton
 # ---------------------------------------------------------------------------
 _queue: Optional[NotificationQueue] = None
+_queue_lock = threading.Lock()
 
 
 def get_notification_queue() -> NotificationQueue:
     global _queue
     if _queue is None:
-        _queue = NotificationQueue()
+        with _queue_lock:
+            if _queue is None:
+                _queue = NotificationQueue()
     return _queue

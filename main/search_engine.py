@@ -329,10 +329,13 @@ class SearchIndex:
 # Singleton
 # ---------------------------------------------------------------------------
 _search_index: Optional[SearchIndex] = None
+_si_lock = threading.Lock()
 
 
 def get_search_index() -> SearchIndex:
     global _search_index
     if _search_index is None:
-        _search_index = SearchIndex()
+        with _si_lock:
+            if _search_index is None:
+                _search_index = SearchIndex()
     return _search_index
