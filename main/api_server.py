@@ -2511,6 +2511,11 @@ async def add_collection_item(collection_id: str, item_id: str, current_user: di
     """コレクションにアイテムを追加"""
     if not get_collection_store:
         raise HTTPException(status_code=503, detail="コレクション機能が利用できません")
+    # Verify the listing exists and is active before bookmarking it.
+    if get_marketplace:
+        lst = get_marketplace().get_listing(item_id)
+        if not lst or not lst.is_active:
+            raise HTTPException(status_code=404, detail="リスティングが見つかりません")
     try:
         col = get_collection_store().add_item(collection_id, current_user["user_id"], item_id)
         return col.to_dict()
@@ -3674,7 +3679,14 @@ async def checkout_cart(current_user: dict = Depends(get_current_user)):
     if not get_cart_manager or not get_marketplace:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     try:
-        return get_cart_manager().checkout(current_user["user_id"], get_marketplace())
+        result = get_cart_manager().checkout(current_user["user_id"], get_marketplace())
+        # Award referral bonus on first-ever purchase (idempotent — returns None on
+        # subsequent calls so the bonus can never be credited twice).
+        if result.get("success") and get_referral_manager:
+            get_referral_manager().on_first_purchase(
+                current_user["user_id"], get_marketplace()
+            )
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -3832,9 +3844,14 @@ async def purchase_bundle(
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     cart = get_cart_manager() if get_cart_manager else None
     try:
-        return get_bundle_manager().purchase_bundle(
+        result = get_bundle_manager().purchase_bundle(
             bundle_id, current_user["user_id"], get_marketplace(), cart
         )
+        if result.get("purchased") and get_referral_manager:
+            get_referral_manager().on_first_purchase(
+                current_user["user_id"], get_marketplace()
+            )
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

@@ -667,6 +667,16 @@ class MarketplaceStore:
         license_type: str = "personal",
         license_details: str = "",
     ) -> MarketplaceListing:
+        # Normalize all string fields once before use so both the listing and the
+        # initial version record store the same bounded values.
+        name = name.strip()[:200]
+        description = description.strip()[:2000]
+        category = category.strip()[:50]
+        thumbnail_url = thumbnail_url.strip()[:500]
+        owner_username = owner_username.strip()[:100]
+        license_details = license_details.strip()[:500]
+        tags = [t.lower().strip() for t in tags[:20]]
+
         with self._lock:
             # Enforce creator quota
             quota = self._quotas.get(owner_id)
@@ -686,14 +696,14 @@ class MarketplaceStore:
                 owner_username=owner_username,
                 name=name,
                 description=description,
-                tags=[t.lower().strip() for t in tags[:20]],
+                tags=tags,
                 category=category,
                 parameters=parameters,
                 thumbnail_url=thumbnail_url,
                 is_free=is_free,
                 price_credits=price_credits,
                 license_type=license_type,
-                license_details=license_details.strip()[:500],
+                license_details=license_details,
             )
             self._listings[listing.listing_id] = listing
             self._votes[listing.listing_id] = {}
