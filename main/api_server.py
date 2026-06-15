@@ -3773,8 +3773,11 @@ async def checkout_cart(current_user: dict = Depends(get_current_user)):
                     get_membership_manager().record_purchase(current_user["user_id"], total)
                 except Exception:
                     pass  # tier tracking is non-critical; never block checkout
-            # Award referral bonus on first-ever purchase (idempotent)
-            if get_referral_manager:
+            # Award referral bonus only on a genuine PAID first purchase. Gating
+            # on total > 0 prevents farming: a referred account could otherwise
+            # check out a free listing (total=0, success=True) to trigger the
+            # referrer's bonus without ever spending credits.
+            if get_referral_manager and total > 0:
                 get_referral_manager().on_first_purchase(
                     current_user["user_id"], get_marketplace()
                 )
@@ -3946,7 +3949,10 @@ async def purchase_bundle(
                     get_membership_manager().record_purchase(current_user["user_id"], total)
                 except Exception:
                     pass
-            if get_referral_manager:
+            # Referral bonus only on a genuine paid purchase (see checkout_cart):
+            # a free/already-owned bundle (total_charged=0) must not convert a
+            # referral, or the bonus could be farmed without spending credits.
+            if get_referral_manager and total > 0:
                 get_referral_manager().on_first_purchase(
                     current_user["user_id"], get_marketplace()
                 )

@@ -211,6 +211,27 @@ class TestReferralManager(unittest.TestCase):
         bonuses = [e for e in self.mp._ledger if e["kind"] == "referral_bonus"]
         self.assertEqual(len(bonuses), 1)
 
+    def test_on_first_purchase_reverts_on_credit_failure(self):
+        # If crediting the referrer fails, the conversion must roll back to
+        # pending (no phantom bonus) and a later purchase can retry it.
+        class _FailingMP(_FakeMarketplace):
+            def credit(self, *a, **k):
+                raise RuntimeError("ledger down")
+
+        failing = _FailingMP()
+        code = self.mgr.get_my_code("ref1")
+        self.mgr.apply_referral_code("new1", code)
+        result = self.mgr.on_first_purchase("new1", failing)
+        self.assertIsNone(result)
+        info = self.mgr.get_my_referral_info("new1")
+        self.assertEqual(info["status"], "pending")
+        self.assertEqual(info["bonus_awarded"], 0)
+        # Retry on a working marketplace now succeeds.
+        record = self.mgr.on_first_purchase("new1", self.mp)
+        self.assertIsNotNone(record)
+        self.assertEqual(record.status, "converted")
+        self.assertEqual(self.mp._credits.get("ref1", 0), REFERRAL_BONUS_CREDITS)
+
     def test_get_my_referrals_empty(self):
         result = self.mgr.get_my_referrals("ref1")
         self.assertEqual(result["total"], 0)

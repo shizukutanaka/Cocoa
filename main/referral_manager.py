@@ -110,6 +110,20 @@ class ReferralStore:
             record.converted_at = datetime.now(timezone.utc)
             return record
 
+    def revert_conversion(self, referred_id: str) -> None:
+        """Roll a converted referral back to pending (e.g. when the bonus credit
+        failed) so a future purchase can retry it instead of leaving a record
+        that claims a bonus was awarded when none reached the ledger."""
+        with self._lock:
+            ref_id = self._referred_by.get(referred_id)
+            if not ref_id:
+                return
+            record = self._records.get(ref_id)
+            if record and record.status == "converted":
+                record.status = "pending"
+                record.bonus_awarded = 0
+                record.converted_at = None
+
     def get_referral_by_referred(self, referred_id: str) -> Optional[ReferralRecord]:
         with self._lock:
             ref_id = self._referred_by.get(referred_id)
@@ -201,7 +215,12 @@ class ReferralManager:
                 REFERRAL_BONUS_CREDITS, record.referrer_id, user_id,
             )
         except Exception as exc:
-            logger.error("Failed to award referral bonus: %s", exc)
+            # Crediting failed — roll the conversion back to pending so the record
+            # doesn't claim a bonus that never reached the ledger, and a later
+            # purchase can retry the award.
+            logger.error("Failed to award referral bonus, reverting conversion: %s", exc)
+            self.store.revert_conversion(user_id)
+            return None
         return record
 
     def get_my_referrals(
