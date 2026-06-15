@@ -232,7 +232,15 @@ class PromoCode:
             return False
         if self.max_uses is not None and self.uses_count >= self.max_uses:
             return False
-        return not (self.expires_at and datetime.now(timezone.utc) > self.expires_at)
+        if not self.expires_at:
+            return True
+        # Defensive: treat a naive expiry as UTC so the comparison can't raise
+        # TypeError (mixing naive/aware datetimes) on any record created before
+        # expiry normalization was enforced.
+        exp = self.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) <= exp
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -2128,6 +2136,11 @@ class MarketplaceStore:
             raise ValueError("割引率は1〜99の範囲で指定してください")
         if max_uses is not None and max_uses < 1:
             raise ValueError("最大使用回数は1以上にしてください")
+        # Normalize a naive expiry to UTC-aware: is_valid() compares against an
+        # aware now(), and mixing naive/aware datetimes raises TypeError, which
+        # would crash every purchase that applies this promo.
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
         with self._lock:
             if listing_id:
                 listing = self._listings.get(listing_id)

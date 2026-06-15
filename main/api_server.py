@@ -3210,13 +3210,17 @@ async def create_promo_code(
     """プロモコードを作成する（リスティングオーナー専用）"""
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
-    from datetime import datetime
+    from datetime import datetime, timezone as _tz
     expires_at = None
     if body.expires_at:
         try:
             expires_at = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="expires_at の形式が不正です（ISO-8601）") from exc
+        # A timezone-less ISO string parses to a naive datetime; normalize to UTC
+        # so downstream aware-datetime comparisons don't raise TypeError.
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=_tz.utc)
     try:
         promo = get_marketplace().create_promo_code(
             creator_id=current_user["user_id"],

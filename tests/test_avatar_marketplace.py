@@ -2479,6 +2479,23 @@ class TestPromoCodes(unittest.TestCase):
         data = self.store.download(self.listing_id, "buyer2", promo_code="USE1")
         self.assertNotIn("promo_applied", data)
 
+    def test_create_promo_code_naive_expiry_normalized_to_aware(self):
+        # A naive expiry must be stored as UTC-aware so is_valid() doesn't raise
+        # TypeError comparing it against an aware now().
+        from datetime import datetime, timedelta
+        naive_future = datetime.now() + timedelta(days=1)  # no tzinfo
+        pc = self.store.create_promo_code("creator1", "NAIVE", 25, expires_at=naive_future)
+        self.assertIsNotNone(pc.expires_at.tzinfo)
+        # is_valid must not raise and should report still-valid.
+        self.assertTrue(pc.is_valid())
+
+    def test_is_valid_tolerates_naive_expiry(self):
+        # Even a record whose expiry somehow ended up naive must compare safely.
+        from datetime import datetime, timedelta
+        pc = self.store.create_promo_code("creator1", "RAW", 10)
+        pc.expires_at = datetime.now() + timedelta(days=1)  # force naive
+        self.assertTrue(pc.is_valid())  # must not raise TypeError
+
     def test_deactivate_promo_code(self):
         pc = self.store.create_promo_code("creator1", "DEACT", 50)
         result = self.store.deactivate_promo_code(pc.code_id, "creator1")
