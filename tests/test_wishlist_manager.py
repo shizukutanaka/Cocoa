@@ -40,8 +40,8 @@ class _FakeNotifQueue:
     def __init__(self):
         self.sent: list = []
 
-    def push(self, user_id, kind, data):
-        self.sent.append({"user_id": user_id, "kind": kind, "data": data})
+    def push(self, user_id, kind, title, body, payload=None):
+        self.sent.append({"user_id": user_id, "kind": kind, "title": title, "body": body, "data": payload or {}})
 
 
 def _make_manager() -> tuple:

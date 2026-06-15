@@ -170,7 +170,9 @@ class WishlistManager:
                 notification_queue.push(
                     drop["user_id"],
                     "price_drop",
-                    {
+                    "ウィッシュリストのアイテムが値下がりしました",
+                    f"価格が {drop['old_price']} → {current_price} クレジットに下がりました",
+                    payload={
                         "listing_id": listing_id,
                         "old_price": drop["old_price"],
                         "new_price": current_price,

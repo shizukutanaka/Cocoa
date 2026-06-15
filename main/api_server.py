@@ -1904,13 +1904,33 @@ async def download_avatar(
     if not data:
         raise HTTPException(status_code=404, detail="リスティングが見つかりません")
     listing = mp.get_listing(listing_id)
-    if listing and get_notification_queue and listing.owner_id != current_user["user_id"]:
-        get_notification_queue().push_from_template(
-            listing.owner_id, "new_download",
-            payload={"listing_id": listing_id, "downloader_id": current_user["user_id"]},
-            downloader_username=current_user.get("username", "ユーザー"),
-            listing_name=listing.name,
-        )
+    if listing:
+        # Issue (or return existing) license key for this download.
+        if get_license_manager:
+            try:
+                get_license_manager().issue_on_download(
+                    listing_id, listing.owner_id, current_user["user_id"]
+                )
+            except Exception:
+                pass
+        # Record purchase toward membership tier (non-critical).
+        if get_membership_manager:
+            try:
+                if "promo_applied" in data:
+                    amount_paid = data["promo_applied"]["actual_price"]
+                else:
+                    amount_paid = 0 if listing.is_free else listing.price_credits
+                if amount_paid > 0:
+                    get_membership_manager().record_purchase(current_user["user_id"], amount_paid)
+            except Exception:
+                pass
+        if get_notification_queue and listing.owner_id != current_user["user_id"]:
+            get_notification_queue().push_from_template(
+                listing.owner_id, "new_download",
+                payload={"listing_id": listing_id, "downloader_id": current_user["user_id"]},
+                downloader_username=current_user.get("username", "ユーザー"),
+                listing_name=listing.name,
+            )
     return {"status": "downloaded", "avatar_data": data}
 
 
@@ -2134,15 +2154,23 @@ async def update_listing(listing_id: str, body: UpdateListingRequest, current_us
             )
         )
         if price_dropped:
-            watchers = get_auth_manager().get_users_who_bookmarked(listing_id)
-            if watchers:
-                get_notification_queue().push_batch(
-                    watchers, "system",
-                    title="ブックマークしたアバターの価格が下がりました",
-                    body=f"「{listing.name}」の価格が変わりました",
-                    payload={"listing_id": listing_id, "new_price": listing.price_credits,
-                             "is_free": listing.is_free},
-                )
+            if get_auth_manager and get_notification_queue:
+                watchers = get_auth_manager().get_users_who_bookmarked(listing_id)
+                if watchers:
+                    get_notification_queue().push_batch(
+                        watchers, "system",
+                        title="ブックマークしたアバターの価格が下がりました",
+                        body=f"「{listing.name}」の価格が変わりました",
+                        payload={"listing_id": listing_id, "new_price": listing.price_credits,
+                                 "is_free": listing.is_free},
+                    )
+            if get_wishlist_manager and get_notification_queue:
+                try:
+                    get_wishlist_manager().check_and_notify_price_drops(
+                        listing_id, listing.price_credits, get_notification_queue()
+                    )
+                except Exception:
+                    pass
         return {"status": "updated", "listing": listing.to_dict()}
     except (ValueError, PermissionError) as e:
         code = 403 if isinstance(e, PermissionError) else 400
@@ -3272,8 +3300,14 @@ async def delete_own_account(current_user: dict = Depends(get_current_user)):
     user = auth.store.get_by_id(current_user["user_id"])
     if not user:
         raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
-    # Soft-delete: deactivate rather than remove, so listings/reviews stay
+    # Soft-delete: deactivate the account and remove active listings so the
+    # marketplace is not left with orphaned listings from a deleted creator.
     user.is_active = False
+    if get_marketplace:
+        try:
+            get_marketplace().deactivate_all_listings(current_user["user_id"])
+        except Exception:
+            pass
     return {"status": "deleted", "user_id": current_user["user_id"]}
 
 
