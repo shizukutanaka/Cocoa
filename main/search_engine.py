@@ -116,7 +116,9 @@ class SearchIndex:
             field_toks = _field_tokens(doc)
             for fname, toks in field_toks.items():
                 weight = _FIELD_WEIGHTS.get(fname, 1.0)
-                for tok in toks:
+                # Deduplicate tokens per field so keyword stuffing (repeating a
+                # term dozens of times in a description) doesn't inflate ranking.
+                for tok in set(toks):
                     if tok not in self._inverted:
                         self._inverted[tok] = {}
                     self._inverted[tok][doc.doc_id] = (

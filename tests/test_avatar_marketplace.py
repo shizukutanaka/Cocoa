@@ -22,6 +22,12 @@ def _store():
     return MarketplaceStore()
 
 
+def _buy(store, listing_id, *user_ids):
+    """Download a free listing for each user so they qualify to rate/review."""
+    for uid in user_ids:
+        store.download(listing_id, uid)
+
+
 def _listing(store, **kw):
     defaults = dict(
         avatar_id="av1", owner_id="u1", owner_username="alice",
@@ -673,12 +679,14 @@ class TestRating(unittest.TestCase):
     def test_rate_valid(self):
         store = _store()
         listing = _listing(store)
+        _buy(store, listing.listing_id, "u2")
         avg = store.rate(listing.listing_id, "u2", 4)
         self.assertEqual(avg, 4.0)
 
     def test_rate_updates_average(self):
         store = _store()
         listing = _listing(store)
+        _buy(store, listing.listing_id, "u2", "u3")
         store.rate(listing.listing_id, "u2", 4)
         store.rate(listing.listing_id, "u3", 2)
         self.assertEqual(listing.average_rating, 3.0)
@@ -686,6 +694,7 @@ class TestRating(unittest.TestCase):
     def test_user_can_update_rating(self):
         store = _store()
         listing = _listing(store)
+        _buy(store, listing.listing_id, "u2")
         store.rate(listing.listing_id, "u2", 5)
         store.rate(listing.listing_id, "u2", 1)
         self.assertEqual(listing.rating_count, 1)
@@ -696,6 +705,12 @@ class TestRating(unittest.TestCase):
         listing = _listing(store)
         with self.assertRaises((ValueError, PermissionError)):
             store.rate(listing.listing_id, "u1", 5)
+
+    def test_non_buyer_cannot_rate(self):
+        store = _store()
+        listing = _listing(store)
+        with self.assertRaises(ValueError):
+            store.rate(listing.listing_id, "u2", 4)
 
     def test_invalid_stars_raises(self):
         store = _store()
@@ -737,6 +752,7 @@ class TestSearch(unittest.TestCase):
         self.assertEqual(results["items"][0]["listing_id"], self.l2.listing_id)
 
     def test_sort_by_rating(self):
+        _buy(self.store, self.l1.listing_id, "u3")
         self.store.rate(self.l1.listing_id, "u3", 5)
         results = self.store.search(sort_by="rating")
         self.assertEqual(results["items"][0]["listing_id"], self.l1.listing_id)
@@ -884,6 +900,7 @@ class TestCreatorAnalytics(unittest.TestCase):
         self.assertGreater(len(a["downloads_by_day"]), 0)
 
     def test_analytics_rating_distribution(self):
+        _buy(self.store, self.l1.listing_id, "u3", "u4")
         self.store.rate(self.l1.listing_id, "u3", 5)
         self.store.rate(self.l1.listing_id, "u4", 3)
         a = self.store.get_creator_analytics("u1")
@@ -891,6 +908,7 @@ class TestCreatorAnalytics(unittest.TestCase):
         self.assertEqual(a["rating_distribution"][3], 1)
 
     def test_analytics_total_reviews(self):
+        _buy(self.store, self.l1.listing_id, "u3")
         self.store.review(self.l1.listing_id, "u3", "carol", 4, "Good")
         a = self.store.get_creator_analytics("u1")
         self.assertEqual(a["total_reviews"], 1)
@@ -1017,6 +1035,7 @@ class TestReviews(unittest.TestCase):
         self.listing = _listing(self.store)
 
     def test_review_returns_avg_and_review(self):
+        _buy(self.store, self.listing.listing_id, "u2")
         avg, rv = self.store.review(self.listing.listing_id, "u2", "bob", 4, "Great!")
         self.assertEqual(avg, 4.0)
         self.assertIsInstance(rv, Review)
@@ -1024,10 +1043,12 @@ class TestReviews(unittest.TestCase):
         self.assertEqual(rv.text, "Great!")
 
     def test_review_text_truncated_at_2000(self):
+        _buy(self.store, self.listing.listing_id, "u2")
         _, rv = self.store.review(self.listing.listing_id, "u2", "bob", 3, "x" * 3000)
         self.assertLessEqual(len(rv.text), 2000)
 
     def test_update_review_changes_text_and_stars(self):
+        _buy(self.store, self.listing.listing_id, "u2")
         self.store.review(self.listing.listing_id, "u2", "bob", 5, "Perfect")
         avg, rv = self.store.review(self.listing.listing_id, "u2", "bob", 2, "Disappointing")
         self.assertEqual(avg, 2.0)
@@ -1039,6 +1060,7 @@ class TestReviews(unittest.TestCase):
             self.store.review(self.listing.listing_id, "u1", "alice", 5, "mine")
 
     def test_invalid_stars_raises(self):
+        _buy(self.store, self.listing.listing_id, "u2")
         with self.assertRaises(ValueError):
             self.store.review(self.listing.listing_id, "u2", "bob", 0, "bad")
         with self.assertRaises(ValueError):
@@ -1050,12 +1072,15 @@ class TestReviews(unittest.TestCase):
         self.assertEqual(result["items"], [])
 
     def test_get_reviews_after_post(self):
+        _buy(self.store, self.listing.listing_id, "u2")
         self.store.review(self.listing.listing_id, "u2", "bob", 4, "Nice")
         result = self.store.get_reviews(self.listing.listing_id)
         self.assertEqual(result["total"], 1)
         self.assertEqual(result["items"][0]["text"], "Nice")
 
     def test_get_reviews_pagination(self):
+        for i in range(5):
+            self.store.download(self.listing.listing_id, f"user{i}")
         for i in range(5):
             self.store.review(self.listing.listing_id, f"user{i}", f"u{i}", 4, f"rev{i}")
         page1 = self.store.get_reviews(self.listing.listing_id, limit=3, offset=0)
@@ -1066,12 +1091,16 @@ class TestReviews(unittest.TestCase):
 
     def test_get_reviews_has_more_true(self):
         for i in range(5):
+            self.store.download(self.listing.listing_id, f"user{i}")
+        for i in range(5):
             self.store.review(self.listing.listing_id, f"user{i}", f"u{i}", 4, f"rev{i}")
         result = self.store.get_reviews(self.listing.listing_id, limit=3, offset=0)
         self.assertTrue(result["has_more"])
         self.assertEqual(result["next_offset"], 3)
 
     def test_get_reviews_has_more_false_on_last_page(self):
+        for i in range(5):
+            self.store.download(self.listing.listing_id, f"user{i}")
         for i in range(5):
             self.store.review(self.listing.listing_id, f"user{i}", f"u{i}", 4, f"rev{i}")
         result = self.store.get_reviews(self.listing.listing_id, limit=3, offset=3)
@@ -1084,6 +1113,7 @@ class TestReviews(unittest.TestCase):
             self.assertIn(key, result)
 
     def test_delete_review(self):
+        _buy(self.store, self.listing.listing_id, "u2")
         self.store.review(self.listing.listing_id, "u2", "bob", 4, "OK")
         ok = self.store.delete_review(self.listing.listing_id, "u2")
         self.assertTrue(ok)
@@ -1095,6 +1125,7 @@ class TestReviews(unittest.TestCase):
         self.assertFalse(ok)
 
     def test_review_to_dict_fields(self):
+        _buy(self.store, self.listing.listing_id, "u2")
         _, rv = self.store.review(self.listing.listing_id, "u2", "bob", 3, "Decent")
         d = rv.to_dict()
         for key in ("review_id", "listing_id", "user_id", "username", "stars", "text", "created_at"):
@@ -1110,6 +1141,7 @@ class TestReviewSorting(unittest.TestCase):
         self.store = _store()
         self.listing = _listing(self.store)
         self.lid = self.listing.listing_id
+        _buy(self.store, self.lid, "u2", "u3", "u4")
         _, self.r1 = self.store.review(self.lid, "u2", "bob", 2, "Not great")
         _, self.r2 = self.store.review(self.lid, "u3", "carol", 5, "Excellent!")
         _, self.r3 = self.store.review(self.lid, "u4", "dave", 3, "OK")
@@ -1504,6 +1536,7 @@ class TestReviewReplies(unittest.TestCase):
     def setUp(self):
         self.store = _store()
         listing = _listing(self.store)
+        _buy(self.store, listing.listing_id, "u2")
         _, self.review = self.store.review(listing.listing_id, "u2", "bob", 4, "Great!")
         self.review_id = self.review.review_id
 
@@ -1684,6 +1717,7 @@ class TestRatingDistribution(unittest.TestCase):
         self.assertEqual(r["average_rating"], 0.0)
 
     def test_distribution_counts_per_star(self):
+        _buy(self.store, self.lid, "u2", "u3", "u4")
         self.store.rate(self.lid, "u2", 5)
         self.store.rate(self.lid, "u3", 3)
         self.store.rate(self.lid, "u4", 5)
@@ -1693,12 +1727,14 @@ class TestRatingDistribution(unittest.TestCase):
         self.assertEqual(r["distribution"][1], 0)
 
     def test_total_ratings_count(self):
+        _buy(self.store, self.lid, "u2", "u3")
         self.store.rate(self.lid, "u2", 4)
         self.store.rate(self.lid, "u3", 4)
         r = self.store.get_rating_distribution(self.lid)
         self.assertEqual(r["total_ratings"], 2)
 
     def test_average_rating_correct(self):
+        _buy(self.store, self.lid, "u2", "u3")
         self.store.rate(self.lid, "u2", 4)
         self.store.rate(self.lid, "u3", 2)
         r = self.store.get_rating_distribution(self.lid)
@@ -1864,6 +1900,8 @@ class TestCreatorLeaderboard(unittest.TestCase):
         self.assertEqual(board[0]["owner_id"], "u2")
 
     def test_leaderboard_by_rating(self):
+        _buy(self.store, self.l1.listing_id, "u_rev")
+        _buy(self.store, self.l2.listing_id, "u_rev2")
         self.store.review(self.l1.listing_id, "u_rev", "reviewer", 5, "Perfect!")
         self.store.review(self.l2.listing_id, "u_rev2", "reviewer2", 2, "Meh")
         board = self.store.get_leaderboard(by="rating")
@@ -1962,6 +2000,7 @@ class TestReviewHelpfulness(unittest.TestCase):
         self.store = _store()
         self.listing = _listing(self.store)
         self.lid = self.listing.listing_id
+        _buy(self.store, self.lid, "u2")
         _, self.review = self.store.review(self.lid, "u2", "bob", 4, "Great avatar!")
         self.rid = self.review.review_id
 
@@ -2117,6 +2156,7 @@ class TestReviewHiding(unittest.TestCase):
         self.store = MarketplaceStore()
         lst = _listing(self.store)
         self.listing_id = lst.listing_id
+        _buy(self.store, self.listing_id, "u2")
         _, self.rv = self.store.review(self.listing_id, "u2", "bob", 4, "Good avatar")
         self.review_id = self.rv.review_id
 
@@ -2191,6 +2231,7 @@ class TestListingTransfer(unittest.TestCase):
         self.assertEqual(listing.download_count, 1)
 
     def test_transfer_preserves_reviews(self):
+        _buy(self.store, self.listing_id, "reviewer")
         self.store.review(self.listing_id, "reviewer", "reviewer", 5, "Great!")
         self.store.transfer_listing(self.listing_id, "owner1", "owner2", "newuser")
         reviews = self.store.get_reviews(self.listing_id)
@@ -2267,6 +2308,7 @@ class TestReviewReports(unittest.TestCase):
         self.store = MarketplaceStore()
         lst = _listing(self.store)
         self.listing_id = lst.listing_id
+        _buy(self.store, self.listing_id, "u2")
         _, self.rv = self.store.review(self.listing_id, "u2", "bob", 3, "Decent")
         self.review_id = self.rv.review_id
 
@@ -2570,18 +2612,21 @@ class TestListingAnalytics(unittest.TestCase):
         self.assertEqual(result["unique_downloaders"], 1)
 
     def test_analytics_review_count(self):
+        _buy(self.store, self.listing_id, "buyer1", "buyer2")
         self.store.review(self.listing_id, "buyer1", "b1", 5, "Great!")
         self.store.review(self.listing_id, "buyer2", "b2", 4, "Good!")
         result = self.store.get_listing_analytics(self.listing_id, "creator1")
         self.assertEqual(result["total_reviews"], 2)
 
     def test_analytics_average_rating(self):
+        _buy(self.store, self.listing_id, "buyer1", "buyer2")
         self.store.review(self.listing_id, "buyer1", "b1", 5, "Great!")
         self.store.review(self.listing_id, "buyer2", "b2", 3, "OK")
         result = self.store.get_listing_analytics(self.listing_id, "creator1")
         self.assertEqual(result["average_rating"], 4.0)
 
     def test_analytics_rating_distribution(self):
+        _buy(self.store, self.listing_id, "buyer1")
         self.store.review(self.listing_id, "buyer1", "b1", 5, "Excellent!")
         result = self.store.get_listing_analytics(self.listing_id, "creator1")
         self.assertEqual(result["rating_distribution"][5], 1)

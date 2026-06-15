@@ -882,6 +882,8 @@ class MarketplaceStore:
                 raise ValueError("Listing not found")
             if listing.owner_id == user_id:
                 raise ValueError("You cannot rate your own listing")
+            if not self._has_downloaded_locked(user_id, listing_id):
+                raise ValueError("購入済みのリスティングのみ評価できます")
 
             prev = self._votes[listing_id].get(user_id)
             if prev is not None:
@@ -904,6 +906,8 @@ class MarketplaceStore:
                 raise ValueError("Listing not found")
             if listing.owner_id == user_id:
                 raise ValueError("You cannot review your own listing")
+            if not self._has_downloaded_locked(user_id, listing_id):
+                raise ValueError("購入済みのリスティングのみレビューできます")
 
             prev_stars = self._votes[listing_id].get(user_id)
             if prev_stars is not None:
