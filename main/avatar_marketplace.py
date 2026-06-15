@@ -841,13 +841,18 @@ class MarketplaceStore:
                     applied_promo.uses_count += 1
 
             now = datetime.now(timezone.utc)
-            listing.download_count += 1
+            is_self = listing.owner_id == downloader_id
+            # Only non-owner downloads count toward popularity metrics; owner
+            # re-downloads are test/preview operations and must not inflate ranking.
+            if not is_self:
+                listing.download_count += 1
             listing.updated_at = now
-            if listing.stock_remaining is not None and listing.owner_id != downloader_id:
+            if listing.stock_remaining is not None and not is_self:
                 listing.stock_remaining -= 1
                 if listing.stock_remaining <= 0:
                     logger.info("Listing sold out: %s", listing_id)
-            self._record_download_locked(listing_id, downloader_id, now)
+            if not is_self:
+                self._record_download_locked(listing_id, downloader_id, now)
             result: Dict[str, Any] = {
                 "source_listing_id": listing_id,
                 "source_avatar_id": listing.avatar_id,

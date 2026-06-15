@@ -210,6 +210,20 @@ class TestDownload(unittest.TestCase):
         store.download(listing.listing_id, "u3")
         self.assertEqual(listing.download_count, 2)
 
+    def test_owner_self_download_does_not_inflate_count(self):
+        store = _store()
+        listing = _listing(store)
+        store.download(listing.listing_id, "u1")  # owner re-downloads
+        store.download(listing.listing_id, "u1")
+        self.assertEqual(listing.download_count, 0)  # count stays at 0
+
+    def test_owner_self_download_after_buyer_download(self):
+        store = _store()
+        listing = _listing(store)
+        store.download(listing.listing_id, "u2")  # buyer: count becomes 1
+        store.download(listing.listing_id, "u1")  # owner: count stays 1
+        self.assertEqual(listing.download_count, 1)
+
     def test_download_inactive_listing_returns_none(self):
         store = _store()
         listing = _listing(store)
@@ -1652,9 +1666,10 @@ class TestOwnershipCheck(unittest.TestCase):
     def test_false_for_nonexistent_listing(self):
         self.assertFalse(self.store.has_downloaded("no-such-id", "u2"))
 
-    def test_owner_downloading_own_listing(self):
+    def test_owner_downloading_own_listing_not_recorded(self):
+        # Owner self-downloads are free previews, not counted in download history
         self.store.download(self.lid, "u1")
-        self.assertTrue(self.store.has_downloaded(self.lid, "u1"))
+        self.assertFalse(self.store.has_downloaded(self.lid, "u1"))
 
 
 class TestRatingDistribution(unittest.TestCase):
