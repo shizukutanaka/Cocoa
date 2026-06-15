@@ -3680,12 +3680,19 @@ async def checkout_cart(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     try:
         result = get_cart_manager().checkout(current_user["user_id"], get_marketplace())
-        # Award referral bonus on first-ever purchase (idempotent — returns None on
-        # subsequent calls so the bonus can never be credited twice).
-        if result.get("success") and get_referral_manager:
-            get_referral_manager().on_first_purchase(
-                current_user["user_id"], get_marketplace()
-            )
+        if result.get("success"):
+            total = result.get("order", {}).get("total_credits", 0)
+            # Track lifetime spend → advance membership tier
+            if get_membership_manager and total > 0:
+                try:
+                    get_membership_manager().record_purchase(current_user["user_id"], total)
+                except Exception:
+                    pass  # tier tracking is non-critical; never block checkout
+            # Award referral bonus on first-ever purchase (idempotent)
+            if get_referral_manager:
+                get_referral_manager().on_first_purchase(
+                    current_user["user_id"], get_marketplace()
+                )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -3847,10 +3854,17 @@ async def purchase_bundle(
         result = get_bundle_manager().purchase_bundle(
             bundle_id, current_user["user_id"], get_marketplace(), cart
         )
-        if result.get("purchased") and get_referral_manager:
-            get_referral_manager().on_first_purchase(
-                current_user["user_id"], get_marketplace()
-            )
+        if result.get("purchased"):
+            total = result.get("total_charged", 0)
+            if get_membership_manager and total > 0:
+                try:
+                    get_membership_manager().record_purchase(current_user["user_id"], total)
+                except Exception:
+                    pass
+            if get_referral_manager:
+                get_referral_manager().on_first_purchase(
+                    current_user["user_id"], get_marketplace()
+                )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
