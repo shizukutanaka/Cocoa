@@ -493,6 +493,10 @@ class AuthManager:
             raise AuthError("account_disabled", "アカウントが無効です")
         if user.is_banned:
             raise AuthError("account_banned", "アカウントが停止されています")
+        # Override the JWT-embedded role with the live value from the store so
+        # role changes (promotions and demotions) take effect immediately without
+        # waiting for the token to expire.
+        payload["role"] = user.role
         return payload
 
     def refresh(self, refresh_token: str) -> TokenPair:
