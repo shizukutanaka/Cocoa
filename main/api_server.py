@@ -2267,15 +2267,26 @@ class GiftCreditsRequest(BaseModel):
 
 
 @app.post("/api/credits/gift", tags=["marketplace"])
-async def gift_credits(body: GiftCreditsRequest, current_user: dict = Depends(get_current_user)):
+async def gift_credits(
+    body: GiftCreditsRequest,
+    current_user: dict = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
     """別のユーザーにクレジットをギフトする"""
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     try:
-        result = get_marketplace().gift_credits(
-            current_user["user_id"], body.recipient_id, body.amount
-        )
-        if get_notification_queue:
+        idem_key = f"{current_user['user_id']}:{idempotency_key}" if idempotency_key else None
+        store = get_idempotency_store() if get_idempotency_store else None
+        is_replay = store is not None and idem_key and store.seen(idem_key)
+
+        def _do_gift():
+            return get_marketplace().gift_credits(
+                current_user["user_id"], body.recipient_id, body.amount
+            )
+
+        result = store.get_or_execute(idem_key, _do_gift) if store else _do_gift()
+        if not is_replay and get_notification_queue:
             get_notification_queue().push_from_template(
                 body.recipient_id, "credit_gifted",
                 payload={"sender_id": current_user["user_id"], "amount": body.amount},
