@@ -336,6 +336,12 @@ class BundleManager:
             # since we can't pass an arbitrary price to download().
             # Instead, we perform the transaction manually within the lock:
             with marketplace_store._lock:
+                # Re-check ownership under the lock: two concurrent bundle
+                # purchases could both pass the pre-loop snapshot check and
+                # both charge for the same item without this guard.
+                if marketplace_store._has_downloaded_locked(buyer_id, listing_id):
+                    skipped.append({"listing_id": listing_id, "reason": "already_owned"})
+                    continue
                 # Sold-out enforcement (mirror download()): a stock-limited
                 # listing that is exhausted must not be oversold via a bundle.
                 if lst.stock_remaining is not None and lst.stock_remaining <= 0:
@@ -353,11 +359,14 @@ class BundleManager:
                     marketplace_store._credit_locked(lst.owner_id, final_price, "sale", ref_id=listing_id)
 
                 now = datetime.now(timezone.utc)
-                lst.download_count += 1
+                is_owner = lst.owner_id == buyer_id
+                if not is_owner:
+                    lst.download_count += 1
                 lst.updated_at = now
-                if lst.stock_remaining is not None:
+                if lst.stock_remaining is not None and not is_owner:
                     lst.stock_remaining = max(0, lst.stock_remaining - 1)
-                marketplace_store._record_download_locked(listing_id, buyer_id, now)
+                if not is_owner:
+                    marketplace_store._record_download_locked(listing_id, buyer_id, now)
 
             purchased.append({
                 "listing_id": listing_id,

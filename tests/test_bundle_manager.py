@@ -46,6 +46,9 @@ class _FakeMP:
     def get_downloaded_ids(self, user_id):
         return {lid for lid, did, _ in self._download_log if did == user_id}
 
+    def _has_downloaded_locked(self, user_id, listing_id):
+        return any(lid == listing_id and did == user_id for lid, did, _ in self._download_log)
+
     def _append_ledger(self, user_id, amount, kind, ref_id=None, balance_after=0):
         self._ledger.append({"user_id": user_id, "amount": amount, "kind": kind})
 
