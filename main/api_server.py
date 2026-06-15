@@ -1383,10 +1383,13 @@ async def request_password_reset(body: PasswordResetRequest):
         raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     auth = get_auth_manager()
     reset_token = auth.request_password_reset(body.email)
-    # In production: send email with token. Here we return it for dev convenience.
-    if reset_token:
-        return {"status": "sent", "dev_token": reset_token}
-    return {"status": "sent"}  # Don't leak whether email exists
+    # In production the token is delivered out-of-band (email); it must NEVER be
+    # returned in the API response, or any unauthenticated caller could reset an
+    # arbitrary account's password. Exposing it is opt-in for local dev only.
+    response = {"status": "sent"}  # uniform response — don't leak whether email exists
+    if reset_token and os.getenv("COCOA_EXPOSE_RESET_TOKEN", "false").lower() == "true":
+        response["dev_token"] = reset_token
+    return response
 
 
 @app.post("/api/auth/password-reset/confirm", tags=["auth"])
