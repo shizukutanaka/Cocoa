@@ -380,7 +380,7 @@ class TestDownloadOwnershipIndex(unittest.TestCase):
         self.store.download(self.listing.listing_id, "u2")
         self.store.download(l2.listing_id, "u2")
         self.store.download(self.listing.listing_id, "u3")
-        log_pairs = {(lid, did) for lid, did, _ in self.store._download_log}
+        log_pairs = {(lid, did) for lid, did, _, _ap in self.store._download_log}
         for lid, did in log_pairs:
             self.assertTrue(self.store.has_downloaded(lid, did))
         self.assertEqual(self.store.get_downloaded_ids("u2"),
@@ -1303,6 +1303,25 @@ class TestCreatorAnalyticsExtended(unittest.TestCase):
         a = self.store.get_creator_analytics("u1")
         self.assertEqual(a["downloads_by_tag"], {})
         self.assertEqual(a["total_credits_earned"], 0)
+
+    def test_redownload_does_not_inflate_revenue(self):
+        # First purchase charges 10 credits; re-download charges 0.
+        # Revenue must be 10, not 20.
+        self.store.add_credits("u3", 20)
+        self.store.download(self.l2.listing_id, "u3")
+        self.store.download(self.l2.listing_id, "u3")  # re-download, free
+        a = self.store.get_creator_analytics("u1")
+        self.assertEqual(a["total_credits_earned"], 10,
+                         "Re-download must not add to creator revenue")
+
+    def test_promo_discount_reflected_in_revenue(self):
+        # Buying with a 50% promo code → seller earns 5, not 10.
+        self.store.add_credits("u3", 10)
+        self.store.create_promo_code("u1", "HALF", 50, listing_id=self.l2.listing_id, max_uses=10)
+        self.store.download(self.l2.listing_id, "u3", promo_code="HALF")
+        a = self.store.get_creator_analytics("u1")
+        self.assertEqual(a["total_credits_earned"], 5,
+                         "Promo discount must reduce reported revenue")
 
 
 class TestPriceHistory(unittest.TestCase):

@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -264,6 +265,7 @@ class UserStore:
     """Thread-safe in-memory user store with lookup by id / username / email."""
 
     def __init__(self):
+        self._lock = threading.Lock()
         self._by_id: Dict[str, UserRecord] = {}
         self._by_username: Dict[str, str] = {}  # username → user_id
         self._by_email: Dict[str, str] = {}      # email → user_id
@@ -298,23 +300,26 @@ class UserStore:
             raise ValueError("メールアドレスが長すぎます (最大254文字)")
         if len(password) > 1024:
             raise ValueError("パスワードが長すぎます (最大1024文字)")
-        if self._uname_key(username) in self._by_username:
-            raise ValueError(f"Username '{username}' already exists")
-        if email in self._by_email:
-            raise ValueError(f"Email '{email}' already registered")
         if role not in ROLES:
             raise ValueError(f"Unknown role '{role}'")
-
+        # Hash outside the lock — bcrypt is intentionally slow and we must not
+        # hold the store lock while it runs or all concurrent requests stall.
+        password_hash = hash_password(password)
         user = UserRecord(
             user_id=secrets.token_hex(16),
             username=username,
             email=email,
-            password_hash=hash_password(password),
+            password_hash=password_hash,
             role=role,
         )
-        self._by_id[user.user_id] = user
-        self._by_username[self._uname_key(username)] = user.user_id
-        self._by_email[email] = user.user_id
+        with self._lock:
+            if self._uname_key(username) in self._by_username:
+                raise ValueError(f"Username '{username}' already exists")
+            if email in self._by_email:
+                raise ValueError(f"Email '{email}' already registered")
+            self._by_id[user.user_id] = user
+            self._by_username[self._uname_key(username)] = user.user_id
+            self._by_email[email] = user.user_id
         logger.info("User created: %s (role=%s)", username, role)
         return user
 
@@ -333,13 +338,13 @@ class UserStore:
         return list(self._by_id.values())
 
     def delete_user(self, user_id: str) -> bool:
-        user = self._by_id.pop(user_id, None)
-        if user:
-            # user.username/email are stored already-normalized; key the same way.
-            self._by_username.pop(self._uname_key(user.username), None)
-            self._by_email.pop(self._email_key(user.email), None)
-            return True
-        return False
+        with self._lock:
+            user = self._by_id.pop(user_id, None)
+            if user:
+                self._by_username.pop(self._uname_key(user.username), None)
+                self._by_email.pop(self._email_key(user.email), None)
+                return True
+            return False
 
     # --- Token revocation ---
 

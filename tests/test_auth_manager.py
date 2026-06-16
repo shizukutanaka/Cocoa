@@ -1097,5 +1097,57 @@ class TestUserBan(unittest.TestCase):
         self.assertEqual(user.ban_reason, "spam")
 
 
+# ---------------------------------------------------------------------------
+# UserStore registration race (TOCTOU)
+# ---------------------------------------------------------------------------
+
+class TestUserStoreRegistrationRace(unittest.TestCase):
+    """Concurrent registrations with the same username must produce exactly one account."""
+
+    def test_concurrent_same_username_only_one_succeeds(self):
+        import threading
+        store = UserStore()
+        successes = []
+        errors = []
+
+        def register():
+            try:
+                store.create_user("alice", "alice@test.com", "pw123456")
+                successes.append(1)
+            except ValueError:
+                errors.append(1)
+
+        threads = [threading.Thread(target=register) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(successes), 1, "Exactly one registration must succeed")
+        self.assertEqual(len(errors), 9, "All other concurrent attempts must fail")
+        self.assertEqual(len(store.list_users()), 1)
+
+    def test_concurrent_same_email_only_one_succeeds(self):
+        import threading
+        store = UserStore()
+        successes = []
+
+        def register(i):
+            try:
+                store.create_user(f"user{i}", "shared@test.com", "pw123456")
+                successes.append(1)
+            except ValueError:
+                pass
+
+        threads = [threading.Thread(target=register, args=(i,)) for i in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(len(store.list_users()), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

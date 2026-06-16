@@ -497,9 +497,9 @@ class MarketplaceStore:
         with self._lock:
             return self._claim_purchase_refund_locked(buyer_id, listing_id)
 
-    def _record_download_locked(self, listing_id: str, user_id: str, ts: datetime) -> None:
+    def _record_download_locked(self, listing_id: str, user_id: str, ts: datetime, amount_paid: int = 0) -> None:
         """Append to the download log AND update the ownership index. Hold lock."""
-        self._download_log.append((listing_id, user_id, ts))
+        self._download_log.append((listing_id, user_id, ts, amount_paid))
         self._downloads_by_user.setdefault(user_id, set()).add(listing_id)
 
     def _has_downloaded_locked(self, user_id: str, listing_id: str) -> bool:
@@ -961,7 +961,7 @@ class MarketplaceStore:
                 if listing.stock_remaining <= 0:
                     logger.info("Listing sold out: %s", listing_id)
             if not is_self:
-                self._record_download_locked(listing_id, downloader_id, now)
+                self._record_download_locked(listing_id, downloader_id, now, actual_price if paid else 0)
             result: Dict[str, Any] = {
                 "source_listing_id": listing_id,
                 "source_avatar_id": listing.avatar_id,
@@ -1411,7 +1411,7 @@ class MarketplaceStore:
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         with self._lock:
             recent_counts: Counter = Counter(
-                lid for lid, _, ts in self._download_log if ts >= cutoff
+                lid for lid, _, ts, _ap in self._download_log if ts >= cutoff
             )
             active = [lst for lst in self._listings.values() if lst.is_active]
         if recent_counts:
@@ -1858,7 +1858,7 @@ class MarketplaceStore:
                 raise ValueError("リスティングが見つかりません")
             if listing.owner_id != owner_id:
                 raise PermissionError("このリスティングの所有者のみが分析情報を取得できます")
-            logs = [(lid, did, ts) for lid, did, ts in self._download_log if lid == listing_id]
+            logs = [(lid, did, ts) for lid, did, ts, _ap in self._download_log if lid == listing_id]
             review_count = len(self._reviews.get(listing_id, {}))
 
         from collections import Counter
@@ -1890,30 +1890,34 @@ class MarketplaceStore:
         """Per-creator dashboard stats."""
         with self._lock:
             listings = [lst for lst in self._listings.values() if lst.owner_id == owner_id]
-            logs = [(lid, did, ts) for lid, did, ts in self._download_log
+            logs = [(lid, did, ts, ap) for lid, did, ts, ap in self._download_log
                     if self._listings.get(lid) and self._listings[lid].owner_id == owner_id]
+            # Snapshot review/vote counts under the lock so we're consistent with listings.
+            listing_ids = {lst.listing_id for lst in listings}
+            review_counts = {lid: len(self._reviews.get(lid, {})) for lid in listing_ids}
+            vote_snapshots = {lid: dict(self._votes.get(lid, {})) for lid in listing_ids}
 
         total_downloads = sum(lst.download_count for lst in listings)
         active_count = sum(1 for lst in listings if lst.is_active)
-        total_reviews = sum(len(self._reviews.get(lst.listing_id, {})) for lst in listings)
+        total_reviews = sum(review_counts.values())
 
         # Rating distribution across all listings
         rating_dist: Dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        for lst in listings:
-            for stars in self._votes.get(lst.listing_id, {}).values():
+        for lid, stars_by_user in vote_snapshots.items():
+            for stars in stars_by_user.values():
                 rating_dist[stars] = rating_dist.get(stars, 0) + 1
 
         # Downloads by day (last 30 days)
         from collections import Counter
         day_counts: Counter = Counter()
-        for _, _, ts in logs:
+        for _, _, ts, _ap in logs:
             day_counts[ts.strftime("%Y-%m-%d")] += 1
 
         # Downloads by tag and category
         listing_map = {lst.listing_id: lst for lst in listings}
         tag_counts: Counter = Counter()
         category_counts: Counter = Counter()
-        for lid, _, _ in logs:
+        for lid, _, _, _ap in logs:
             lst = listing_map.get(lid)
             if lst:
                 for tag in lst.tags:
@@ -1921,12 +1925,10 @@ class MarketplaceStore:
                 if lst.category:
                     category_counts[lst.category] += 1
 
-        # Revenue (credits earned from paid downloads)
-        credits_earned = sum(
-            listing_map[lid].price_credits
-            for lid, _, _ in logs
-            if lid in listing_map and not listing_map[lid].is_free
-        )
+        # Revenue: sum the amount_paid stored at download time so re-downloads
+        # (charged 0) and promo discounts are reflected accurately, not inflated
+        # by the listing's current price.
+        credits_earned = sum(ap for _, _, _, ap in logs)
 
         # Top listing by downloads
         top = max(listings, key=lambda lst: lst.download_count, default=None)
@@ -2002,7 +2004,7 @@ class MarketplaceStore:
     ) -> Dict[str, Any]:
         """Return paginated list of listings this user has downloaded, newest first."""
         with self._lock:
-            entries = [(lid, ts) for lid, did, ts in self._download_log if did == user_id]
+            entries = [(lid, ts) for lid, did, ts, _ap in self._download_log if did == user_id]
         entries.sort(key=lambda x: x[1], reverse=True)
         total = len(entries)
         offset, limit = normalize_pagination(offset, limit)
