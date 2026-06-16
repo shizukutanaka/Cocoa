@@ -224,6 +224,14 @@ class TestAuthManager(unittest.TestCase):
         ok = self.auth.reset_password("invalid-token", "NewPass456!")
         self.assertFalse(ok)
 
+    def test_reset_token_invalidates_previous(self):
+        # Second request_password_reset must cancel the first token so it can't
+        # be used (prevents stale-token takeover after the user has re-requested).
+        t1 = self.auth.request_password_reset("alice@x.com")
+        t2 = self.auth.request_password_reset("alice@x.com")
+        self.assertFalse(self.auth.reset_password(t1, "NewPass456!"))
+        self.assertTrue(self.auth.reset_password(t2, "NewPass456!"))
+
     def test_require_role_passes(self):
         tokens = self.auth.login("alice", "Alice123!")
         payload = self.auth.verify_access_token(tokens.access_token)
@@ -638,6 +646,28 @@ class TestApiKeyManagement(unittest.TestCase):
     def test_create_api_key_unknown_user_raises(self):
         with self.assertRaises(AuthError):
             self.auth.create_api_key("no-such-user", "Key")
+
+    def test_api_key_limit_enforced(self):
+        orig = self.auth.store._MAX_API_KEYS_PER_USER
+        self.auth.store._MAX_API_KEYS_PER_USER = 2
+        try:
+            self.auth.create_api_key(self.user.user_id, "Key 1")
+            self.auth.create_api_key(self.user.user_id, "Key 2")
+            with self.assertRaises(ValueError):
+                self.auth.create_api_key(self.user.user_id, "Key 3")
+        finally:
+            self.auth.store._MAX_API_KEYS_PER_USER = orig
+
+    def test_revoke_then_create_within_limit(self):
+        orig = self.auth.store._MAX_API_KEYS_PER_USER
+        self.auth.store._MAX_API_KEYS_PER_USER = 1
+        try:
+            k = self.auth.create_api_key(self.user.user_id, "Key 1")
+            self.auth.revoke_api_key(self.user.user_id, k["key_id"])
+            # after revoke, slot is free
+            self.auth.create_api_key(self.user.user_id, "Key 2")
+        finally:
+            self.auth.store._MAX_API_KEYS_PER_USER = orig
 
 
 class TestGetFollowers(unittest.TestCase):

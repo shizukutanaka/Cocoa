@@ -270,7 +270,9 @@ class UserStore:
         self._revoked_jtis: Dict[str, float] = {}  # jti → expiry timestamp
         self._reset_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
         self._verify_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
-        self._api_keys: Dict[str, Dict] = {}     # key_prefix+hash → {user_id, name, key_id, created_at}
+        self._api_keys: Dict[str, Dict] = {}          # key_id → {user_id, name, key_id, key_hash, ...}
+        self._api_key_by_hash: Dict[str, str] = {}    # key_hash → key_id (O(1) lookup)
+        self._api_keys_by_user: Dict[str, List[str]] = {}  # user_id → [key_id] (per-user cap)
         self._applications: Dict[str, CreatorApplication] = {}  # application_id → CreatorApplication
 
     # --- CRUD ---
@@ -357,6 +359,12 @@ class UserStore:
     # --- Password reset ---
 
     def create_reset_token(self, user_id: str) -> str:
+        # Invalidate all existing tokens for this user before issuing a new one.
+        # Prevents token accumulation from repeated reset requests and ensures
+        # only the most recent link works (phishing-resistant).
+        stale = [t for t, (uid, _) in self._reset_tokens.items() if uid == user_id]
+        for t in stale:
+            del self._reset_tokens[t]
         token = secrets.token_urlsafe(32)
         exp = time.time() + _RESET_TOKEN_EXPIRE_MINUTES * 60
         self._reset_tokens[token] = (user_id, exp)
@@ -386,8 +394,13 @@ class UserStore:
 
     # --- API key management ---
 
+    _MAX_API_KEYS_PER_USER = 10
+
     def create_api_key(self, user_id: str, name: str) -> Dict[str, Any]:
         """Create a new API key. Returns the raw key ONCE — it is never stored."""
+        user_keys = self._api_keys_by_user.get(user_id, [])
+        if len(user_keys) >= self._MAX_API_KEYS_PER_USER:
+            raise ValueError(f"APIキーは最大{self._MAX_API_KEYS_PER_USER}個まで作成できます")
         raw_key = "cca_" + secrets.token_urlsafe(32)
         key_id = secrets.token_hex(8)
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
@@ -402,6 +415,8 @@ class UserStore:
             "last_used": None,
         }
         self._api_keys[key_id] = entry
+        self._api_key_by_hash[key_hash] = key_id
+        self._api_keys_by_user.setdefault(user_id, []).append(key_id)
         return {k: v for k, v in entry.items() if k != "key_hash"} | {"raw_key": raw_key}
 
     def revoke_api_key(self, user_id: str, key_id: str) -> bool:
@@ -409,32 +424,39 @@ class UserStore:
         if not entry or entry["user_id"] != user_id:
             return False
         del self._api_keys[key_id]
+        self._api_key_by_hash.pop(entry["key_hash"], None)
+        user_ids = self._api_keys_by_user.get(user_id, [])
+        with contextlib.suppress(ValueError):
+            user_ids.remove(key_id)
         return True
 
     def list_api_keys(self, user_id: str) -> List[Dict[str, Any]]:
         return [
-            {k: v for k, v in entry.items() if k != "key_hash"}
-            for entry in self._api_keys.values()
-            if entry["user_id"] == user_id
+            {k: v for k, v in self._api_keys[kid].items() if k != "key_hash"}
+            for kid in self._api_keys_by_user.get(user_id, [])
+            if kid in self._api_keys
         ]
 
     def verify_api_key(self, raw_key: str) -> Optional[Dict[str, Any]]:
         """Verify a raw API key and return a JWT-like payload dict, or None."""
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-        for entry in self._api_keys.values():
-            if entry["key_hash"] == key_hash:
-                entry["last_used"] = datetime.now(timezone.utc).isoformat()
-                user = self._by_id.get(entry["user_id"])
-                if not user or not user.is_active or user.is_banned:
-                    return None
-                return {
-                    "sub": user.user_id,
-                    "username": user.username,
-                    "role": user.role,
-                    "type": "api_key",
-                    "key_id": entry["key_id"],
-                }
-        return None
+        key_id = self._api_key_by_hash.get(key_hash)
+        if key_id is None:
+            return None
+        entry = self._api_keys.get(key_id)
+        if entry is None:
+            return None
+        entry["last_used"] = datetime.now(timezone.utc).isoformat()
+        user = self._by_id.get(entry["user_id"])
+        if not user or not user.is_active or user.is_banned:
+            return None
+        return {
+            "sub": user.user_id,
+            "username": user.username,
+            "role": user.role,
+            "type": "api_key",
+            "key_id": entry["key_id"],
+        }
 
 
 # ---------------------------------------------------------------------------
