@@ -1506,6 +1506,28 @@ class TestPurchaseDisputes(unittest.TestCase):
         refund_result = self.store.get_disputes(status="resolved_refund")
         self.assertEqual(refund_result["total"], 1)
 
+    def test_cannot_open_dispute_after_resolved_refund(self):
+        # After a refund the buyer must not be able to open a second dispute
+        # for the same listing (double-refund attack).
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        with self.assertRaises(ValueError):
+            self.store.open_dispute(
+                self.paid_listing.listing_id, "u_buyer", "other"
+            )
+
+    def test_cannot_open_dispute_after_resolved_release(self):
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "release")
+        with self.assertRaises(ValueError):
+            self.store.open_dispute(
+                self.paid_listing.listing_id, "u_buyer", "other"
+            )
+
 
 class TestFeaturedListings(unittest.TestCase):
     def setUp(self):

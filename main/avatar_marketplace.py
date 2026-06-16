@@ -1534,10 +1534,12 @@ class MarketplaceStore:
             # Verify buyer actually downloaded this listing (O(1) via index)
             if not self._has_downloaded_locked(buyer_id, listing_id):
                 raise ValueError("ダウンロード履歴がありません")
-            # One open dispute per buyer/listing pair
+            # One dispute per buyer/listing pair, regardless of status.
+            # A resolved dispute (refund or release) cannot be re-opened, and
+            # a dismissed dispute cannot be filed again — one chance per purchase.
             for d in self._disputes.values():
-                if d.listing_id == listing_id and d.buyer_id == buyer_id and d.status == "open":
-                    raise ValueError("既に争議が開いています")
+                if d.listing_id == listing_id and d.buyer_id == buyer_id:
+                    raise ValueError("この購入に対する争議は既に存在します")
             # Dispute the amount the buyer ACTUALLY paid (the most recent
             # purchase ledger entry for this listing), not the list price —
             # a promo/bundle discount means they paid less, and refunding the
