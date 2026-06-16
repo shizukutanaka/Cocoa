@@ -63,6 +63,9 @@ ROLES = ("user", "moderator", "admin")
 
 _ALLOWED_SOCIAL_KEYS = frozenset({"twitter", "vrchat", "github", "website", "youtube", "twitch"})
 
+_MAX_BOOKMARKS = int(os.getenv("MAX_BOOKMARKS", "1000"))
+_MAX_FOLLOWING = int(os.getenv("MAX_FOLLOWING", "2000"))
+
 
 @dataclass
 class CreatorApplication:
@@ -639,6 +642,8 @@ class AuthManager:
         if not user:
             raise AuthError("not_found", "ユーザーが見つかりません")
         if item_id not in user.bookmarks:
+            if len(user.bookmarks) >= _MAX_BOOKMARKS:
+                raise ValueError(f"ブックマークは最大{_MAX_BOOKMARKS}件までです")
             user.bookmarks.append(item_id)
         return list(user.bookmarks)
 
@@ -672,6 +677,8 @@ class AuthManager:
         if not creator:
             raise AuthError("not_found", "フォロー先ユーザーが見つかりません")
         if creator_id not in follower.following:
+            if len(follower.following) >= _MAX_FOLLOWING:
+                raise ValueError(f"フォローできるユーザーは最大{_MAX_FOLLOWING}人です")
             follower.following.append(creator_id)
         return list(follower.following)
 

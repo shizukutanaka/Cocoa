@@ -357,6 +357,18 @@ class TestBookmarks(unittest.TestCase):
             self.auth.get_bookmarks("no-such-id")
         self.assertEqual(ctx.exception.code, "not_found")
 
+    def test_bookmark_limit_enforced(self):
+        import auth_manager as am
+        orig = am._MAX_BOOKMARKS
+        am._MAX_BOOKMARKS = 3
+        try:
+            for i in range(3):
+                self.auth.add_bookmark(self.user_id, f"item-{i}")
+            with self.assertRaises(ValueError):
+                self.auth.add_bookmark(self.user_id, "item-overflow")
+        finally:
+            am._MAX_BOOKMARKS = orig
+
 
 class TestFollowing(unittest.TestCase):
     def setUp(self):
@@ -407,6 +419,20 @@ class TestFollowing(unittest.TestCase):
         with self.assertRaises(AuthError) as ctx:
             self.auth.follow(self.alice, "no-such-id")
         self.assertEqual(ctx.exception.code, "not_found")
+
+    def test_follow_limit_enforced(self):
+        import auth_manager as am
+        orig = am._MAX_FOLLOWING
+        am._MAX_FOLLOWING = 1
+        try:
+            self.auth.follow(self.alice, self.bob)
+            # register a third user; alice is already at the limit
+            self.auth.register("charlie", "charlie@x.com", "Charlie1!")
+            charlie = self.auth.store.get_by_username("charlie").user_id
+            with self.assertRaises(ValueError):
+                self.auth.follow(self.alice, charlie)
+        finally:
+            am._MAX_FOLLOWING = orig
 
 
 class TestEmailVerification(unittest.TestCase):

@@ -1621,6 +1621,17 @@ class TestReviewReplies(unittest.TestCase):
         for key in ("reply_id", "review_id", "user_id", "username", "text", "created_at"):
             self.assertIn(key, d)
 
+    def test_reply_limit_enforced(self):
+        orig = self.store._MAX_REPLIES_PER_REVIEW
+        self.store._MAX_REPLIES_PER_REVIEW = 3
+        try:
+            for i in range(3):
+                self.store.add_review_reply(self.review_id, "u1", "alice", f"Reply {i}")
+            with self.assertRaises(ValueError):
+                self.store.add_review_reply(self.review_id, "u1", "alice", "overflow")
+        finally:
+            self.store._MAX_REPLIES_PER_REVIEW = orig
+
 
 class TestListingVersions(unittest.TestCase):
     def setUp(self):

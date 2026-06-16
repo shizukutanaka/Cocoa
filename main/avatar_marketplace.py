@@ -1079,6 +1079,9 @@ class MarketplaceStore:
                 raise ValueError("レビューが見つかりません")
             if target.is_hidden:
                 raise ValueError("非表示のレビューには返信できません")
+            current_replies = self._review_replies.get(review_id, [])
+            if len(current_replies) >= self._MAX_REPLIES_PER_REVIEW:
+                raise ValueError(f"1件のレビューへの返信は最大{self._MAX_REPLIES_PER_REVIEW}件までです")
             reply = ReviewReply(
                 reply_id=secrets.token_hex(8),
                 review_id=review_id,
@@ -2106,6 +2109,7 @@ class MarketplaceStore:
     # --- Promo codes ---
 
     _MAX_PROMO_CODES_PER_CREATOR = 50
+    _MAX_REPLIES_PER_REVIEW = 100
 
     def _resolve_promo(
         self, code_upper: str, listing_id: str, creator_id: str
