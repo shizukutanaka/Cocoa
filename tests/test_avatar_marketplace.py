@@ -905,6 +905,18 @@ class TestSearch(unittest.TestCase):
         prices = [it["price_credits"] for it in r["items"]]
         self.assertEqual(prices, sorted(prices, reverse=True))
 
+    def test_search_oversized_query_is_truncated_not_error(self):
+        # 1 MB query must not raise; it is silently capped at 200 chars.
+        big_query = "x" * 1_000_000
+        result = self.store.search(big_query)
+        self.assertIsInstance(result, dict)
+
+    def test_search_excess_tags_are_capped(self):
+        # 10,000-tag list must not hang; only the first 50 are processed.
+        many_tags = [f"tag{i}" for i in range(10_000)]
+        result = self.store.search(tags=many_tags)
+        self.assertIsInstance(result, dict)
+
 
 class TestCreatorAnalytics(unittest.TestCase):
     def setUp(self):

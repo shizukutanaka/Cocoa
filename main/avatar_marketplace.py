@@ -1248,6 +1248,7 @@ class MarketplaceStore:
         owner_id: Optional[str] = None,         # filter by owner
         include_facets: bool = False,            # if True, include category/tag/license breakdowns
     ) -> Dict[str, Any]:
+        query = query[:200]  # cap before any O(n) allocation
         with self._lock:
             results = [lst for lst in self._listings.values() if lst.is_active]
 
@@ -1259,7 +1260,7 @@ class MarketplaceStore:
             ]
 
         if tags:
-            tag_set = {t.lower().strip() for t in tags}
+            tag_set = {t.lower().strip()[:64] for t in tags[:50]}
             results = [lst for lst in results if tag_set & set(lst.tags)]
 
         if category:

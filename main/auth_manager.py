@@ -900,7 +900,7 @@ class AuthManager:
         role: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Search public user profiles by username or display_name (case-insensitive)."""
-        q = query.lower().strip()
+        q = query[:200].lower().strip()
         results = [
             u for u in self.store.list_users()
             if u.is_active and (not q or q in u.username.lower() or q in (u.display_name or "").lower())
