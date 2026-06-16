@@ -90,6 +90,19 @@ class TestGiftCard(unittest.TestCase):
         c = self._card(expires_at=future)
         self.assertTrue(c.is_valid())
 
+    def test_is_valid_naive_future_expiry_no_typeerror(self):
+        # A naive (tz-less) expiry must not raise TypeError when compared to an
+        # aware now(); it is treated as UTC. Regression for the promo-code-style
+        # naive/aware comparison bug.
+        future_naive = datetime.now() + timedelta(days=30)  # noqa: DTZ005 - intentional naive
+        c = self._card(expires_at=future_naive)
+        self.assertTrue(c.is_valid())
+
+    def test_is_valid_naive_past_expiry_returns_false(self):
+        past_naive = datetime.now() - timedelta(days=1)  # noqa: DTZ005 - intentional naive
+        c = self._card(expires_at=past_naive)
+        self.assertFalse(c.is_valid())
+
     def test_to_dict_keys(self):
         d = self._card().to_dict()
         for key in ("card_id", "code", "purchaser_id", "amount", "is_redeemed",
@@ -184,6 +197,15 @@ class TestGiftCardStore(unittest.TestCase):
         card = self.store.create("u1", 100, expires_at=past)
         with self.assertRaises(ValueError):
             self.store.redeem(card.code, "u2")
+
+    def test_create_normalizes_naive_expiry_and_redeem_works(self):
+        # A naive future expiry passed to create() must be stored as aware so
+        # redeem() (which compares against aware now()) doesn't raise TypeError.
+        future_naive = datetime.now() + timedelta(days=30)  # noqa: DTZ005 - intentional naive
+        card = self.store.create("u1", 100, expires_at=future_naive)
+        self.assertIsNotNone(card.expires_at.tzinfo)
+        redeemed = self.store.redeem(card.code, "u2")
+        self.assertTrue(redeemed.is_redeemed)
 
     def test_redeem_unknown_code_raises(self):
         with self.assertRaises(ValueError):

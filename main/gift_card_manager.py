@@ -52,8 +52,15 @@ class GiftCard:
     def is_valid(self) -> bool:
         if self.is_redeemed:
             return False
-        if self.expires_at and datetime.now(timezone.utc) > self.expires_at:
-            return False
+        if self.expires_at:
+            # Defensive: a naive expiry (e.g. from a direct caller or a
+            # deserialized snapshot) would raise TypeError when compared to an
+            # aware now().  Normalize to UTC-aware before comparing.
+            exp = self.expires_at
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > exp:
+                return False
         return True
 
     def to_dict(self) -> Dict[str, Any]:
@@ -96,6 +103,11 @@ class GiftCardStore:
     ) -> GiftCard:
         if amount <= 0 or amount > _MAX_AMOUNT:
             raise ValueError(f"ギフトカードの金額は1〜{_MAX_AMOUNT}クレジットの範囲で設定してください")
+        # Normalize a naive expiry to UTC-aware so every stored card compares
+        # cleanly against an aware now() at redeem time (mixing naive/aware
+        # raises TypeError, which would make the card un-redeemable).
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
         with self._lock:
             count = len(self._purchaser_cards.get(purchaser_id, []))
             if count >= _MAX_VOUCHERS_PER_USER:
@@ -139,7 +151,7 @@ class GiftCardStore:
                 raise ValueError("自分で購入したギフトカードは使用できません")
             if card.is_redeemed:
                 raise ValueError("このギフトカードはすでに使用済みです")
-            if card.expires_at and datetime.now(timezone.utc) > card.expires_at:
+            if not card.is_valid():
                 raise ValueError("このギフトカードの有効期限が切れています")
             card.is_redeemed = True
             card.redeemed_by = redeemer_id
