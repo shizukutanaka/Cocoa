@@ -20,10 +20,11 @@ from refund_manager import (
 
 
 class _FakeOrderItem:
-    def __init__(self, owner_id, final_price, quantity=1):
+    def __init__(self, owner_id, final_price, quantity=1, listing_id="lst1"):
         self.owner_id = owner_id
         self.final_price = final_price
         self.quantity = quantity
+        self.listing_id = listing_id
 
 
 class _FakeOrder:
@@ -494,6 +495,40 @@ class TestRefundConcurrency(unittest.TestCase):
         self.assertEqual(results.count("ok"), 1)
         # Buyer credited at most once (0 if reject won, 500 if approve won).
         self.assertIn(mkt._credits["u1"], (0, 500))
+
+
+class TestRefundCrossChannelGuard(unittest.TestCase):
+    """Order refund and listing dispute must not both refund one purchase."""
+
+    def _setup(self):
+        from avatar_marketplace import MarketplaceStore
+        mkt = MarketplaceStore()
+        mkt.add_credits("s1", 500)  # seller holds the sale proceeds
+        item = _FakeOrderItem(owner_id="s1", final_price=500, listing_id="lst1")
+        order = _FakeOrder("o1", "u1", 500, items=[item])
+        cart = _FakeCartManager([order])
+        mgr = RefundManager()
+        mgr.request_refund("u1", "o1", "want refund", cart)
+        rid = mgr.store.list_requests()["items"][0]["request_id"]
+        return mgr, cart, mkt, rid
+
+    def test_order_refund_skips_item_already_refunded_via_dispute(self):
+        mgr, cart, mkt, rid = self._setup()
+        # Simulate a listing dispute having already refunded this purchase.
+        mkt.mark_purchase_refunded("u1", "lst1")
+        result = mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        # The already-refunded item is skipped: no double refund, no double claw.
+        self.assertEqual(result["credits_returned"], 0)
+        self.assertEqual(mkt.get_balance("u1"), 0)
+        self.assertEqual(mkt.get_balance("s1"), 500)  # seller not clawed twice
+
+    def test_order_refund_marks_purchase_so_dispute_is_blocked(self):
+        mgr, cart, mkt, rid = self._setup()
+        result = mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        self.assertEqual(result["credits_returned"], 500)
+        self.assertEqual(mkt.get_balance("u1"), 500)   # buyer refunded once
+        # The purchase is now claimed, so a later dispute refund is blocked.
+        self.assertTrue(mkt.is_purchase_refunded("u1", "lst1"))
 
 
 class TestRefundManagerSingleton(unittest.TestCase):

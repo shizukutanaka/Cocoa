@@ -376,6 +376,11 @@ class MarketplaceStore:
         self._review_reports: Dict[str, ReviewReport] = {}  # report_id → ReviewReport
         self._promo_codes: Dict[str, PromoCode] = {}  # code_id → PromoCode
         self._tips: List[Tip] = []  # chronological list of tips
+        # Refunded-purchase ledger: (buyer_id, listing_id) pairs that have been
+        # refunded through ANY channel (listing dispute OR cart-order refund).
+        # Both channels claim a pair here before moving money, so a single
+        # purchase can never be refunded twice across the two subsystems.
+        self._refunded_purchases: Set[Tuple[str, str]] = set()
         self._lock = threading.Lock()
 
     # --- Credits ledger ---
@@ -451,6 +456,46 @@ class MarketplaceStore:
         """Public, locked wrapper around ``_subsidize_locked``."""
         with self._lock:
             return self._subsidize_locked(amount, ref_id=ref_id, kind=kind)
+
+    # ------------------------------------------------------------------
+    # Cross-channel refund guard
+    #
+    # A cart purchase routes through download() (writing a "purchase" ledger
+    # entry + ownership record) AND produces an Order.  That makes it refundable
+    # via BOTH the listing-dispute channel and the order-refund channel.  Each
+    # channel must claim the (buyer, listing) purchase here before moving money;
+    # the second channel sees it already claimed and skips, so one purchase can
+    # never be refunded twice.
+    # ------------------------------------------------------------------
+
+    def _is_purchase_refunded_locked(self, buyer_id: str, listing_id: str) -> bool:
+        """Caller holds self._lock."""
+        return (buyer_id, listing_id) in self._refunded_purchases
+
+    def _claim_purchase_refund_locked(self, buyer_id: str, listing_id: str) -> bool:
+        """Atomically claim a (buyer, listing) refund. Caller holds self._lock.
+
+        Returns True if newly claimed (caller should proceed to refund),
+        False if it was already refunded by another channel (caller must skip).
+        """
+        key = (buyer_id, listing_id)
+        if key in self._refunded_purchases:
+            return False
+        self._refunded_purchases.add(key)
+        return True
+
+    def is_purchase_refunded(self, buyer_id: str, listing_id: str) -> bool:
+        with self._lock:
+            return self._is_purchase_refunded_locked(buyer_id, listing_id)
+
+    def mark_purchase_refunded(self, buyer_id: str, listing_id: str) -> bool:
+        """Public, locked atomic test-and-set used by the order-refund channel.
+
+        Returns True if newly claimed (refund this item), False if it was
+        already refunded via a listing dispute (skip it).
+        """
+        with self._lock:
+            return self._claim_purchase_refund_locked(buyer_id, listing_id)
 
     def _record_download_locked(self, listing_id: str, user_id: str, ts: datetime) -> None:
         """Append to the download log AND update the ownership index. Hold lock."""
@@ -1585,11 +1630,21 @@ class MarketplaceStore:
                 raise ValueError("争議が見つかりません")
             if dispute.status != "open":
                 raise ValueError("この争議はすでに解決されています")
+            # Block a refund if this purchase was already refunded via the
+            # order-refund channel — checked BEFORE mutating dispute state so the
+            # dispute stays "open" and a release (or manual handling) is possible.
+            if decision == "refund" and self._is_purchase_refunded_locked(
+                dispute.buyer_id, dispute.listing_id
+            ):
+                raise ValueError("この購入はすでに払い戻し済みです")
             dispute.status = f"resolved_{decision}"
             dispute.resolved_by = admin_id
             dispute.resolution_note = note.strip()[:500]
             dispute.resolved_at = datetime.now(timezone.utc)
             if decision == "refund":
+                # Claim the purchase so the order-refund channel can't also
+                # refund it (zero-sum guarantee across both subsystems).
+                self._claim_purchase_refund_locked(dispute.buyer_id, dispute.listing_id)
                 # Refund the buyer AND claw the proceeds back from the seller so
                 # the dispute does not mint credits, recording both sides in the
                 # ledger.  The clawback is clamped to the seller's balance (the

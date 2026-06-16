@@ -1549,6 +1549,55 @@ class TestPurchaseDisputes(unittest.TestCase):
                 self.paid_listing.listing_id, "u_buyer", "other"
             )
 
+    def test_dispute_refund_marks_purchase_refunded(self):
+        # A resolved-refund dispute must claim the (buyer, listing) purchase in
+        # the cross-channel refund ledger so the order-refund channel skips it.
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "other"
+        )
+        self.assertFalse(
+            self.store.is_purchase_refunded("u_buyer", self.paid_listing.listing_id)
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        self.assertTrue(
+            self.store.is_purchase_refunded("u_buyer", self.paid_listing.listing_id)
+        )
+
+    def test_dispute_refund_blocked_if_already_refunded(self):
+        # If the order-refund channel already claimed the purchase, the dispute
+        # refund must be blocked and the dispute must remain open.
+        self.store.mark_purchase_refunded("u_buyer", self.paid_listing.listing_id)
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "other"
+        )
+        with self.assertRaises(ValueError):
+            self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        # Dispute untouched so an admin can still release it.
+        self.assertEqual(self.store.get_disputes(status="open")["total"], 1)
+
+
+class TestPurchaseRefundLedger(unittest.TestCase):
+    def setUp(self):
+        self.store = _store()
+
+    def test_mark_returns_true_first_time(self):
+        self.assertTrue(self.store.mark_purchase_refunded("b1", "l1"))
+
+    def test_mark_returns_false_when_already_claimed(self):
+        self.store.mark_purchase_refunded("b1", "l1")
+        self.assertFalse(self.store.mark_purchase_refunded("b1", "l1"))
+
+    def test_is_refunded_reflects_claim(self):
+        self.assertFalse(self.store.is_purchase_refunded("b1", "l1"))
+        self.store.mark_purchase_refunded("b1", "l1")
+        self.assertTrue(self.store.is_purchase_refunded("b1", "l1"))
+
+    def test_claims_are_per_buyer_listing_pair(self):
+        self.store.mark_purchase_refunded("b1", "l1")
+        # Different buyer or different listing is an independent claim.
+        self.assertTrue(self.store.mark_purchase_refunded("b2", "l1"))
+        self.assertTrue(self.store.mark_purchase_refunded("b1", "l2"))
+
 
 class TestFeaturedListings(unittest.TestCase):
     def setUp(self):

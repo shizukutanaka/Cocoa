@@ -250,13 +250,31 @@ class RefundManager:
         order = cart_manager.store.get_order(req.order_id)
 
         # Claw back each seller's proceeds (best-effort, clamped to balance).
+        # For each item we first CLAIM the (buyer, listing) purchase in the
+        # marketplace's cross-channel refund ledger.  If a listing dispute has
+        # already refunded that purchase, the claim fails and we skip the item
+        # entirely (no clawback, not included in the buyer refund) — this is
+        # what prevents the same purchase being refunded via both channels.
         reclaimed = 0
         shortfall = 0
-        if order is not None:
-            for item in getattr(order, "items", []):
+        buyer_refund = 0
+        can_claim = hasattr(marketplace_store, "mark_purchase_refunded")
+        items = getattr(order, "items", []) if order is not None else []
+        if items:
+            for item in items:
                 owed = item.final_price * getattr(item, "quantity", 1)
                 if owed <= 0:
                     continue
+                if can_claim and not marketplace_store.mark_purchase_refunded(
+                    req.user_id, item.listing_id
+                ):
+                    logger.warning(
+                        "Refund item skipped (already refunded via dispute): "
+                        "order=%s listing=%s amount=%d",
+                        req.order_id, item.listing_id, owed,
+                    )
+                    continue
+                buyer_refund += owed
                 available = marketplace_store.get_balance(item.owner_id)
                 claw = min(available, owed)
                 if claw > 0:
@@ -275,6 +293,10 @@ class RefundManager:
                         "Refund clawback shortfall: order=%s seller=%s owed=%d reclaimed=%d",
                         req.order_id, item.owner_id, owed, claw,
                     )
+        else:
+            # No itemized data (order missing or unitemized) — can't cross-check
+            # against disputes, so fall back to refunding the recorded total.
+            buyer_refund = req.total_credits
         # Book any unreclaimed amount as a platform subsidy so the refund is
         # zero-sum across all accounts and the injection is audited (not a
         # silent system-wide credit injection).
@@ -284,11 +306,11 @@ class RefundManager:
             )
 
         # Return credits to buyer via the marketplace's audited public API.
-        # Guard the zero-amount case (a fully-free order) since credit() rejects
-        # non-positive amounts.
-        if req.total_credits > 0:
+        # Guard the zero-amount case (fully-free order, or every item already
+        # refunded via dispute) since credit() rejects non-positive amounts.
+        if buyer_refund > 0:
             new_bal = marketplace_store.credit(
-                req.user_id, req.total_credits, "refund", ref_id=req.request_id
+                req.user_id, buyer_refund, "refund", ref_id=req.request_id
             )
         else:
             new_bal = marketplace_store.get_balance(req.user_id)
@@ -299,11 +321,11 @@ class RefundManager:
 
         logger.info(
             "Refund approved: %s by admin %s (%d credits → %s, %d reclaimed from sellers)",
-            request_id, admin_id, req.total_credits, req.user_id, reclaimed,
+            request_id, admin_id, buyer_refund, req.user_id, reclaimed,
         )
         return {
             "request": req.to_dict(),
-            "credits_returned": req.total_credits,
+            "credits_returned": buyer_refund,
             "new_balance": new_bal,
             "reclaimed_from_sellers": reclaimed,
         }
