@@ -556,12 +556,17 @@ class MarketplaceStore:
         """
         with self._lock:
             return {
-                "version": 1,
+                "version": 2,
                 "credits": dict(self._credits),
                 "ledger": {
                     uid: [dict(e) for e in entries]
                     for uid, entries in self._credit_ledger.items()
                 },
+                # Cross-channel refund guard: persist so the "one purchase, one
+                # refund" guarantee survives a process restart (otherwise a
+                # purchase order-refunded before restart could be dispute-refunded
+                # after it, minting credits).
+                "refunded_purchases": [[b, l] for (b, l) in self._refunded_purchases],
             }
 
     def import_credit_state(self, state: Dict[str, Any], *, verify: bool = True) -> Dict[str, Any]:
@@ -585,9 +590,16 @@ class MarketplaceStore:
                 raise ValueError(
                     f"snapshot integrity check failed: {len(discrepancies)} discrepancies"
                 )
+        # Restore the cross-channel refund guard if the snapshot carries it
+        # (absent in v1 snapshots — left unchanged for backward compatibility).
+        refunded = state.get("refunded_purchases")
         with self._lock:
             self._credits = credits
             self._credit_ledger = ledger
+            if refunded is not None:
+                self._refunded_purchases = {
+                    (str(pair[0]), str(pair[1])) for pair in refunded if len(pair) == 2
+                }
         return {"users_loaded": len(set(credits) | set(ledger))}
 
     def save_credit_state(self, path: str) -> None:

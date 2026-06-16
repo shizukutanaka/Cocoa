@@ -488,6 +488,32 @@ class TestMoneyPrimitiveInvariant(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.import_credit_state({"no_credits": True})
 
+    def test_snapshot_roundtrips_refunded_purchases(self):
+        # The cross-channel refund guard must survive a snapshot round-trip so a
+        # purchase refunded before a restart can't be refunded again after it.
+        import json
+        self.store.add_credits("buyer", 100)
+        self.store.mark_purchase_refunded("buyer", "lst1")
+        snap = self.store.export_credit_state()
+        json.dumps(snap)  # JSON-serializable
+
+        restored = _store()
+        restored.import_credit_state(snap)
+        self.assertTrue(restored.is_purchase_refunded("buyer", "lst1"))
+        # A fresh claim on the restored store correctly reports already-claimed.
+        self.assertFalse(restored.mark_purchase_refunded("buyer", "lst1"))
+
+    def test_import_v1_snapshot_without_refunded_purchases_preserves_state(self):
+        # A legacy v1 snapshot has no "refunded_purchases" key; importing it must
+        # not clobber an existing in-memory guard set.
+        self.store.mark_purchase_refunded("buyer", "lst1")
+        source = _store()
+        source.add_credits("a", 10)
+        legacy = source.export_credit_state()
+        legacy.pop("refunded_purchases", None)  # simulate a v1 snapshot
+        self.store.import_credit_state(legacy)
+        self.assertTrue(self.store.is_purchase_refunded("buyer", "lst1"))
+
     def test_import_replaces_existing_state(self):
         self.store.add_credits("old_user", 500)
         source = _store()
