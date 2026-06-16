@@ -199,6 +199,19 @@ class TestNotificationPreferences(unittest.TestCase):
         result = self.q.push("u2", "system", "T", "B")
         self.assertIsNotNone(result)
 
+    def test_set_muted_kinds_filters_unknown_kinds(self):
+        # An adversarially large list of unknown kinds must not be stored —
+        # only known NOTIFICATION_TEMPLATES keys are accepted (DoS prevention).
+        garbage = [f"fake_kind_{i}" for i in range(10_000)]
+        self.q.set_muted_kinds("u1", garbage)
+        self.assertEqual(self.q.get_muted_kinds("u1"), [])
+
+    def test_set_muted_kinds_accepts_valid_kinds(self):
+        self.q.set_muted_kinds("u1", ["new_follower", "new_download"])
+        kinds = self.q.get_muted_kinds("u1")
+        self.assertIn("new_follower", kinds)
+        self.assertIn("new_download", kinds)
+
 
 class TestNotificationTemplates(unittest.TestCase):
     def setUp(self):

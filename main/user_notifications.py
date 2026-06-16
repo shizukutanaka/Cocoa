@@ -138,9 +138,10 @@ class NotificationQueue:
             return sorted(self._muted.get(user_id, set()))
 
     def set_muted_kinds(self, user_id: str, kinds: List[str]) -> None:
-        """Replace the user's muted-kinds set entirely."""
+        """Replace the user's muted-kinds set entirely (only known kinds are accepted)."""
+        valid = {k for k in kinds if k in NOTIFICATION_TEMPLATES}
         with self._lock:
-            self._muted[user_id] = set(kinds)
+            self._muted[user_id] = valid
 
     def get_notifications(
         self,
