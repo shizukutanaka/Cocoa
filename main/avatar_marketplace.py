@@ -913,6 +913,12 @@ class MarketplaceStore:
                 "tags": list(listing.tags),
                 "category": listing.category,
                 "thumbnail_url": listing.thumbnail_url,
+                # Authoritative amount actually debited on THIS download. Zero for
+                # free listings, owner self-downloads, and free re-downloads of an
+                # already-owned listing. Callers (membership tier accrual, receipts)
+                # must use this rather than inferring from listing.price_credits,
+                # which would over-count re-downloads and let users farm tier.
+                "amount_paid": actual_price if paid else 0,
             }
             if applied_promo:
                 result["promo_applied"] = {

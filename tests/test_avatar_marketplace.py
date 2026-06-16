@@ -623,6 +623,27 @@ class TestCredits(unittest.TestCase):
         self.store.download(self.paid_listing.listing_id, "u_buyer")
         self.assertEqual(self.store.get_balance("u_buyer"), 50)  # not charged again
 
+    def test_download_reports_amount_paid_on_purchase(self):
+        self.store.add_credits("u_buyer", 100)
+        data = self.store.download(self.paid_listing.listing_id, "u_buyer")
+        self.assertEqual(data["amount_paid"], 50)
+
+    def test_re_download_reports_zero_amount_paid(self):
+        # A free re-download of an owned listing must report amount_paid=0 so
+        # callers don't credit membership tier (or a refund) for a non-charge.
+        self.store.add_credits("u_buyer", 100)
+        self.store.download(self.paid_listing.listing_id, "u_buyer")  # pays 50
+        data = self.store.download(self.paid_listing.listing_id, "u_buyer")
+        self.assertEqual(data["amount_paid"], 0)
+
+    def test_owner_self_download_reports_zero_amount_paid(self):
+        data = self.store.download(self.paid_listing.listing_id, "u_seller")
+        self.assertEqual(data["amount_paid"], 0)
+
+    def test_free_listing_reports_zero_amount_paid(self):
+        data = self.store.download(self.free_listing.listing_id, "u2")
+        self.assertEqual(data["amount_paid"], 0)
+
     def test_insufficient_credits_raises(self):
         self.store.add_credits("u_buyer", 20)
         with self.assertRaises(ValueError):
@@ -2510,6 +2531,8 @@ class TestPromoCodes(unittest.TestCase):
         self.assertIn("promo_applied", data)
         self.assertEqual(data["promo_applied"]["actual_price"], 80)
         self.assertEqual(data["promo_applied"]["discount_percent"], 20)
+        # amount_paid must reflect the discounted charge, not the list price.
+        self.assertEqual(data["amount_paid"], 80)
 
     def test_download_without_promo_charges_full(self):
         data = self.store.download(self.listing_id, "buyer")

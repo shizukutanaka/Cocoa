@@ -320,9 +320,11 @@ class CartManager:
                     continue
 
                 promo_info = result.get("promo_applied")
-                final_price = promo_info["actual_price"] if promo_info else (
-                    0 if item.is_free else item.price_credits
-                )
+                # Use the authoritative amount actually debited, not the list
+                # price: an already-owned re-download charges 0, and recording
+                # the list price here would both inflate the order total and let
+                # a later refund mint credits (refund pays final_price back).
+                final_price = result.get("amount_paid", 0 if item.is_free else item.price_credits)
                 discount_pct = promo_info["discount_percent"] if promo_info else 0
 
                 order_items.append(OrderItem(

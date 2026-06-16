@@ -1916,13 +1916,13 @@ async def download_avatar(
                 )
             except Exception:
                 pass
-        # Record purchase toward membership tier (non-critical).
+        # Record purchase toward membership tier (non-critical). Use the
+        # authoritative amount actually debited on this download — never the
+        # list price — so free re-downloads and owner self-downloads don't
+        # inflate lifetime spend (tier-farming).
         if get_membership_manager:
             try:
-                if "promo_applied" in data:
-                    amount_paid = data["promo_applied"]["actual_price"]
-                else:
-                    amount_paid = 0 if listing.is_free else listing.price_credits
+                amount_paid = data.get("amount_paid", 0)
                 if amount_paid > 0:
                     get_membership_manager().record_purchase(current_user["user_id"], amount_paid)
             except Exception:

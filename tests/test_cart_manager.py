@@ -66,6 +66,7 @@ class _FakeMarketplace:
         if not lst or not lst.is_active:
             return None
         self._downloads.append((listing_id, user_id))
+        amount_paid = 0 if lst.is_free else lst.price_credits
         result: dict = {
             "source_listing_id": listing_id,
             "source_avatar_id": "av1",
@@ -75,12 +76,15 @@ class _FakeMarketplace:
             "category": "base",
         }
         if promo_code == "HALF":
+            amount_paid = lst.price_credits // 2
             result["promo_applied"] = {
                 "code": "HALF",
                 "discount_percent": 50,
                 "original_price": lst.price_credits,
                 "actual_price": lst.price_credits // 2,
             }
+        # Mirror the real download() contract: authoritative charged amount.
+        result["amount_paid"] = amount_paid
         return result
 
 
