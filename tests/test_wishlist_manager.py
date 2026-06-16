@@ -212,6 +212,25 @@ class TestWishlistManager(unittest.TestCase):
         self.assertEqual(count, 0)
         self.assertEqual(queue.sent, [])
 
+    def test_same_drop_not_renotified(self):
+        # Once a drop to a given price is notified, re-running the check at that
+        # same price must NOT notify again (the snapshot advanced to it).
+        self.mgr.add_item("u1", "lst1", self.mp)
+        queue = _FakeNotifQueue()
+        self.assertEqual(self.mgr.check_and_notify_price_drops("lst1", 100, queue), 1)
+        self.assertEqual(self.mgr.check_and_notify_price_drops("lst1", 100, queue), 0)
+        self.assertEqual(len(queue.sent), 1)
+
+    def test_further_drop_notifies_again(self):
+        # A new, lower price after a prior drop notifies once more.
+        self.mgr.add_item("u1", "lst1", self.mp)
+        queue = _FakeNotifQueue()
+        self.assertEqual(self.mgr.check_and_notify_price_drops("lst1", 100, queue), 1)
+        self.assertEqual(self.mgr.check_and_notify_price_drops("lst1", 80, queue), 1)
+        self.assertEqual(len(queue.sent), 2)
+        self.assertEqual(queue.sent[1]["data"]["old_price"], 100)
+        self.assertEqual(queue.sent[1]["data"]["new_price"], 80)
+
     def test_clear_wishlist(self):
         self.mgr.add_item("u1", "lst1", self.mp)
         removed = self.mgr.clear_wishlist("u1")

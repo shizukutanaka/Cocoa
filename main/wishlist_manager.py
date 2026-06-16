@@ -118,6 +118,19 @@ class WishlistStore:
                     })
             return results
 
+    def update_snapshot_price(self, user_id: str, listing_id: str, new_price: int) -> bool:
+        """Update the stored snapshot price for one user's wishlist item.
+
+        Called after a price-drop notification is delivered so the same drop is
+        not re-notified on every subsequent check. Returns True if updated.
+        """
+        with self._lock:
+            item = self._wishlists.get(user_id, {}).get(listing_id)
+            if item is None:
+                return False
+            item.snapshot_price = new_price
+            return True
+
     def clear(self, user_id: str) -> int:
         with self._lock:
             wl = self._wishlists.pop(user_id, {})
@@ -178,6 +191,10 @@ class WishlistManager:
                         "new_price": current_price,
                     },
                 )
+                # Advance the snapshot to the notified price ONLY after a
+                # successful push, so the same drop isn't re-notified on every
+                # subsequent check (a failed push leaves it intact for retry).
+                self.store.update_snapshot_price(drop["user_id"], listing_id, current_price)
                 count += 1
             except Exception as exc:
                 logger.warning("Failed to push price drop notification: %s", exc)
