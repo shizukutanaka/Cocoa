@@ -3084,6 +3084,13 @@ async def admin_resolve_dispute(
         dispute = get_marketplace().resolve_dispute(
             dispute_id, admin["user_id"], body.decision, body.note
         )
+        # A refunded dispute returns the buyer's credits, so reverse that
+        # purchase's membership-tier contribution too (non-critical).
+        if get_membership_manager and dispute.status == "resolved_refund" and dispute.amount_credits > 0:
+            try:
+                get_membership_manager().record_refund(dispute.buyer_id, dispute.amount_credits)
+            except Exception:
+                pass
         return {"status": "resolved", "dispute": dispute.to_dict()}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -4506,9 +4513,20 @@ async def admin_approve_refund(
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     payload = _verify_token(credentials.credentials)
     try:
-        return get_refund_manager().approve_refund(
+        result = get_refund_manager().approve_refund(
             payload, request_id, get_marketplace(), get_cart_manager()
         )
+        # Reverse the refunded amount's contribution to membership tier so a
+        # buy-then-refund cycle can't permanently farm a tier (non-critical).
+        if get_membership_manager:
+            try:
+                refunded = result.get("credits_returned", 0)
+                buyer_id = result.get("request", {}).get("user_id")
+                if refunded > 0 and buyer_id:
+                    get_membership_manager().record_refund(buyer_id, refunded)
+            except Exception:
+                pass
+        return result
     except (ValueError, PermissionError) as e:
         msg = str(e)
         code = 403 if "権限" in msg else 400

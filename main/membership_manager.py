@@ -122,6 +122,27 @@ class MembershipStore:
                 )
             return rec
 
+    def subtract_credits(self, user_id: str, amount: int) -> MembershipRecord:
+        """Decrease lifetime_credits by amount (must be positive), clamped at 0.
+
+        Called when a counted purchase is refunded so a tier reflects NET spend.
+        Without this, one buy-then-refund cycle would mint a permanent tier
+        promotion (credits returned, lifetime_credits never reversed).
+        """
+        if amount <= 0:
+            raise ValueError("クレジット減算量は正の整数でなければなりません")
+        with self._lock:
+            rec = self._records.setdefault(user_id, MembershipRecord(user_id=user_id))
+            old_tier = rec.tier
+            rec.lifetime_credits = max(0, rec.lifetime_credits - amount)
+            rec.updated_at = datetime.now(timezone.utc)
+            if rec.tier != old_tier:
+                logger.info(
+                    "Tier downgrade: user=%s %s → %s (lifetime=%d)",
+                    user_id, old_tier, rec.tier, rec.lifetime_credits,
+                )
+            return rec
+
     def adjust_credits(self, user_id: str, new_lifetime: int) -> MembershipRecord:
         """Admin: set lifetime_credits to an exact value (non-negative)."""
         if new_lifetime < 0:
@@ -179,6 +200,14 @@ class MembershipManager:
         if amount <= 0:
             raise ValueError("購入金額は正の整数でなければなりません")
         rec = self.store.add_credits(user_id, amount)
+        return rec.to_dict()
+
+    def record_refund(self, user_id: str, amount: int) -> Dict[str, Any]:
+        """Called after a purchase is refunded; reverses its lifetime-spend
+        contribution so a buy-then-refund cycle can't permanently farm a tier."""
+        if amount <= 0:
+            raise ValueError("返金額は正の整数でなければなりません")
+        rec = self.store.subtract_credits(user_id, amount)
         return rec.to_dict()
 
     def get_fee_discount(self, user_id: str) -> int:

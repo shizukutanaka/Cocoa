@@ -125,6 +125,26 @@ class TestMembershipStore(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.add_credits("u1", -50)
 
+    def test_subtract_credits_decreases_lifetime(self):
+        self.store.add_credits("u1", 1000)
+        rec = self.store.subtract_credits("u1", 400)
+        self.assertEqual(rec.lifetime_credits, 600)
+
+    def test_subtract_credits_clamps_at_zero(self):
+        self.store.add_credits("u1", 300)
+        rec = self.store.subtract_credits("u1", 999)
+        self.assertEqual(rec.lifetime_credits, 0)
+
+    def test_subtract_credits_zero_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.subtract_credits("u1", 0)
+
+    def test_subtract_credits_can_downgrade_tier(self):
+        self.store.add_credits("u1", 5000)            # gold
+        self.assertEqual(self.store.get_or_create("u1").tier, "gold")
+        self.store.subtract_credits("u1", 5000)       # refunded → bronze
+        self.assertEqual(self.store.get_or_create("u1").tier, "bronze")
+
     def test_adjust_credits_sets_exact(self):
         self.store.add_credits("u1", 100)
         rec = self.store.adjust_credits("u1", 3000)
@@ -190,6 +210,27 @@ class TestMembershipManager(unittest.TestCase):
     def test_record_purchase_zero_raises(self):
         with self.assertRaises(ValueError):
             self.mgr.record_purchase("u1", 0)
+
+    def test_record_refund_reverses_tier_farming(self):
+        # Buy 5000 → gold; refund 5000 → back to bronze (net spend 0, no
+        # permanent tier promotion).
+        self.mgr.record_purchase("u1", 5000)
+        self.assertEqual(self.mgr.get_membership("u1")["tier"], "gold")
+        result = self.mgr.record_refund("u1", 5000)
+        self.assertEqual(result["tier"], "bronze")
+        self.assertEqual(result["lifetime_credits"], 0)
+
+    def test_record_refund_partial(self):
+        self.mgr.record_purchase("u1", 5000)
+        self.mgr.record_purchase("u1", 1000)   # lifetime 6000, gold
+        self.mgr.record_refund("u1", 5000)     # refund one → lifetime 1000, silver
+        result = self.mgr.get_membership("u1")
+        self.assertEqual(result["lifetime_credits"], 1000)
+        self.assertEqual(result["tier"], "silver")
+
+    def test_record_refund_zero_raises(self):
+        with self.assertRaises(ValueError):
+            self.mgr.record_refund("u1", 0)
 
     def test_get_fee_discount_new_user(self):
         self.assertEqual(self.mgr.get_fee_discount("u1"), 0)
