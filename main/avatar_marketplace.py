@@ -87,9 +87,14 @@ class MarketplaceListing:
 
     @property
     def average_rating(self) -> float:
-        if self.rating_count == 0:
+        # Read the count ONCE: this property is evaluated outside the store lock
+        # (e.g. while search() sorts results), so a concurrent delete_review /
+        # rating recompute could flip rating_count from 1→0 between a separate
+        # guard-check and divide, raising ZeroDivisionError. One read is safe.
+        count = self.rating_count
+        if count == 0:
             return 0.0
-        return round(self.rating_sum / self.rating_count, 2)
+        return round(self.rating_sum / count, 2)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

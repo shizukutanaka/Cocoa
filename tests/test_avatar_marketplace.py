@@ -760,6 +760,24 @@ class TestRating(unittest.TestCase):
         avg = store.rate(listing.listing_id, "u2", 4)
         self.assertEqual(avg, 4.0)
 
+    def test_average_rating_reads_count_once(self):
+        # Guards against ZeroDivisionError when rating_count is mutated
+        # concurrently between the zero-guard and the division. We mock
+        # rating_count to yield 1 then 0: a single read computes 5/1=5.0, while
+        # a buggy double-read would hit the 0 and raise.
+        from unittest.mock import patch, PropertyMock
+        store = _store()
+        listing = _listing(store)
+        listing.rating_sum = 5
+        with patch.object(type(listing), "rating_count",
+                          new_callable=PropertyMock) as m:
+            m.side_effect = [1, 0]  # second access would be a 0 divisor
+            try:
+                result = listing.average_rating
+            except ZeroDivisionError:
+                self.fail("average_rating read rating_count more than once")
+        self.assertEqual(result, 5.0)
+
     def test_rate_updates_average(self):
         store = _store()
         listing = _listing(store)
