@@ -110,9 +110,13 @@ class CollectionStore:
     def add_item(self, collection_id: str, requester_id: str, item_id: str) -> Collection:
         with self._lock:
             col = self._require_owned(collection_id, requester_id)
-            if len(col.item_ids) >= _MAX_ITEMS_PER_COLLECTION:
-                raise ValueError(f"アイテム数の上限（{_MAX_ITEMS_PER_COLLECTION}）に達しました")
+            # Only enforce the cap when actually adding a NEW item: re-adding an
+            # item already in the collection doesn't grow it, so it must stay an
+            # idempotent no-op even when the collection is full (matches the
+            # bookmark/follow pattern).
             if item_id not in col.item_ids:
+                if len(col.item_ids) >= _MAX_ITEMS_PER_COLLECTION:
+                    raise ValueError(f"アイテム数の上限（{_MAX_ITEMS_PER_COLLECTION}）に達しました")
                 col.item_ids.append(item_id)
                 col.updated_at = datetime.now(timezone.utc)
             return col

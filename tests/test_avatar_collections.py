@@ -53,6 +53,20 @@ class TestItems(unittest.TestCase):
         col = self.store.add_item(self.col.collection_id, "u1", "listing-1")
         self.assertEqual(col.item_ids.count("listing-1"), 1)
 
+    def test_readd_existing_item_at_capacity_is_noop(self):
+        # Fill the collection to the cap, then re-add an item already present:
+        # it must stay an idempotent no-op, not raise "max items".
+        from avatar_collections import _MAX_ITEMS_PER_COLLECTION as CAP
+        cid = self.col.collection_id
+        for i in range(CAP):
+            self.store.add_item(cid, "u1", f"item-{i}")
+        # Collection is full; re-adding an existing item must not raise.
+        col = self.store.add_item(cid, "u1", "item-0")
+        self.assertEqual(len(col.item_ids), CAP)
+        # But adding a genuinely new item at capacity still raises.
+        with self.assertRaises(ValueError):
+            self.store.add_item(cid, "u1", "overflow")
+
     def test_remove_item(self):
         self.store.add_item(self.col.collection_id, "u1", "listing-1")
         col = self.store.remove_item(self.col.collection_id, "u1", "listing-1")
