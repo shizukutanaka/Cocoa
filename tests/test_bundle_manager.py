@@ -40,14 +40,14 @@ class _FakeMP:
     def add(self, listing: _FakeListing) -> None:
         self._listings[listing.listing_id] = listing
 
-    def _record_download_locked(self, listing_id, user_id, ts):
-        self._download_log.append((listing_id, user_id, ts))
+    def _record_download_locked(self, listing_id, user_id, ts, amount_paid=0):
+        self._download_log.append((listing_id, user_id, ts, amount_paid))
 
     def get_downloaded_ids(self, user_id):
-        return {lid for lid, did, _ in self._download_log if did == user_id}
+        return {lid for lid, did, _, _ap in self._download_log if did == user_id}
 
     def _has_downloaded_locked(self, user_id, listing_id):
-        return any(lid == listing_id and did == user_id for lid, did, _ in self._download_log)
+        return any(lid == listing_id and did == user_id for lid, did, _, _ap in self._download_log)
 
     def _append_ledger(self, user_id, amount, kind, ref_id=None, balance_after=0):
         self._ledger.append({"user_id": user_id, "amount": amount, "kind": kind})
@@ -262,8 +262,18 @@ class TestBundlePurchase(unittest.TestCase):
 
     def test_purchase_records_downloads(self):
         self.mgr.purchase_bundle(self.bundle_id, "buyer", self.mp)
-        downloaded = [(lid, did) for lid, did, _ in self.mp._download_log if did == "buyer"]
+        downloaded = [(lid, did) for lid, did, _, _ap in self.mp._download_log if did == "buyer"]
         self.assertEqual(len(downloaded), 3)
+
+    def test_purchase_records_amount_paid(self):
+        # The download log must record what the buyer actually paid per item
+        # (the discounted final_price), so creator revenue analytics is accurate.
+        result = self.mgr.purchase_bundle(self.bundle_id, "buyer", self.mp)
+        paid_by_listing = {p["listing_id"]: p["final_price"] for p in result["purchased"]}
+        logged = {lid: ap for lid, did, _, ap in self.mp._download_log if did == "buyer"}
+        self.assertEqual(logged, paid_by_listing)
+        # And the recorded amounts must be the discounted prices, not zero.
+        self.assertTrue(all(ap > 0 for ap in logged.values()))
 
     def test_purchase_inactive_bundle_raises(self):
         self.mgr.deactivate_bundle(self.bundle_id, "creator")
@@ -276,7 +286,7 @@ class TestBundlePurchase(unittest.TestCase):
 
     def test_already_owned_items_skipped(self):
         # Simulate buyer already downloaded lst1
-        self.mp._download_log.append(("lst1", "buyer", __import__("datetime").datetime.now()))
+        self.mp._download_log.append(("lst1", "buyer", __import__("datetime").datetime.now(), 0))
         result = self.mgr.purchase_bundle(self.bundle_id, "buyer", self.mp)
         skipped_ids = [s["listing_id"] for s in result["skipped"]]
         self.assertIn("lst1", skipped_ids)
@@ -302,7 +312,7 @@ class TestBundlePurchase(unittest.TestCase):
         # lst1 was never charged for or download-logged
         purchased_ids = [p["listing_id"] for p in result["purchased"]]
         self.assertNotIn("lst1", purchased_ids)
-        logged = [lid for lid, did, _ in self.mp._download_log if lid == "lst1"]
+        logged = [lid for lid, did, _, _ap in self.mp._download_log if lid == "lst1"]
         self.assertEqual(logged, [])
         # Buyer charged only for the other two items, not the sold-out one
         self.assertEqual(self.mp._credits["buyer"], buyer_before - result["total_charged"])

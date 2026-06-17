@@ -358,7 +358,7 @@ class MarketplaceStore:
         self._listings: Dict[str, MarketplaceListing] = {}
         self._votes: Dict[str, Dict[str, int]] = {}  # listing_id → {user_id: stars}
         self._reviews: Dict[str, Dict[str, Review]] = {}  # listing_id → {user_id: Review}
-        self._download_log: List[Tuple[str, str, datetime]] = []  # (listing_id, downloader_id, ts)
+        self._download_log: List[Tuple[str, str, datetime, int]] = []  # (listing_id, downloader_id, ts, amount_paid)
         # Ownership index: user_id → set of downloaded listing_ids. Maintained
         # alongside _download_log so "has user X downloaded listing Y?" is O(1)
         # instead of an O(total_downloads) scan of the log on hot paths.

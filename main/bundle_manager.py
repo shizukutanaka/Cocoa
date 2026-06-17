@@ -366,7 +366,7 @@ class BundleManager:
                 if lst.stock_remaining is not None and not is_owner:
                     lst.stock_remaining = max(0, lst.stock_remaining - 1)
                 if not is_owner:
-                    marketplace_store._record_download_locked(listing_id, buyer_id, now)
+                    marketplace_store._record_download_locked(listing_id, buyer_id, now, final_price)
 
             purchased.append({
                 "listing_id": listing_id,
