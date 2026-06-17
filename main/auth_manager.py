@@ -348,18 +348,40 @@ class UserStore:
 
     # --- Token revocation ---
 
+    def _prune_revoked_locked(self, now: float) -> None:
+        """Drop expired jtis so the denylist can't grow forever. Hold the lock.
+        Uses pop(k, None) so a concurrent prune can't KeyError on a key the
+        other thread already removed."""
+        for k in [k for k, e in self._revoked_jtis.items() if e < now]:
+            self._revoked_jtis.pop(k, None)
+
     def revoke_jti(self, jti: str, exp: Optional[float] = None) -> None:
         if exp is None:
             exp = time.time() + _REFRESH_TOKEN_EXPIRE_DAYS * 86400
-        self._revoked_jtis[jti] = exp
+        with self._lock:
+            self._revoked_jtis[jti] = exp
+
+    def claim_jti_revocation(self, jti: str, exp: Optional[float] = None) -> bool:
+        """Atomically revoke ``jti``, returning True only if it was not already
+        revoked.  Refresh-token rotation uses this so one token rotates exactly
+        once: two concurrent refreshes race here and only the winner mints a new
+        session — the loser is rejected, closing the refresh-token replay window.
+        """
+        if exp is None:
+            exp = time.time() + _REFRESH_TOKEN_EXPIRE_DAYS * 86400
+        now = time.time()
+        with self._lock:
+            self._prune_revoked_locked(now)
+            if jti in self._revoked_jtis:
+                return False
+            self._revoked_jtis[jti] = exp
+            return True
 
     def is_revoked(self, jti: str) -> bool:
         now = time.time()
-        # Prune expired JTIs so the set doesn't grow forever.
-        expired = [k for k, e in self._revoked_jtis.items() if e < now]
-        for k in expired:
-            del self._revoked_jtis[k]
-        return jti in self._revoked_jtis
+        with self._lock:
+            self._prune_revoked_locked(now)
+            return jti in self._revoked_jtis
 
     # --- Password reset ---
 
@@ -560,8 +582,6 @@ class AuthManager:
     def refresh(self, refresh_token: str) -> TokenPair:
         payload = decode_refresh_token(refresh_token)
         jti = payload.get("jti", "")
-        if self.store.is_revoked(jti):
-            raise AuthError("token_revoked", "リフレッシュトークンは無効化されました")
 
         user = self.store.get_by_id(payload["sub"])
         if not user or not user.is_active:
@@ -569,8 +589,12 @@ class AuthManager:
         if user.is_banned:
             raise AuthError("account_banned", "アカウントが停止されています")
 
-        # Rotate refresh token
-        self.store.revoke_jti(jti, exp=payload.get("exp"))
+        # Rotate atomically: claim the old jti. This both enforces prior
+        # revocation AND guarantees a single refresh token rotates exactly once —
+        # two concurrent refreshes race on the claim and only the winner mints a
+        # new session, so a replayed/stolen token can't fork a second session.
+        if not self.store.claim_jti_revocation(jti, exp=payload.get("exp")):
+            raise AuthError("token_revoked", "リフレッシュトークンは無効化されました")
         new_access = create_access_token(user.user_id, user.username, user.role)
         new_refresh = create_refresh_token(user.user_id)
         return TokenPair(access_token=new_access, refresh_token=new_refresh)

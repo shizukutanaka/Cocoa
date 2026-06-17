@@ -156,6 +156,44 @@ class TestAuthManager(unittest.TestCase):
             self.auth.refresh(tokens.refresh_token)
         self.assertEqual(ctx.exception.code, "token_revoked")
 
+    def test_concurrent_refresh_mints_one_session(self):
+        # A refresh token used by 16 threads at once must rotate exactly once:
+        # only one caller gets a new pair, the rest are rejected as revoked.
+        # (Closes the check-then-revoke replay race.)
+        import threading
+        tokens = self.auth.login("alice", "Alice123!")
+        barrier = threading.Barrier(16)
+        successes = []
+        rejected = []
+        lock = threading.Lock()
+
+        def do_refresh():
+            barrier.wait()
+            try:
+                pair = self.auth.refresh(tokens.refresh_token)
+                with lock:
+                    successes.append(pair)
+            except AuthError as e:
+                with lock:
+                    rejected.append(e.code)
+
+        threads = [threading.Thread(target=do_refresh) for _ in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(successes), 1, "exactly one refresh may succeed")
+        self.assertEqual(len(rejected), 15)
+        self.assertTrue(all(code == "token_revoked" for code in rejected))
+
+    def test_claim_jti_revocation_is_single_winner(self):
+        # Direct store-level check of the atomic claim primitive.
+        store = self.auth.store
+        self.assertTrue(store.claim_jti_revocation("jti-x"))
+        self.assertFalse(store.claim_jti_revocation("jti-x"))  # already claimed
+        self.assertTrue(store.is_revoked("jti-x"))
+
     def test_duplicate_registration_raises(self):
         with self.assertRaises(ValueError):
             self.auth.register("alice", "alice2@x.com", "Alice123!")
