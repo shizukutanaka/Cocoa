@@ -386,19 +386,24 @@ class UserStore:
     # --- Password reset ---
 
     def create_reset_token(self, user_id: str) -> str:
-        # Invalidate all existing tokens for this user before issuing a new one.
-        # Prevents token accumulation from repeated reset requests and ensures
-        # only the most recent link works (phishing-resistant).
-        stale = [t for t, (uid, _) in self._reset_tokens.items() if uid == user_id]
-        for t in stale:
-            del self._reset_tokens[t]
         token = secrets.token_urlsafe(32)
-        exp = time.time() + _RESET_TOKEN_EXPIRE_MINUTES * 60
-        self._reset_tokens[token] = (user_id, exp)
+        now = time.time()
+        exp = now + _RESET_TOKEN_EXPIRE_MINUTES * 60
+        with self._lock:
+            # Drop this user's prior tokens (only the newest link works —
+            # phishing-resistant) AND any globally-expired ones (hygiene), in one
+            # pass.  pop(t, None) so a concurrent reset can't KeyError on a token
+            # the other thread already removed.
+            drop = [t for t, (uid, e) in self._reset_tokens.items()
+                    if uid == user_id or e < now]
+            for t in drop:
+                self._reset_tokens.pop(t, None)
+            self._reset_tokens[token] = (user_id, exp)
         return token
 
     def consume_reset_token(self, token: str) -> Optional[str]:
-        entry = self._reset_tokens.pop(token, None)
+        with self._lock:
+            entry = self._reset_tokens.pop(token, None)
         if entry and entry[1] > time.time():
             return entry[0]
         return None
@@ -409,12 +414,20 @@ class UserStore:
 
     def create_verify_token(self, user_id: str) -> str:
         token = secrets.token_urlsafe(32)
-        exp = time.time() + self._VERIFY_TOKEN_EXPIRE_MINUTES * 60
-        self._verify_tokens[token] = (user_id, exp)
+        now = time.time()
+        exp = now + self._VERIFY_TOKEN_EXPIRE_MINUTES * 60
+        with self._lock:
+            # Prune expired tokens so the map can't grow without bound — these
+            # are otherwise only removed on consume, so abandoned tokens would
+            # leak forever.
+            for t in [t for t, (_, e) in self._verify_tokens.items() if e < now]:
+                self._verify_tokens.pop(t, None)
+            self._verify_tokens[token] = (user_id, exp)
         return token
 
     def consume_verify_token(self, token: str) -> Optional[str]:
-        entry = self._verify_tokens.pop(token, None)
+        with self._lock:
+            entry = self._verify_tokens.pop(token, None)
         if entry and entry[1] > time.time():
             return entry[0]
         return None

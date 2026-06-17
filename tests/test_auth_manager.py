@@ -109,6 +109,43 @@ class TestUserStore(unittest.TestCase):
         # Can't reuse
         self.assertIsNone(self.store.consume_reset_token(token))
 
+    def test_concurrent_create_reset_token_no_crash(self):
+        # Many parallel reset requests for one user must not KeyError on the
+        # purge of prior tokens, and must leave exactly one usable token.
+        import threading
+        u = self.store.get_by_username("bob")
+        barrier = threading.Barrier(16)
+        issued = []
+        lock = threading.Lock()
+
+        def make():
+            barrier.wait()
+            tok = self.store.create_reset_token(u.user_id)
+            with lock:
+                issued.append(tok)
+
+        threads = [threading.Thread(target=make) for _ in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(issued), 16)
+        # Only the last-stored token survives the purge; exactly one consumes.
+        valid = [t for t in issued if self.store.consume_reset_token(t) is not None]
+        self.assertEqual(len(valid), 1)
+
+    def test_verify_token_create_prunes_expired(self):
+        # An expired verify token must be pruned when a new one is created so the
+        # map doesn't grow without bound.
+        import time as _time
+        u = self.store.get_by_username("bob")
+        stale = self.store.create_verify_token(u.user_id)
+        # Force the stale token to be expired in the store.
+        self.store._verify_tokens[stale] = (u.user_id, _time.time() - 1)
+        self.store.create_verify_token(u.user_id)
+        self.assertNotIn(stale, self.store._verify_tokens)
+
     def test_list_users(self):
         users = self.store.list_users()
         self.assertEqual(len(users), 1)
