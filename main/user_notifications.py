@@ -54,6 +54,25 @@ NOTIFICATION_TEMPLATES: Dict[str, Dict[str, str]] = {
     },
 }
 
+# Notification kinds emitted directly via push() rather than a template
+# (services build their own title/body). These are real, user-visible kinds and
+# must be mutable just like templated ones.
+_DIRECT_PUSH_KINDS = frozenset({
+    "price_drop",            # wishlist_manager: wishlisted item dropped in price
+    "saved_search_match",    # api_server: a new listing matches a saved search
+    "system",                # admin/moderation actions affecting the user
+    "commission_received",   # creator: a new commission request arrived
+    "commission_response",   # requester: creator accepted/declined
+    "commission_delivered",  # requester: commission delivered
+    "tip_received",          # a tip was received
+})
+
+# The full set of kinds the system can emit. set_muted_kinds() validates against
+# this so a user can mute ANY real notification while junk is still rejected
+# (an over-narrow allowlist would silently make price_drop/tip/commission
+# notifications un-mutable, which is exactly what users want to control).
+NOTIFICATION_KINDS = frozenset(NOTIFICATION_TEMPLATES) | _DIRECT_PUSH_KINDS
+
 
 @dataclass
 class UserNotification:
@@ -139,7 +158,7 @@ class NotificationQueue:
 
     def set_muted_kinds(self, user_id: str, kinds: List[str]) -> None:
         """Replace the user's muted-kinds set entirely (only known kinds are accepted)."""
-        valid = {k for k in kinds if k in NOTIFICATION_TEMPLATES}
+        valid = {k for k in kinds if k in NOTIFICATION_KINDS}
         with self._lock:
             self._muted[user_id] = valid
 

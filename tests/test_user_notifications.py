@@ -201,7 +201,7 @@ class TestNotificationPreferences(unittest.TestCase):
 
     def test_set_muted_kinds_filters_unknown_kinds(self):
         # An adversarially large list of unknown kinds must not be stored —
-        # only known NOTIFICATION_TEMPLATES keys are accepted (DoS prevention).
+        # only known notification kinds are accepted (DoS prevention).
         garbage = [f"fake_kind_{i}" for i in range(10_000)]
         self.q.set_muted_kinds("u1", garbage)
         self.assertEqual(self.q.get_muted_kinds("u1"), [])
@@ -211,6 +211,28 @@ class TestNotificationPreferences(unittest.TestCase):
         kinds = self.q.get_muted_kinds("u1")
         self.assertIn("new_follower", kinds)
         self.assertIn("new_download", kinds)
+
+    def test_set_muted_kinds_accepts_direct_push_kinds(self):
+        # Kinds pushed directly (not via a template) must be mutable too —
+        # these are the ones users most want to control.
+        direct = ["price_drop", "tip_received", "commission_received",
+                  "commission_response", "commission_delivered",
+                  "saved_search_match", "system"]
+        self.q.set_muted_kinds("u1", direct)
+        muted = self.q.get_muted_kinds("u1")
+        for kind in direct:
+            self.assertIn(kind, muted)
+
+    def test_muting_price_drop_via_set_actually_suppresses(self):
+        # End-to-end: set_muted_kinds(["price_drop"]) must cause a price_drop
+        # push to be dropped (regression: it was filtered out as "unknown").
+        self.q.set_muted_kinds("u1", ["price_drop"])
+        result = self.q.push("u1", "price_drop", "T", "B")
+        self.assertIsNone(result)
+
+    def test_muting_tip_via_set_actually_suppresses(self):
+        self.q.set_muted_kinds("u1", ["tip_received"])
+        self.assertIsNone(self.q.push("u1", "tip_received", "T", "B"))
 
 
 class TestNotificationTemplates(unittest.TestCase):
