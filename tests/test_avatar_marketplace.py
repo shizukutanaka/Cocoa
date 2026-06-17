@@ -2486,6 +2486,30 @@ class TestReviewHiding(unittest.TestCase):
         self.assertNotIn(self.review_id, self.store._review_votes)
         self.assertNotIn(self.review_id, self.store._review_replies)
 
+    def test_rating_distribution_matches_headline_when_hidden(self):
+        # A 2-star review alongside the 4-star one, then hide the 4-star. The
+        # distribution endpoint's average + total must match the headline
+        # average exactly (hidden-review vote excluded everywhere).
+        _buy(self.store, self.listing_id, "u3")
+        self.store.review(self.listing_id, "u3", "carol", 2, "Meh")
+        self.store.hide_review(self.review_id)  # hide the 4-star
+        listing = self.store._listings[self.listing_id]
+        dist = self.store.get_rating_distribution(self.listing_id)
+        self.assertEqual(dist["total_ratings"], 1)
+        self.assertEqual(dist["distribution"][2], 1)
+        self.assertEqual(dist["distribution"][4], 0)   # hidden one not counted
+        self.assertEqual(dist["average_rating"], listing.average_rating)
+        self.assertEqual(dist["average_rating"], 2.0)
+
+    def test_listing_analytics_average_matches_headline_when_hidden(self):
+        _buy(self.store, self.listing_id, "u3")
+        self.store.review(self.listing_id, "u3", "carol", 2, "Meh")
+        self.store.hide_review(self.review_id)
+        listing = self.store._listings[self.listing_id]
+        analytics = self.store.get_listing_analytics(self.listing_id, "u1")
+        self.assertEqual(analytics["average_rating"], listing.average_rating)
+        self.assertEqual(analytics["rating_distribution"][4], 0)
+
 
 class TestListingTransfer(unittest.TestCase):
     def setUp(self):

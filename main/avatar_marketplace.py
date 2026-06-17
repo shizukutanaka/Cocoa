@@ -999,6 +999,21 @@ class MarketplaceStore:
 
     # --- Rating ---
 
+    def _visible_votes_locked(self, listing_id: str) -> Dict[str, int]:
+        """Votes that count toward PUBLIC rating aggregates: a user's stars are
+        included only when they have no review or a visible (non-hidden) one.
+
+        This is the single definition of "what the public sees", shared by the
+        headline average, the rating distribution, and analytics, so those views
+        can never disagree about a moderator-hidden review. Caller holds the lock.
+        """
+        votes = self._votes.get(listing_id, {})
+        reviews = self._reviews.get(listing_id, {})
+        return {
+            uid: stars for uid, stars in votes.items()
+            if not (uid in reviews and reviews[uid].is_hidden)
+        }
+
     def _recompute_rating_locked(self, listing_id: str) -> None:
         """Rebuild a listing's star aggregate from authoritative per-user votes.
 
@@ -1010,18 +1025,9 @@ class MarketplaceStore:
         listing = self._listings.get(listing_id)
         if listing is None:
             return
-        votes = self._votes.get(listing_id, {})
-        reviews = self._reviews.get(listing_id, {})
-        total = 0
-        count = 0
-        for uid, stars in votes.items():
-            rv = reviews.get(uid)
-            if rv is not None and rv.is_hidden:
-                continue
-            total += stars
-            count += 1
-        listing.rating_sum = total
-        listing.rating_count = count
+        visible = self._visible_votes_locked(listing_id)
+        listing.rating_sum = sum(visible.values())
+        listing.rating_count = len(visible)
 
     def rate(self, listing_id: str, user_id: str, stars: int) -> float:
         if stars < 1 or stars > 5:
@@ -1775,9 +1781,13 @@ class MarketplaceStore:
             return self._has_downloaded_locked(user_id, listing_id)
 
     def get_rating_distribution(self, listing_id: str) -> Dict[str, Any]:
-        """Return per-star vote counts and average for a listing."""
+        """Return per-star vote counts and average for a listing.
+
+        Counts only votes visible to the public (hidden-review votes excluded)
+        so this average matches the listing's headline average_rating exactly.
+        """
         with self._lock:
-            votes = dict(self._votes.get(listing_id, {}))
+            votes = self._visible_votes_locked(listing_id)
         dist: Dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
         for stars in votes.values():
             if 1 <= stars <= 5:
@@ -1901,6 +1911,9 @@ class MarketplaceStore:
                 raise PermissionError("このリスティングの所有者のみが分析情報を取得できます")
             logs = [(lid, did, ts) for lid, did, ts, _ap in self._download_log if lid == listing_id]
             review_count = len(self._reviews.get(listing_id, {}))
+            # Snapshot visible votes under the lock (was read unlocked before,
+            # and counted hidden-review votes the headline average excludes).
+            visible_votes = list(self._visible_votes_locked(listing_id).values())
 
         from collections import Counter
         day_counts: Counter = Counter()
@@ -1910,7 +1923,7 @@ class MarketplaceStore:
             unique_downloaders.add(did)
 
         dist: Dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        for stars in self._votes.get(listing_id, {}).values():
+        for stars in visible_votes:
             if 1 <= stars <= 5:
                 dist[stars] += 1
         rating_total = sum(dist.values())
@@ -1936,7 +1949,9 @@ class MarketplaceStore:
             # Snapshot review/vote counts under the lock so we're consistent with listings.
             listing_ids = {lst.listing_id for lst in listings}
             review_counts = {lid: len(self._reviews.get(lid, {})) for lid in listing_ids}
-            vote_snapshots = {lid: dict(self._votes.get(lid, {})) for lid in listing_ids}
+            # Visible votes only, so the distribution matches each listing's
+            # headline average (hidden-review votes excluded).
+            vote_snapshots = {lid: self._visible_votes_locked(lid) for lid in listing_ids}
 
         total_downloads = sum(lst.download_count for lst in listings)
         active_count = sum(1 for lst in listings if lst.is_active)
