@@ -2720,6 +2720,39 @@ class TestPromoCodes(unittest.TestCase):
         data = self.store.download(self.listing_id, "buyer2", promo_code="USE1")
         self.assertNotIn("promo_applied", data)
 
+    def test_steep_discount_rounding_to_zero_completes_as_free(self):
+        # A 99%-off promo on a 50-credit listing rounds the charge to 0. The
+        # money primitives reject non-positive amounts, so this must complete as
+        # a free download — not crash with "amount must be positive".
+        cheap = _listing(self.store, avatar_id="cheap_av", owner_id="creator1",
+                         name="Cheap", is_free=False, price_credits=50)
+        self.store.create_promo_code("creator1", "ALMOSTFREE", 99, listing_id=cheap.listing_id)
+        buyer_before = self.store.get_balance("buyer")
+        seller_before = self.store.get_balance("creator1")
+        data = self.store.download(cheap.listing_id, "buyer", promo_code="ALMOSTFREE")
+        self.assertIsNotNone(data)
+        self.assertEqual(data["amount_paid"], 0)
+        self.assertEqual(data["promo_applied"]["actual_price"], 0)
+        # No credits moved on either side.
+        self.assertEqual(self.store.get_balance("buyer"), buyer_before)
+        self.assertEqual(self.store.get_balance("creator1"), seller_before)
+        # The buyer now owns it (recorded), so a re-download stays free.
+        self.assertTrue(self.store.has_downloaded(cheap.listing_id, "buyer"))
+
+    def test_zero_rounded_promo_still_consumes_a_use(self):
+        # Even when the effective price is 0, the promo WAS applied, so a
+        # max_uses=1 code must be exhausted for the next buyer.
+        cheap = _listing(self.store, avatar_id="cheap_av2", owner_id="creator1",
+                         name="Cheap2", is_free=False, price_credits=50)
+        self.store.create_promo_code("creator1", "ONESHOT", 99,
+                                     listing_id=cheap.listing_id, max_uses=1)
+        self.store.download(cheap.listing_id, "buyer", promo_code="ONESHOT")
+        self.store.add_credits("buyer2", 500)
+        # Second buyer: code exhausted → charged the full 50.
+        data = self.store.download(cheap.listing_id, "buyer2", promo_code="ONESHOT")
+        self.assertNotIn("promo_applied", data)
+        self.assertEqual(data["amount_paid"], 50)
+
     def test_create_promo_code_naive_expiry_normalized_to_aware(self):
         # A naive expiry must be stored as UTC-aware so is_valid() doesn't raise
         # TypeError comparing it against an aware now().

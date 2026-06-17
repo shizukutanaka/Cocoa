@@ -941,13 +941,19 @@ class MarketplaceStore:
                     actual_price = max(0, int(listing.price_credits * (100 - discount) / 100))
                     applied_promo = pc
 
-            if paid:
+            if paid and actual_price > 0:
                 # Buyer pays, seller is credited — symmetric, both via the
                 # single money primitive so neither side can be forgotten.
                 self._debit_locked(downloader_id, actual_price, "purchase", ref_id=listing_id)
                 self._credit_locked(listing.owner_id, actual_price, "sale", ref_id=listing_id)
                 if applied_promo:
                     applied_promo.uses_count += 1
+            elif paid and applied_promo:
+                # A steep discount rounded the price down to 0 — the money
+                # primitives reject non-positive amounts, so move nothing, but
+                # still consume a promo use (it WAS applied) so max_uses and
+                # analytics stay honest. The download proceeds as effectively free.
+                applied_promo.uses_count += 1
 
             now = datetime.now(timezone.utc)
             is_self = listing.owner_id == downloader_id
