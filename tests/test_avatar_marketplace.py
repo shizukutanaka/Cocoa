@@ -1144,6 +1144,19 @@ class TestReviews(unittest.TestCase):
         self.assertEqual(rv.text, "Disappointing")
         self.assertEqual(self.listing.rating_count, 1)
 
+    def test_rate_after_review_syncs_review_stars(self):
+        # A user reviews (5★ + text), then re-rates to 3★ without editing text.
+        # The stored review's stars must follow the vote so the review card and
+        # the listing average never disagree.
+        _buy(self.store, self.listing.listing_id, "u2")
+        self.store.review(self.listing.listing_id, "u2", "bob", 5, "Great!")
+        self.store.rate(self.listing.listing_id, "u2", 3)
+        result = self.store.get_reviews(self.listing.listing_id)
+        self.assertEqual(result["items"][0]["stars"], 3)
+        self.assertEqual(result["items"][0]["text"], "Great!")  # text preserved
+        self.assertEqual(self.listing.average_rating, 3.0)
+        self.assertEqual(self.listing.rating_count, 1)  # not double-counted
+
     def test_owner_cannot_review_own_listing(self):
         with self.assertRaises((ValueError, PermissionError)):
             self.store.review(self.listing.listing_id, "u1", "alice", 5, "mine")

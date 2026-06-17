@@ -1025,6 +1025,13 @@ class MarketplaceStore:
                 raise ValueError("購入済みのリスティングのみ評価できます")
 
             self._votes[listing_id][user_id] = stars
+            # Keep an existing text review's star display in sync with the vote
+            # so the review card never shows a different rating than the one that
+            # is actually counted toward the average.
+            existing = self._reviews.get(listing_id, {}).get(user_id)
+            if existing is not None and existing.stars != stars:
+                existing.stars = stars
+                existing.updated_at = datetime.now(timezone.utc)
             self._recompute_rating_locked(listing_id)
             return listing.average_rating
 
