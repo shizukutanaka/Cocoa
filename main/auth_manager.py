@@ -438,9 +438,7 @@ class UserStore:
 
     def create_api_key(self, user_id: str, name: str) -> Dict[str, Any]:
         """Create a new API key. Returns the raw key ONCE — it is never stored."""
-        user_keys = self._api_keys_by_user.get(user_id, [])
-        if len(user_keys) >= self._MAX_API_KEYS_PER_USER:
-            raise ValueError(f"APIキーは最大{self._MAX_API_KEYS_PER_USER}個まで作成できます")
+        # Generate outside the lock; only the index updates need to be atomic.
         raw_key = "cca_" + secrets.token_urlsafe(32)
         key_id = secrets.token_hex(8)
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
@@ -454,49 +452,59 @@ class UserStore:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "last_used": None,
         }
-        self._api_keys[key_id] = entry
-        self._api_key_by_hash[key_hash] = key_id
-        self._api_keys_by_user.setdefault(user_id, []).append(key_id)
+        with self._lock:
+            # Re-check the per-user cap inside the lock: an unlocked
+            # check-then-append lets concurrent creates both pass and blow past
+            # the limit.  Also keeps the three indexes consistent (no reader can
+            # see a key in one index but not another).
+            if len(self._api_keys_by_user.get(user_id, [])) >= self._MAX_API_KEYS_PER_USER:
+                raise ValueError(f"APIキーは最大{self._MAX_API_KEYS_PER_USER}個まで作成できます")
+            self._api_keys[key_id] = entry
+            self._api_key_by_hash[key_hash] = key_id
+            self._api_keys_by_user.setdefault(user_id, []).append(key_id)
         return {k: v for k, v in entry.items() if k != "key_hash"} | {"raw_key": raw_key}
 
     def revoke_api_key(self, user_id: str, key_id: str) -> bool:
-        entry = self._api_keys.get(key_id)
-        if not entry or entry["user_id"] != user_id:
-            return False
-        del self._api_keys[key_id]
-        self._api_key_by_hash.pop(entry["key_hash"], None)
-        user_ids = self._api_keys_by_user.get(user_id, [])
-        with contextlib.suppress(ValueError):
-            user_ids.remove(key_id)
-        return True
+        with self._lock:
+            entry = self._api_keys.get(key_id)
+            if not entry or entry["user_id"] != user_id:
+                return False
+            del self._api_keys[key_id]
+            self._api_key_by_hash.pop(entry["key_hash"], None)
+            user_ids = self._api_keys_by_user.get(user_id, [])
+            with contextlib.suppress(ValueError):
+                user_ids.remove(key_id)
+            return True
 
     def list_api_keys(self, user_id: str) -> List[Dict[str, Any]]:
-        return [
-            {k: v for k, v in self._api_keys[kid].items() if k != "key_hash"}
-            for kid in self._api_keys_by_user.get(user_id, [])
-            if kid in self._api_keys
-        ]
+        with self._lock:
+            return [
+                {k: v for k, v in self._api_keys[kid].items() if k != "key_hash"}
+                for kid in self._api_keys_by_user.get(user_id, [])
+                if kid in self._api_keys
+            ]
 
     def verify_api_key(self, raw_key: str) -> Optional[Dict[str, Any]]:
         """Verify a raw API key and return a JWT-like payload dict, or None."""
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-        key_id = self._api_key_by_hash.get(key_hash)
-        if key_id is None:
-            return None
-        entry = self._api_keys.get(key_id)
-        if entry is None:
-            return None
-        entry["last_used"] = datetime.now(timezone.utc).isoformat()
-        user = self._by_id.get(entry["user_id"])
-        if not user or not user.is_active or user.is_banned:
-            return None
-        return {
-            "sub": user.user_id,
-            "username": user.username,
-            "role": user.role,
-            "type": "api_key",
-            "key_id": entry["key_id"],
-        }
+        with self._lock:
+            key_id = self._api_key_by_hash.get(key_hash)
+            if key_id is None:
+                return None
+            entry = self._api_keys.get(key_id)
+            if entry is None:
+                return None
+            entry["last_used"] = datetime.now(timezone.utc).isoformat()
+            user = self._by_id.get(entry["user_id"])
+            if not user or not user.is_active or user.is_banned:
+                return None
+            return {
+                "sub": user.user_id,
+                "username": user.username,
+                "role": user.role,
+                "type": "api_key",
+                "key_id": entry["key_id"],
+            }
 
 
 # ---------------------------------------------------------------------------

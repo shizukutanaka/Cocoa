@@ -696,6 +696,34 @@ class TestApiKeyManagement(unittest.TestCase):
         self.assertIn("raw_key", result)
         self.assertTrue(result["raw_key"].startswith("cca_"))
 
+    def test_concurrent_create_respects_per_user_cap(self):
+        # 30 threads create keys at once; the per-user cap (10) must hold —
+        # the unlocked check-then-append previously let creates blow past it.
+        import threading
+        from auth_manager import UserStore
+        cap = UserStore._MAX_API_KEYS_PER_USER
+        barrier = threading.Barrier(30)
+        ok = []
+        lock = threading.Lock()
+
+        def make():
+            barrier.wait()
+            try:
+                self.auth.create_api_key(self.user.user_id, "k")
+                with lock:
+                    ok.append(1)
+            except ValueError:
+                pass
+
+        threads = [threading.Thread(target=make) for _ in range(30)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(ok), cap)
+        self.assertEqual(len(self.auth.list_api_keys(self.user.user_id)), cap)
+
     def test_create_api_key_returns_metadata(self):
         result = self.auth.create_api_key(self.user.user_id, "My Key")
         for f in ("key_id", "name", "key_prefix", "created_at", "last_used"):
