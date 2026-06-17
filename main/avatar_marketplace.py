@@ -988,6 +988,30 @@ class MarketplaceStore:
 
     # --- Rating ---
 
+    def _recompute_rating_locked(self, listing_id: str) -> None:
+        """Rebuild a listing's star aggregate from authoritative per-user votes.
+
+        A user's stars count only when they have no review OR their review is
+        visible; a moderator-hidden review withdraws that user's rating
+        contribution so the listing's public average reflects only the feedback
+        a visitor can actually see. Caller must hold self._lock.
+        """
+        listing = self._listings.get(listing_id)
+        if listing is None:
+            return
+        votes = self._votes.get(listing_id, {})
+        reviews = self._reviews.get(listing_id, {})
+        total = 0
+        count = 0
+        for uid, stars in votes.items():
+            rv = reviews.get(uid)
+            if rv is not None and rv.is_hidden:
+                continue
+            total += stars
+            count += 1
+        listing.rating_sum = total
+        listing.rating_count = count
+
     def rate(self, listing_id: str, user_id: str, stars: int) -> float:
         if stars < 1 or stars > 5:
             raise ValueError("Rating must be 1–5")
@@ -1000,14 +1024,8 @@ class MarketplaceStore:
             if not self._has_downloaded_locked(user_id, listing_id):
                 raise ValueError("購入済みのリスティングのみ評価できます")
 
-            prev = self._votes[listing_id].get(user_id)
-            if prev is not None:
-                listing.rating_sum -= prev
-                listing.rating_count -= 1
-
             self._votes[listing_id][user_id] = stars
-            listing.rating_sum += stars
-            listing.rating_count += 1
+            self._recompute_rating_locked(listing_id)
             return listing.average_rating
 
     def review(self, listing_id: str, user_id: str, username: str, stars: int, text: str) -> Tuple[float, Review]:
@@ -1024,14 +1042,7 @@ class MarketplaceStore:
             if not self._has_downloaded_locked(user_id, listing_id):
                 raise ValueError("購入済みのリスティングのみレビューできます")
 
-            prev_stars = self._votes[listing_id].get(user_id)
-            if prev_stars is not None:
-                listing.rating_sum -= prev_stars
-                listing.rating_count -= 1
-
             self._votes[listing_id][user_id] = stars
-            listing.rating_sum += stars
-            listing.rating_count += 1
 
             existing = self._reviews[listing_id].get(user_id)
             if existing:
@@ -1049,6 +1060,9 @@ class MarketplaceStore:
                     text=text,
                 )
                 self._reviews[listing_id][user_id] = rv
+            # Recompute after the review exists so an updated-but-hidden review
+            # stays excluded from the aggregate (editing must not bypass moderation).
+            self._recompute_rating_locked(listing_id)
             return listing.average_rating, rv
 
     def get_reviews(
@@ -1093,12 +1107,12 @@ class MarketplaceStore:
         with self._lock:
             rv = self._reviews.get(listing_id, {}).pop(user_id, None)
             if rv is not None:
-                prev_stars = self._votes.get(listing_id, {}).pop(user_id, None)
-                if prev_stars is not None:
-                    listing = self._listings.get(listing_id)
-                    if listing:
-                        listing.rating_sum -= prev_stars
-                        listing.rating_count = max(0, listing.rating_count - 1)
+                self._votes.get(listing_id, {}).pop(user_id, None)
+                # The review is gone — drop its helpful-votes and replies too so
+                # they don't linger unreachable (and can't haunt a recycled id).
+                self._review_votes.pop(rv.review_id, None)
+                self._review_replies.pop(rv.review_id, None)
+                self._recompute_rating_locked(listing_id)
         return rv is not None
 
     # --- Review replies ---
@@ -1112,22 +1126,31 @@ class MarketplaceStore:
         return None
 
     def hide_review(self, review_id: str) -> Review:
-        """Hide a review from public view (moderator action)."""
+        """Hide a review from public view (moderator action).
+
+        Hiding also withdraws the review's stars from the listing's aggregate so
+        moderation is not merely cosmetic — an abusive rating stops dragging the
+        score the moment it's hidden.
+        """
         with self._lock:
             rv = self._find_review(review_id)
             if rv is None:
                 raise ValueError("レビューが見つかりません")
-            rv.is_hidden = True
+            if not rv.is_hidden:
+                rv.is_hidden = True
+                self._recompute_rating_locked(rv.listing_id)
         logger.info("Review hidden: %s", review_id)
         return rv
 
     def unhide_review(self, review_id: str) -> Review:
-        """Restore a previously hidden review."""
+        """Restore a previously hidden review and re-admit its rating."""
         with self._lock:
             rv = self._find_review(review_id)
             if rv is None:
                 raise ValueError("レビューが見つかりません")
-            rv.is_hidden = False
+            if rv.is_hidden:
+                rv.is_hidden = False
+                self._recompute_rating_locked(rv.listing_id)
         return rv
 
     def add_review_reply(
@@ -2180,8 +2203,9 @@ class MarketplaceStore:
             report.resolved_at = datetime.now(timezone.utc)
             if hide:
                 rv = self._find_review(report.review_id)
-                if rv:
+                if rv and not rv.is_hidden:
                     rv.is_hidden = True
+                    self._recompute_rating_locked(rv.listing_id)
         return report
 
     # --- Promo codes ---

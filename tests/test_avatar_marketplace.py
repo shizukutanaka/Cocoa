@@ -2389,6 +2389,72 @@ class TestReviewHiding(unittest.TestCase):
         d = self.rv.to_dict()
         self.assertIn("is_hidden", d)
 
+    def test_hide_review_withdraws_rating(self):
+        # The lone 4-star review contributes to the average; hiding it must
+        # drop the listing's aggregate to empty, not leave it at 4.0.
+        listing = self.store._listings[self.listing_id]
+        self.assertEqual(listing.rating_count, 1)
+        self.assertEqual(listing.average_rating, 4.0)
+        self.store.hide_review(self.review_id)
+        self.assertEqual(listing.rating_count, 0)
+        self.assertEqual(listing.average_rating, 0.0)
+
+    def test_unhide_review_restores_rating(self):
+        listing = self.store._listings[self.listing_id]
+        self.store.hide_review(self.review_id)
+        self.store.unhide_review(self.review_id)
+        self.assertEqual(listing.rating_count, 1)
+        self.assertEqual(listing.average_rating, 4.0)
+
+    def test_hidden_review_excluded_from_average_with_visible_one(self):
+        # Add a second buyer with a 2-star review, then hide the 4-star one.
+        # The visible average must reflect only the remaining 2-star review.
+        _buy(self.store, self.listing_id, "u3")
+        self.store.review(self.listing_id, "u3", "carol", 2, "Meh")
+        listing = self.store._listings[self.listing_id]
+        self.assertEqual(listing.rating_count, 2)
+        self.assertEqual(listing.average_rating, 3.0)  # (4+2)/2
+        self.store.hide_review(self.review_id)          # hide the 4-star
+        self.assertEqual(listing.rating_count, 1)
+        self.assertEqual(listing.average_rating, 2.0)   # only the 2-star remains
+
+    def test_editing_hidden_review_keeps_it_excluded(self):
+        # A moderator-hidden review that the author edits must stay hidden AND
+        # stay out of the aggregate — editing cannot bypass moderation.
+        self.store.hide_review(self.review_id)
+        self.store.review(self.listing_id, "u2", "bob", 5, "Trying to game it")
+        listing = self.store._listings[self.listing_id]
+        self.assertEqual(listing.rating_count, 0)
+        self.assertEqual(listing.average_rating, 0.0)
+
+    def test_idempotent_hide_does_not_double_withdraw(self):
+        listing = self.store._listings[self.listing_id]
+        self.store.hide_review(self.review_id)
+        self.store.hide_review(self.review_id)  # second hide is a no-op
+        self.assertEqual(listing.rating_count, 0)
+        self.store.unhide_review(self.review_id)
+        self.assertEqual(listing.rating_count, 1)
+        self.assertEqual(listing.average_rating, 4.0)
+
+    def test_report_hide_withdraws_rating(self):
+        # Hiding via the report-resolution path must also withdraw the rating.
+        report = self.store.report_review(self.review_id, "u3", "spam", "bad")
+        self.store.resolve_review_report(report.report_id, "mod1", "resolved", hide=True)
+        listing = self.store._listings[self.listing_id]
+        self.assertEqual(listing.rating_count, 0)
+        self.assertEqual(listing.average_rating, 0.0)
+
+    def test_delete_review_cleans_up_helpful_votes_and_replies(self):
+        # Deleting a review must not leave orphaned helpful-votes/replies behind.
+        _buy(self.store, self.listing_id, "u3")
+        self.store.vote_review_helpful(self.review_id, "u3", True)
+        self.store.add_review_reply(self.review_id, "u1", "alice", "thanks")
+        self.assertIn(self.review_id, self.store._review_votes)
+        self.assertIn(self.review_id, self.store._review_replies)
+        self.store.delete_review(self.listing_id, "u2")
+        self.assertNotIn(self.review_id, self.store._review_votes)
+        self.assertNotIn(self.review_id, self.store._review_replies)
+
 
 class TestListingTransfer(unittest.TestCase):
     def setUp(self):
