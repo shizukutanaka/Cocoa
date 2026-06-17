@@ -668,19 +668,24 @@ class AuthManager:
         user = self.store.get_by_id(user_id)
         if not user:
             raise AuthError("not_found", "ユーザーが見つかりません")
-        if item_id not in user.bookmarks:
-            if len(user.bookmarks) >= _MAX_BOOKMARKS:
-                raise ValueError(f"ブックマークは最大{_MAX_BOOKMARKS}件までです")
-            user.bookmarks.append(item_id)
-        return list(user.bookmarks)
+        # Lock the check-and-append: without it two concurrent adds of the same
+        # item both pass the membership test and append a duplicate (which a
+        # single remove can't fully undo).
+        with self.store._lock:
+            if item_id not in user.bookmarks:
+                if len(user.bookmarks) >= _MAX_BOOKMARKS:
+                    raise ValueError(f"ブックマークは最大{_MAX_BOOKMARKS}件までです")
+                user.bookmarks.append(item_id)
+            return list(user.bookmarks)
 
     def remove_bookmark(self, user_id: str, item_id: str) -> List[str]:
         user = self.store.get_by_id(user_id)
         if not user:
             raise AuthError("not_found", "ユーザーが見つかりません")
-        with contextlib.suppress(ValueError):
-            user.bookmarks.remove(item_id)
-        return list(user.bookmarks)
+        with self.store._lock:
+            with contextlib.suppress(ValueError):
+                user.bookmarks.remove(item_id)
+            return list(user.bookmarks)
 
     def get_bookmarks(self, user_id: str) -> List[str]:
         user = self.store.get_by_id(user_id)
@@ -703,19 +708,23 @@ class AuthManager:
         creator = self.store.get_by_id(creator_id)
         if not creator:
             raise AuthError("not_found", "フォロー先ユーザーが見つかりません")
-        if creator_id not in follower.following:
-            if len(follower.following) >= _MAX_FOLLOWING:
-                raise ValueError(f"フォローできるユーザーは最大{_MAX_FOLLOWING}人です")
-            follower.following.append(creator_id)
-        return list(follower.following)
+        # Lock the check-and-append against a concurrent identical follow that
+        # would otherwise duplicate the entry (double-counting the follower).
+        with self.store._lock:
+            if creator_id not in follower.following:
+                if len(follower.following) >= _MAX_FOLLOWING:
+                    raise ValueError(f"フォローできるユーザーは最大{_MAX_FOLLOWING}人です")
+                follower.following.append(creator_id)
+            return list(follower.following)
 
     def unfollow(self, follower_id: str, creator_id: str) -> List[str]:
         follower = self.store.get_by_id(follower_id)
         if not follower:
             raise AuthError("not_found", "ユーザーが見つかりません")
-        with contextlib.suppress(ValueError):
-            follower.following.remove(creator_id)
-        return list(follower.following)
+        with self.store._lock:
+            with contextlib.suppress(ValueError):
+                follower.following.remove(creator_id)
+            return list(follower.following)
 
     def get_following(self, user_id: str) -> List[Dict[str, Any]]:
         user = self.store.get_by_id(user_id)
@@ -872,11 +881,15 @@ class AuthManager:
         tag = tag.strip().lower()[:64]
         if not tag:
             raise ValueError("タグを入力してください")
-        if tag not in user.followed_tags:
-            if len(user.followed_tags) >= self._MAX_FOLLOWED_TAGS:
-                raise ValueError(f"フォローできるタグは最大{self._MAX_FOLLOWED_TAGS}個です")
-            user.followed_tags.append(tag)
-        return list(user.followed_tags)
+        # Lock the check-and-append; otherwise a concurrent follow_tag duplicates
+        # the tag, or a concurrent unfollow_tag (which rebuilds & reassigns the
+        # whole list) silently drops this append.
+        with self.store._lock:
+            if tag not in user.followed_tags:
+                if len(user.followed_tags) >= self._MAX_FOLLOWED_TAGS:
+                    raise ValueError(f"フォローできるタグは最大{self._MAX_FOLLOWED_TAGS}個です")
+                user.followed_tags.append(tag)
+            return list(user.followed_tags)
 
     def unfollow_tag(self, user_id: str, tag: str) -> List[str]:
         """Remove a tag from the user's followed tags. Returns updated list."""
@@ -884,8 +897,9 @@ class AuthManager:
         if not user:
             raise AuthError("not_found", "ユーザーが見つかりません")
         tag = tag.strip().lower()[:64]
-        user.followed_tags = [t for t in user.followed_tags if t != tag]
-        return list(user.followed_tags)
+        with self.store._lock:
+            user.followed_tags = [t for t in user.followed_tags if t != tag]
+            return list(user.followed_tags)
 
     def get_followed_tags(self, user_id: str) -> List[str]:
         """Return the list of tags the user follows."""

@@ -341,6 +341,23 @@ class TestBookmarks(unittest.TestCase):
         bks = self.auth.add_bookmark(self.user_id, "listing-1")
         self.assertEqual(bks.count("listing-1"), 1)
 
+    def test_concurrent_add_same_bookmark_no_duplicate(self):
+        import threading
+        barrier = threading.Barrier(20)
+
+        def add():
+            barrier.wait()
+            self.auth.add_bookmark(self.user_id, "listing-1")
+
+        threads = [threading.Thread(target=add) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        bks = self.auth.get_bookmarks(self.user_id)
+        self.assertEqual(bks.count("listing-1"), 1)
+
     def test_remove_bookmark(self):
         self.auth.add_bookmark(self.user_id, "listing-1")
         bks = self.auth.remove_bookmark(self.user_id, "listing-1")
@@ -413,6 +430,28 @@ class TestFollowing(unittest.TestCase):
         profiles = self.auth.get_following(self.alice)
         self.assertEqual(len(profiles), 1)
         self.assertEqual(profiles[0]["username"], "bob")
+
+    def test_concurrent_follow_no_duplicate(self):
+        # 20 threads all follow bob at once; the entry must appear exactly once
+        # (the check-and-append is locked), so a single unfollow fully removes it.
+        import threading
+        barrier = threading.Barrier(20)
+
+        def do_follow():
+            barrier.wait()  # maximize contention on the check-and-append
+            self.auth.follow(self.alice, self.bob)
+
+        threads = [threading.Thread(target=do_follow) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        following = self.auth.get_following(self.alice)
+        self.assertEqual(len(following), 1)
+        # One unfollow must leave no residual duplicate.
+        remaining = self.auth.unfollow(self.alice, self.bob)
+        self.assertNotIn(self.bob, remaining)
 
     def test_get_following_empty(self):
         profiles = self.auth.get_following(self.alice)
