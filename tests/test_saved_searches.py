@@ -255,11 +255,16 @@ class TestSavedSearchNotify(unittest.TestCase):
         self.assertEqual(len(self.store.find_matches(listing)), 1)
 
     def test_find_matches_tags_filter(self):
-        ss = self.store.create("u1", "Cute Tags", filters={"tags": ["cute", "vrc"]})
+        """Tag matching uses OR semantics, consistent with marketplace.search().
+        A listing that has ANY of the saved tags triggers a notification;
+        it does NOT need to have ALL of them."""
+        ss = self.store.create("u1", "Cute or VRC", filters={"tags": ["cute", "vrc"]})
         self.store.set_notify_on_match("u1", ss.search_id, True)
-        hit = _FakeListing(tags=["cute", "vrc", "anime"])
-        miss = _FakeListing(tags=["cute"])
-        self.assertEqual(len(self.store.find_matches(hit)), 1)
+        hit_both = _FakeListing(tags=["cute", "vrc", "anime"])  # both tags present
+        hit_one = _FakeListing(tags=["cute"])                   # only one tag — should still match
+        miss = _FakeListing(tags=["anime"])                     # neither tag
+        self.assertEqual(len(self.store.find_matches(hit_both)), 1)
+        self.assertEqual(len(self.store.find_matches(hit_one)), 1)
         self.assertEqual(len(self.store.find_matches(miss)), 0)
 
     def test_find_matches_is_free_filter(self):

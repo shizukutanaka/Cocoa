@@ -160,7 +160,11 @@ class SavedSearchStore:
             return False
         if f.get("tags"):
             required = {t.lower() for t in f["tags"]}
-            if not required.issubset({t.lower() for t in listing.tags}):
+            # ANY tag must match (OR semantics), consistent with marketplace.search()
+            # which uses tag_set & set(lst.tags) — an intersection test.
+            # Using issubset (AND) would trigger notifications for fewer listings
+            # than the live search returns, silently under-notifying the user.
+            if not required & {t.lower() for t in listing.tags}:
                 return False
         if f.get("is_free") is not None and listing.is_free != bool(f["is_free"]):
             return False
