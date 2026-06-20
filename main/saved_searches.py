@@ -152,7 +152,11 @@ class SavedSearchStore:
             if q not in searchable:
                 return False
         f = ss.filters
-        if f.get("category") and listing.category != f["category"]:
+        # Case-insensitive category match, consistent with the marketplace
+        # search() (lst.category.lower() == category.lower()). A case-sensitive
+        # compare here would silently never notify for a category that the live
+        # search does return (e.g. saved "VRChat" vs listing "vrchat").
+        if f.get("category") and listing.category.lower() != str(f["category"]).lower():
             return False
         if f.get("tags"):
             required = {t.lower() for t in f["tags"]}

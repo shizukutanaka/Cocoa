@@ -245,6 +245,15 @@ class TestSavedSearchNotify(unittest.TestCase):
         self.assertEqual(len(self.store.find_matches(hit)), 1)
         self.assertEqual(len(self.store.find_matches(miss)), 0)
 
+    def test_find_matches_category_is_case_insensitive(self):
+        # Must match the marketplace search()'s case-insensitive category compare,
+        # otherwise a saved search that returns live results would silently never
+        # notify on a casing mismatch.
+        ss = self.store.create("u1", "VRChat", filters={"category": "VRChat"})
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        listing = _FakeListing(category="vrchat")
+        self.assertEqual(len(self.store.find_matches(listing)), 1)
+
     def test_find_matches_tags_filter(self):
         ss = self.store.create("u1", "Cute Tags", filters={"tags": ["cute", "vrc"]})
         self.store.set_notify_on_match("u1", ss.search_id, True)
