@@ -70,6 +70,7 @@ class BlockchainAuditManager:
     def __init__(self, audit_dir: str = "data/blockchain_audit"):
         self.audit_dir = Path(audit_dir)
         self.audit_dir.mkdir(parents=True, exist_ok=True)
+        self._background_tasks: list = []
 
         # ブロックチェーン設定
         self.web3_provider = os.getenv("WEB3_PROVIDER_URL", "http://localhost:8545")
@@ -104,7 +105,8 @@ class BlockchainAuditManager:
         await self._initialize_smart_contract()
         # Start the mining loop as a background task — do NOT await it directly
         # because _start_mining_process() loops forever and would block initialize().
-        asyncio.create_task(self._start_mining_process())
+        # Store a strong reference: event loop uses a WeakSet, so unref'd tasks are GC'd.
+        self._background_tasks.append(asyncio.create_task(self._start_mining_process()))
 
     async def _load_existing_blockchain(self):
         """既存のブロックチェーンを読み込み"""

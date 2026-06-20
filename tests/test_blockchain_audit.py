@@ -137,5 +137,36 @@ class TestChainCalculations(unittest.TestCase):
         self.assertEqual(r1, r2)
 
 
+class TestBlockchainAuditMiningTaskRetained(unittest.IsolatedAsyncioTestCase):
+    """initialize() must store the mining task to prevent GC.
+
+    Bug: asyncio.create_task(self._start_mining_process()) result was discarded.
+    The event loop holds tasks in a WeakSet, so without a strong reference the
+    task is garbage-collected, silently killing the mining loop.
+    Fix: self._background_tasks.append(asyncio.create_task(...))
+    """
+
+    async def test_initialize_stores_background_task(self):
+        import asyncio
+        from unittest.mock import patch, AsyncMock, MagicMock
+        with patch('pathlib.Path.mkdir'), \
+             patch('pathlib.Path.exists', return_value=False), \
+             patch('blockchain_audit.BlockchainAuditManager._load_existing_blockchain', new_callable=AsyncMock), \
+             patch('blockchain_audit.BlockchainAuditManager._initialize_smart_contract', new_callable=AsyncMock), \
+             patch('blockchain_audit.BlockchainAuditManager._start_mining_process', return_value=asyncio.sleep(999)):
+            from blockchain_audit import BlockchainAuditManager
+            mgr = BlockchainAuditManager(audit_dir="/tmp/test_bc_task")
+            self.assertEqual(mgr._background_tasks, [])
+            await asyncio.wait_for(mgr.initialize(), timeout=2.0)
+            self.assertGreater(len(mgr._background_tasks), 0, "_background_tasks must be non-empty after initialize()")
+            # Clean up the tasks
+            for t in mgr._background_tasks:
+                t.cancel()
+                try:
+                    await t
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+
 if __name__ == '__main__':
     unittest.main()
