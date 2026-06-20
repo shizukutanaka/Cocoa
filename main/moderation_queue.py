@@ -134,6 +134,10 @@ class ModerationQueue:
                 raise ValueError("モデレーションアイテムが見つかりません")
             item.assigned_to = admin_id
             item.status = "in_review"
+            # Reopening a previously-closed item for review: it is no longer
+            # resolved, so clear the timestamp to keep resolved_at consistent
+            # with status (set iff the item is in a terminal state).
+            item.resolved_at = None
             item.updated_at = datetime.now(timezone.utc)
             return item
 
@@ -154,8 +158,10 @@ class ModerationQueue:
                 item.notes = notes.strip()[:2000]
             now = datetime.now(timezone.utc)
             item.updated_at = now
-            if status in ("resolved", "dismissed"):
-                item.resolved_at = now
+            # resolved_at tracks the terminal state exactly: set it when closing,
+            # clear it when reopening, so a pending/in_review item never carries
+            # a stale resolution timestamp.
+            item.resolved_at = now if status in ("resolved", "dismissed") else None
             return item
 
     def list_items(

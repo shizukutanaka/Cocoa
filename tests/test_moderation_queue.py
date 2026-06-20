@@ -86,6 +86,24 @@ class TestModerationQueue(unittest.TestCase):
         self.assertEqual(item.status, "dismissed")
         self.assertIsNotNone(item.resolved_at)
 
+    def test_reopen_via_update_status_clears_resolved_at(self):
+        # Closing then reopening must clear resolved_at so a pending/in_review
+        # item never carries a stale resolution timestamp.
+        item = self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
+        self.q.update_status(item.item_id, "resolved")
+        self.assertIsNotNone(item.resolved_at)
+        self.q.update_status(item.item_id, "pending")
+        self.assertEqual(item.status, "pending")
+        self.assertIsNone(item.resolved_at)
+
+    def test_assign_after_resolve_clears_resolved_at(self):
+        item = self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
+        self.q.update_status(item.item_id, "dismissed")
+        self.assertIsNotNone(item.resolved_at)
+        self.q.assign(item.item_id, "admin1")
+        self.assertEqual(item.status, "in_review")
+        self.assertIsNone(item.resolved_at)
+
     def test_update_status_invalid_raises(self):
         item = self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
         with self.assertRaises(ValueError):
