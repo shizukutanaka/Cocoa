@@ -190,6 +190,26 @@ class TestModerationQueue(unittest.TestCase):
             item = self.q.enqueue(kind, f"src{i}", "sub1", "u1", "test")
             self.assertEqual(item.kind, kind)
 
+    def test_list_items_serialized_status_matches_filter(self):
+        """Filtering and to_dict() must happen under the same lock; verify that
+        every serialized item's status is consistent with the filter applied."""
+        item = self.q.enqueue("listing_report", "r1", "l1", "u1", "spam")
+        self.q.update_status(item.item_id, "resolved")
+        result = self.q.list_items(status="pending")
+        for entry in result["items"]:
+            self.assertEqual(entry["status"], "pending")
+
+    def test_stats_open_count_consistent_with_pending_in_review(self):
+        """get_stats() must compute all counts inside the lock so 'open' equals
+        pending + in_review — a race between read and aggregation would corrupt this."""
+        i1 = self.q.enqueue("listing_report", "r1", "l1", "u1", "spam", priority="high")
+        i2 = self.q.enqueue("review_report", "r2", "rev1", "u2", "abuse")
+        self.q.assign(i2.item_id, "admin1")
+        stats = self.q.get_stats()
+        self.assertEqual(stats["open"], stats["pending"] + stats["in_review"])
+        self.assertEqual(stats["pending"], 1)
+        self.assertEqual(stats["in_review"], 1)
+
 
 class TestModerationQueuePaginationClamp(unittest.TestCase):
     def setUp(self):

@@ -174,28 +174,25 @@ class ModerationQueue:
         offset: int = 0,
         sort_by: str = "created_at",  # created_at | priority
     ) -> Dict[str, Any]:
+        priority_order = {"high": 0, "medium": 1, "low": 2}
         with self._lock:
             items = list(self._items.values())
-
-        if status:
-            items = [i for i in items if i.status == status]
-        if kind:
-            items = [i for i in items if i.kind == kind]
-        if priority:
-            items = [i for i in items if i.priority == priority]
-        if assigned_to is not None:
-            items = [i for i in items if i.assigned_to == assigned_to]
-
-        # Sort
-        priority_order = {"high": 0, "medium": 1, "low": 2}
-        if sort_by == "priority":
-            items.sort(key=lambda i: (priority_order.get(i.priority, 1), i.created_at))
-        else:
-            items.sort(key=lambda i: i.created_at, reverse=True)
-
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset: offset + limit]
+            if status:
+                items = [i for i in items if i.status == status]
+            if kind:
+                items = [i for i in items if i.kind == kind]
+            if priority:
+                items = [i for i in items if i.priority == priority]
+            if assigned_to is not None:
+                items = [i for i in items if i.assigned_to == assigned_to]
+            if sort_by == "priority":
+                items.sort(key=lambda i: (priority_order.get(i.priority, 1), i.created_at))
+            else:
+                items.sort(key=lambda i: i.created_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset: offset + limit]
+            serialized = [i.to_dict() for i in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -203,22 +200,22 @@ class ModerationQueue:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [i.to_dict() for i in page],
+            "items": serialized,
         }
 
     def get_stats(self) -> Dict[str, Any]:
         with self._lock:
             items = list(self._items.values())
-        pending = sum(1 for i in items if i.status == "pending")
-        in_review = sum(1 for i in items if i.status == "in_review")
-        resolved = sum(1 for i in items if i.status == "resolved")
-        dismissed = sum(1 for i in items if i.status == "dismissed")
-        by_kind: Dict[str, int] = {}
-        by_priority: Dict[str, int] = {}
-        for i in items:
-            if i.status in ("pending", "in_review"):
-                by_kind[i.kind] = by_kind.get(i.kind, 0) + 1
-                by_priority[i.priority] = by_priority.get(i.priority, 0) + 1
+            pending = sum(1 for i in items if i.status == "pending")
+            in_review = sum(1 for i in items if i.status == "in_review")
+            resolved = sum(1 for i in items if i.status == "resolved")
+            dismissed = sum(1 for i in items if i.status == "dismissed")
+            by_kind: Dict[str, int] = {}
+            by_priority: Dict[str, int] = {}
+            for i in items:
+                if i.status in ("pending", "in_review"):
+                    by_kind[i.kind] = by_kind.get(i.kind, 0) + 1
+                    by_priority[i.priority] = by_priority.get(i.priority, 0) + 1
         return {
             "total": len(items),
             "pending": pending,
