@@ -228,7 +228,7 @@ class TestModerationQueue(unittest.TestCase):
     def test_stats_open_count_consistent_with_pending_in_review(self):
         """get_stats() must compute all counts inside the lock so 'open' equals
         pending + in_review — a race between read and aggregation would corrupt this."""
-        i1 = self.q.enqueue("listing_report", "r1", "l1", "u1", "spam", priority="high")
+        self.q.enqueue("listing_report", "r1", "l1", "u1", "spam", priority="high")
         i2 = self.q.enqueue("review_report", "r2", "rev1", "u2", "abuse")
         self.q.assign(i2.item_id, "admin1")
         stats = self.q.get_stats()

@@ -243,6 +243,40 @@ class TestCommissionToDict(unittest.TestCase):
         self.assertEqual(d["status"], "pending")
 
 
+class TestCommissionQuota(unittest.TestCase):
+    def test_quota_blocks_at_limit(self):
+        store = CommissionStore()
+        from commissions import _MAX_COMMISSIONS_PER_USER
+        for i in range(_MAX_COMMISSIONS_PER_USER):
+            store.create(f"u1", "alice", f"creator{i}", "Title", "desc")
+        with self.assertRaises(ValueError):
+            store.create("u1", "alice", "creator_extra", "Title", "desc")
+
+    def test_quota_counts_accepted_commissions(self):
+        """Accepted commissions are still open — they must count against the cap.
+        A user should not bypass the limit by having all their commissions accepted."""
+        store = CommissionStore()
+        from commissions import _MAX_COMMISSIONS_PER_USER
+        # Create one pending commission and accept it, leaving the pending bucket empty
+        req = store.create("u1", "alice", "creator0", "Title", "desc")
+        store.respond("creator0", req.request_id, accept=True)
+        # Fill up to the limit with more pending ones (total open = accepted + pending)
+        for i in range(1, _MAX_COMMISSIONS_PER_USER):
+            store.create("u1", "alice", f"creator{i}", "Title", "desc")
+        # Now open count = 1 accepted + 99 pending = 100 = limit → should raise
+        with self.assertRaises(ValueError):
+            store.create("u1", "alice", "creator_extra", "Title", "desc")
+
+    def test_quota_per_user_independent(self):
+        store = CommissionStore()
+        from commissions import _MAX_COMMISSIONS_PER_USER
+        for i in range(_MAX_COMMISSIONS_PER_USER):
+            store.create("u1", "alice", f"creator{i}", "Title", "desc")
+        # A different requester is unaffected
+        r = store.create("u2", "bob", "creator0", "Title", "desc")
+        self.assertEqual(r.requester_id, "u2")
+
+
 class TestCommissionSingleton(unittest.TestCase):
     def test_singleton(self):
         a = get_commission_store()

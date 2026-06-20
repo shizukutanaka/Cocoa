@@ -93,7 +93,7 @@ class CommissionStore:
         with self._lock:
             open_count = sum(
                 1 for r in self._requests.values()
-                if r.requester_id == requester_id and r.status == "pending"
+                if r.requester_id == requester_id and r.status in ("pending", "accepted")
             )
             if open_count >= _MAX_COMMISSIONS_PER_USER:
                 raise ValueError(f"オープン中のコミッションが上限 ({_MAX_COMMISSIONS_PER_USER}) に達しています")

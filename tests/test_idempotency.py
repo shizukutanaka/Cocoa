@@ -31,7 +31,7 @@ class TestIdempotencyStore(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
 
     def test_replay_returns_original_result(self):
-        first = self.store.get_or_execute("u:k1", self._fn("first"))
+        self.store.get_or_execute("u:k1", self._fn("first"))
         second = self.store.get_or_execute("u:k1", self._fn("second"))
         # The cached first result is replayed, the second fn never runs.
         self.assertEqual(second["tag"], "first")

@@ -9,7 +9,6 @@ for _p in (str(ROOT), str(ROOT / "main")):
         sys.path.insert(0, _p)
 
 from membership_manager import (
-    TIERS,
     MembershipManager,
     MembershipRecord,
     MembershipStore,
