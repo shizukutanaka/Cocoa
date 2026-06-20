@@ -334,6 +334,22 @@ class TestAuthManager(unittest.TestCase):
         tokens = self.auth.login("alice", "NewPass456!")
         self.assertIsNotNone(tokens.access_token)
 
+    def test_reset_password_invalidates_prior_access_tokens(self):
+        """Tokens issued before a password reset must be rejected.
+
+        An attacker who steals a session can't keep it alive after the victim
+        resets their password — the iat/password_changed_at gate catches it."""
+        tokens = self.auth.login("alice", "Alice123!")
+        # Verify works before the reset
+        self.auth.verify_access_token(tokens.access_token)
+        # Reset password
+        reset_tok = self.auth.request_password_reset("alice@x.com")
+        self.auth.reset_password(reset_tok, "NewPass456!")
+        # The old access token must now be rejected
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.verify_access_token(tokens.access_token)
+        self.assertEqual(ctx.exception.code, "token_invalid")
+
     def test_password_reset_unknown_email(self):
         result = self.auth.request_password_reset("nobody@x.com")
         self.assertIsNone(result)
@@ -396,6 +412,19 @@ class TestChangePassword(unittest.TestCase):
         self.auth.change_password(self.user_id, "OldPass1!", "NewPass2@")
         with self.assertRaises(AuthError):
             self.auth.login("cpuser", "OldPass1!")
+
+    def test_change_password_invalidates_prior_access_tokens(self):
+        """Tokens issued before change_password must be rejected.
+
+        Closes the window where a stolen token survives a user's own password
+        change — after the change the attacker's session is immediately invalid."""
+        tokens = self.auth.login("cpuser", "OldPass1!")
+        auth2 = AuthManager(store=self.auth.store)
+        auth2.verify_access_token(tokens.access_token)  # valid before change
+        self.auth.change_password(self.user_id, "OldPass1!", "NewPass2@")
+        with self.assertRaises(AuthError) as ctx:
+            auth2.verify_access_token(tokens.access_token)
+        self.assertEqual(ctx.exception.code, "token_invalid")
 
     def test_nonexistent_user_raises(self):
         with self.assertRaises(AuthError) as ctx:

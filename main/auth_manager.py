@@ -122,6 +122,7 @@ class UserRecord:
     ban_reason: str = ""
     banned_at: Optional[datetime] = None
     banned_by: str = ""
+    pw_version: int = 0  # incremented on every password change/reset; included in JWTs
 
     def is_locked(self) -> bool:
         return bool(self.locked_until and datetime.now(timezone.utc) < self.locked_until)
@@ -224,7 +225,7 @@ def _decode_token(token: str) -> Dict[str, Any]:
     return payload
 
 
-def create_access_token(user_id: str, username: str, role: str, extra: Optional[Dict] = None) -> str:
+def create_access_token(user_id: str, username: str, role: str, extra: Optional[Dict] = None, pw_version: int = 0) -> str:
     now = datetime.now(timezone.utc)
     payload: Dict[str, Any] = {
         "sub": user_id,
@@ -234,6 +235,7 @@ def create_access_token(user_id: str, username: str, role: str, extra: Optional[
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=_ACCESS_TOKEN_EXPIRE_MINUTES)).timestamp()),
         "jti": secrets.token_hex(16),
+        "pwv": pw_version,
     }
     if extra:
         payload.update(extra)
@@ -606,7 +608,7 @@ class AuthManager:
         # Reset on success (atomic under the store lock).
         self.store.record_successful_login(user.user_id)
 
-        access = create_access_token(user.user_id, user.username, user.role)
+        access = create_access_token(user.user_id, user.username, user.role, pw_version=user.pw_version)
         refresh = create_refresh_token(user.user_id)
         logger.info("Login successful: %s", username)
         return TokenPair(access_token=access, refresh_token=refresh)
@@ -634,6 +636,12 @@ class AuthManager:
             raise AuthError("account_disabled", "アカウントが無効です")
         if user.is_banned:
             raise AuthError("account_banned", "アカウントが停止されています")
+        # Reject tokens whose embedded pw_version is stale.  When a user resets
+        # or changes their password the version increments, so any token minted
+        # before that event carries a lower version and is rejected immediately —
+        # a stolen session cannot survive a victim's password change.
+        if payload.get("pwv", 0) < user.pw_version:
+            raise AuthError("token_invalid", "パスワード変更後にトークンが無効化されました")
         # Override the JWT-embedded role with the live value from the store so
         # role changes (promotions and demotions) take effect immediately without
         # waiting for the token to expire.
@@ -656,7 +664,7 @@ class AuthManager:
         # new session, so a replayed/stolen token can't fork a second session.
         if not self.store.claim_jti_revocation(jti, exp=payload.get("exp")):
             raise AuthError("token_revoked", "リフレッシュトークンは無効化されました")
-        new_access = create_access_token(user.user_id, user.username, user.role)
+        new_access = create_access_token(user.user_id, user.username, user.role, pw_version=user.pw_version)
         new_refresh = create_refresh_token(user.user_id)
         return TokenPair(access_token=new_access, refresh_token=new_refresh)
 
@@ -679,6 +687,7 @@ class AuthManager:
             return False
         self._validate_password_strength(new_password)
         user.password_hash = hash_password(new_password)
+        user.pw_version += 1
         logger.info("Password reset for user_id: %s", user_id)
         return True
 
@@ -1122,6 +1131,7 @@ class AuthManager:
             raise AuthError("invalid_credentials", "現在のパスワードが正しくありません")
         self._validate_password_strength(new_password)
         user.password_hash = hash_password(new_password)
+        user.pw_version += 1
         logger.info("Password changed for user_id: %s", user_id)
 
     @staticmethod
