@@ -157,6 +157,27 @@ class TestCachedDecorator(unittest.TestCase):
         self.assertEqual(call_count[0], 1)
 
 
+    def test_cached_none_result_is_cached(self):
+        """A function returning None must be called only once; subsequent calls
+        must return the cached None without re-executing the function."""
+        import cache_manager
+        cache_manager._cache_manager = None  # fresh global
+        call_count = [0]
+
+        @cached()
+        def returns_none():
+            call_count[0] += 1
+            return None
+
+        r1 = returns_none()
+        r2 = returns_none()
+        r3 = returns_none()
+        self.assertIsNone(r1)
+        self.assertIsNone(r2)
+        self.assertIsNone(r3)
+        self.assertEqual(call_count[0], 1)
+
+
 class TestAsyncCachedDecorator(unittest.TestCase):
     def test_async_cached_is_not_coroutine(self):
         # async_cached() should be callable as a regular decorator, not needing await

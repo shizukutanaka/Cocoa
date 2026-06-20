@@ -278,6 +278,13 @@ def get_cache_manager() -> CacheManager:
     return _cache_manager
 
 
+# Sentinel that the cached() / async_cached() decorators store in the cache
+# when the wrapped function returns None.  Without this, a None return value
+# is indistinguishable from a cache miss (both make get() return None), so
+# the function would be called on every invocation instead of only once.
+_CACHED_NONE = object()
+
+
 def cached(ttl_seconds: int = 300, use_file_cache: bool = False):
     """キャッシュデコレーター"""
     def decorator(func: Callable) -> Callable:
@@ -287,11 +294,13 @@ def cached(ttl_seconds: int = 300, use_file_cache: bool = False):
             cache_key = cache_manager.memory_cache._get_cache_key(func, args, kwargs)
 
             cached_result = cache_manager.get(cache_key)
+            if cached_result is _CACHED_NONE:
+                return None
             if cached_result is not None:
                 return cached_result
 
             result = func(*args, **kwargs)
-            cache_manager.set(cache_key, result, use_file_cache)
+            cache_manager.set(cache_key, _CACHED_NONE if result is None else result, use_file_cache)
             return result
 
         return wrapper
@@ -436,11 +445,13 @@ def async_cached(ttl_seconds: int = 300, use_file_cache: bool = False):
                 cache_key = cache_manager.memory_cache._get_cache_key(func, args, kwargs)
 
                 cached_result = cache_manager.get(cache_key)
+                if cached_result is _CACHED_NONE:
+                    return None
                 if cached_result is not None:
                     return cached_result
 
                 result = await func(*args, **kwargs)
-                cache_manager.set(cache_key, result, use_file_cache)
+                cache_manager.set(cache_key, _CACHED_NONE if result is None else result, use_file_cache)
                 return result
             return cached(ttl_seconds, use_file_cache)(func)(*args, **kwargs)
 
