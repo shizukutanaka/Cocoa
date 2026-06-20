@@ -161,12 +161,13 @@ class MembershipStore:
     ) -> Dict[str, Any]:
         with self._lock:
             records = list(self._records.values())
-        if tier:
-            records = [r for r in records if r.tier == tier]
-        records.sort(key=lambda r: r.lifetime_credits, reverse=True)
-        total = len(records)
-        offset, limit = normalize_pagination(offset, limit)
-        page = records[offset: offset + limit]
+            if tier:
+                records = [r for r in records if r.tier == tier]
+            records.sort(key=lambda r: r.lifetime_credits, reverse=True)
+            total = len(records)
+            offset, limit = normalize_pagination(offset, limit)
+            page = records[offset: offset + limit]
+            serialized = [r.to_dict() for r in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -174,15 +175,15 @@ class MembershipStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [r.to_dict() for r in page],
+            "items": serialized,
         }
 
     def get_tier_distribution(self) -> Dict[str, int]:
         with self._lock:
             records = list(self._records.values())
-        dist: Dict[str, int] = {t[0]: 0 for t in TIERS}
-        for r in records:
-            dist[r.tier] = dist.get(r.tier, 0) + 1
+            dist: Dict[str, int] = {t[0]: 0 for t in TIERS}
+            for r in records:
+                dist[r.tier] = dist.get(r.tier, 0) + 1
         return dist
 
 
