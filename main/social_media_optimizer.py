@@ -407,25 +407,23 @@ class SocialMediaOptimizer:
             results = {}
 
             # 各プラットフォーム向けに並列処理
-            tasks = []
-            for platform_id in request.platforms:
-                if platform_id in self.platform_specs:
-                    task = self._optimize_single_platform(
-                        request.video_path, platform_id, request.priority, request.custom_settings
-                    )
-                    tasks.append(task)
+            supported_platforms = [pid for pid in request.platforms if pid in self.platform_specs]
+            tasks = [
+                self._optimize_single_platform(
+                    request.video_path, pid, request.priority, request.custom_settings
+                )
+                for pid in supported_platforms
+            ]
 
             # 並列実行
             platform_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # 結果集約
-            for i, platform_id in enumerate(request.platforms):
-                if platform_id in self.platform_specs:
-                    result = platform_results[i]
-                    if isinstance(result, Exception):
-                        results[platform_id] = {"success": False, "error": str(result)}
-                    else:
-                        results[platform_id] = result
+            # 結果集約 — zip so indices always match (supported_platforms[i] == tasks[i])
+            for platform_id, result in zip(supported_platforms, platform_results):
+                if isinstance(result, Exception):
+                    results[platform_id] = {"success": False, "error": str(result)}
+                else:
+                    results[platform_id] = result
 
             return OptimizationResult(
                 success=True,

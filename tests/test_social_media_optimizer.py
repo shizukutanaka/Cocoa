@@ -136,5 +136,81 @@ class TestEncodingPresetFallback(unittest.TestCase):
         self.assertEqual(preset.fps, 30)
 
 
+class TestOptimizeForPlatformsUnsupportedPlatform(unittest.IsolatedAsyncioTestCase):
+    """optimize_for_platforms must not IndexError when unsupported platforms are mixed in.
+
+    Bug: tasks[] was built only for supported platforms, but results were
+    indexed by enumerate(request.platforms) which included unsupported ids,
+    causing platform_results[i] to go out of bounds.
+    Fix: build supported_platforms list first, then zip() with platform_results.
+    """
+
+    def _make_optimizer(self):
+        from social_media_optimizer import SocialMediaOptimizer
+        opt = SocialMediaOptimizer.__new__(SocialMediaOptimizer)
+        opt.initialized = True
+        opt.platform_specs = {}
+        opt.output_dir = __import__('pathlib').Path('/tmp')
+        opt.video_encoder = None
+        return opt
+
+    async def test_unsupported_platform_does_not_crash(self):
+        import asyncio
+        from social_media_optimizer import OptimizationRequest, SocialMediaOptimizer
+        opt = self._make_optimizer()
+        # Only youtube is "supported"
+        from social_media_optimizer import PlatformSpec
+        opt.platform_specs = {
+            "youtube": PlatformSpec(
+                platform_id="youtube", name="YouTube",
+                max_duration=43200, max_file_size=128000,
+                resolutions=[(1920, 1080)], aspect_ratios=["16:9"],
+                video_codecs=["libx264"], audio_codecs=["aac"],
+                frame_rates=[30], bitrates={"1080p": "8000k"},
+            )
+        }
+        opt.initialized = False
+
+        async def fake_init():
+            opt.initialized = True
+
+        opt.initialize = fake_init
+
+        async def fake_optimize(video_path, pid, priority, custom):
+            return {"success": True, "output_path": "/tmp/out.mp4",
+                    "thumbnail_path": None, "file_size": 0,
+                    "compression_ratio": 1.0, "quality_score": 1.0,
+                    "platform_spec": {}}
+
+        opt._optimize_single_platform = fake_optimize
+
+        req = OptimizationRequest(
+            video_path="/tmp/test.mp4",
+            platforms=["unsupported_xyz", "youtube", "another_bad"],
+        )
+        result = await opt.optimize_for_platforms(req)
+        # Should succeed, only youtube in optimized_videos
+        self.assertTrue(result.success)
+        self.assertIn("youtube", result.metadata["platform_results"])
+        self.assertNotIn("unsupported_xyz", result.metadata["platform_results"])
+
+    async def test_all_unsupported_returns_empty_success(self):
+        from social_media_optimizer import OptimizationRequest
+        opt = self._make_optimizer()
+
+        async def fake_init():
+            pass
+
+        opt.initialize = fake_init
+
+        req = OptimizationRequest(
+            video_path="/tmp/test.mp4",
+            platforms=["fake1", "fake2"],
+        )
+        result = await opt.optimize_for_platforms(req)
+        self.assertTrue(result.success)
+        self.assertEqual(result.metadata["successful_optimizations"], 0)
+
+
 if __name__ == '__main__':
     unittest.main()
