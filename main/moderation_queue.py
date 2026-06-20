@@ -106,8 +106,15 @@ class ModerationQueue:
             raise ValueError(f"Invalid priority: {priority}")
 
         with self._lock:
-            if source_id in self._by_source:
-                return self._items[self._by_source[source_id]]
+            existing_id = self._by_source.get(source_id)
+            if existing_id is not None:
+                existing = self._items.get(existing_id)
+                # Only dedup against a still-OPEN report. If the prior report for
+                # this source was already resolved/dismissed, a new complaint must
+                # re-enter the queue — otherwise re-posted or re-offending content
+                # whose first report was actioned could never be flagged again.
+                if existing is not None and existing.status in ("pending", "in_review"):
+                    return existing
 
             item = ModerationItem(
                 item_id=secrets.token_hex(8),
@@ -120,6 +127,8 @@ class ModerationQueue:
                 priority=priority,
             )
             self._items[item.item_id] = item
+            # Repoint the source index to the newest item; the prior (terminal)
+            # item remains in _items for audit history, just no longer "current".
             self._by_source[source_id] = item.item_id
             return item
 

@@ -46,6 +46,32 @@ class TestModerationQueue(unittest.TestCase):
         item2 = self.q.enqueue("listing_report", "rep1", "lst2", "u2", "different")
         self.assertEqual(item1.item_id, item2.item_id)
 
+    def test_enqueue_after_resolve_creates_new_item(self):
+        # A new report for a source whose prior report was RESOLVED must create a
+        # fresh open item (re-posted/re-offending content can be flagged again),
+        # not silently return the closed one.
+        item1 = self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
+        self.q.update_status(item1.item_id, "resolved")
+        item2 = self.q.enqueue("listing_report", "rep1", "lst1", "u2", "spam again")
+        self.assertNotEqual(item1.item_id, item2.item_id)
+        self.assertEqual(item2.status, "pending")
+        # The source index now points at the fresh item.
+        self.assertEqual(self.q.get(item2.item_id).source_id, "rep1")
+
+    def test_enqueue_after_dismiss_creates_new_item(self):
+        item1 = self.q.enqueue("listing_report", "rep2", "lst9", "u1", "noise")
+        self.q.update_status(item1.item_id, "dismissed")
+        item2 = self.q.enqueue("listing_report", "rep2", "lst9", "u3", "back again")
+        self.assertNotEqual(item1.item_id, item2.item_id)
+        self.assertEqual(item2.status, "pending")
+
+    def test_enqueue_dedup_while_in_review(self):
+        # An in-review (still open) item must still dedup.
+        item1 = self.q.enqueue("listing_report", "rep3", "lst3", "u1", "spam")
+        self.q.assign(item1.item_id, "admin1")  # → in_review
+        item2 = self.q.enqueue("listing_report", "rep3", "lst3", "u2", "dup")
+        self.assertEqual(item1.item_id, item2.item_id)
+
     def test_enqueue_invalid_kind_raises(self):
         with self.assertRaises(ValueError):
             self.q.enqueue("bad_kind", "s1", "sub1", "u1", "reason")
