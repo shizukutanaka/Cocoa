@@ -153,6 +153,46 @@ class TestInteractiveAvatarClass(unittest.TestCase):
             )
 
 
+class TestCleanupInactiveClientsTotalSeconds(unittest.IsolatedAsyncioTestCase):
+    """_cleanup_inactive_clients must use total_seconds() not .seconds.
+
+    Bug: `(now - last_activity).seconds > 300` wraps at 60 seconds:
+    a client inactive for 5m5s would have .seconds == 305 (ok), but one
+    inactive for 1h5s would have .seconds == 5 and NOT be evicted.
+    Fix: use .total_seconds() so the full elapsed duration is compared.
+    """
+
+    def _make_avatar(self):
+        avatar = ia.InteractiveAvatar.__new__(ia.InteractiveAvatar)
+        avatar.avatar_id = "test"
+        avatar.connected_clients = {}
+        return avatar
+
+    async def test_client_inactive_over_one_hour_is_evicted(self):
+        from datetime import datetime, timedelta, timezone
+        avatar = self._make_avatar()
+        stale_time = datetime.now(timezone.utc) - timedelta(hours=1, seconds=5)
+        avatar.connected_clients["stale"] = {"last_activity": stale_time}
+        await avatar._cleanup_inactive_clients()
+        self.assertNotIn("stale", avatar.connected_clients)
+
+    async def test_client_inactive_5_minutes_is_evicted(self):
+        from datetime import datetime, timedelta, timezone
+        avatar = self._make_avatar()
+        stale_time = datetime.now(timezone.utc) - timedelta(seconds=301)
+        avatar.connected_clients["stale"] = {"last_activity": stale_time}
+        await avatar._cleanup_inactive_clients()
+        self.assertNotIn("stale", avatar.connected_clients)
+
+    async def test_recently_active_client_is_kept(self):
+        from datetime import datetime, timedelta, timezone
+        avatar = self._make_avatar()
+        active_time = datetime.now(timezone.utc) - timedelta(seconds=60)
+        avatar.connected_clients["active"] = {"last_activity": active_time}
+        await avatar._cleanup_inactive_clients()
+        self.assertIn("active", avatar.connected_clients)
+
+
 class TestModuleFunctions(unittest.TestCase):
 
     def test_list_interactive_avatars_returns_list(self):

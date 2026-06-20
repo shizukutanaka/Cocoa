@@ -418,7 +418,7 @@ class InteractiveAvatar:
 
         for client_id, client_info in self.connected_clients.items():
             last_activity = client_info["last_activity"]
-            if (current_time - last_activity).seconds > 300:  # 5分以上非アクティブ
+            if (current_time - last_activity).total_seconds() > 300:  # 5分以上非アクティブ
                 inactive_clients.append(client_id)
 
         for client_id in inactive_clients:
