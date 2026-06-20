@@ -123,14 +123,17 @@ class GlobalEdgeManager:
         self.average_latency_ms = 0
         self.optimized_routes = 0
 
+        # バックグラウンドタスク参照（GC防止）
+        self._background_tasks: list = []
+
         logger.info("Global Edge Manager initialized")
 
     async def initialize(self):
         """グローバルエッジマネージャーの初期化"""
         await self._initialize_edge_nodes()
         await self._load_traffic_routes()
-        asyncio.create_task(self._start_health_monitoring())
-        asyncio.create_task(self._start_analytics_collection())
+        self._background_tasks.append(asyncio.create_task(self._start_health_monitoring()))
+        self._background_tasks.append(asyncio.create_task(self._start_analytics_collection()))
 
     async def _initialize_edge_nodes(self):
         """エッジノードを初期化"""

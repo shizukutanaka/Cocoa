@@ -130,6 +130,9 @@ class AgenticAIManager:
         # 予測モデル
         self.action_predictor: Dict[str, Any] = {}
 
+        # バックグラウンドタスク参照（GC防止）
+        self._background_tasks: list = []
+
         logger.info("Agentic AI Manager initialized")
 
     async def initialize(self):
@@ -138,7 +141,7 @@ class AgenticAIManager:
         await self._load_default_task_templates()
 
         # 環境監視開始（バックグラウンドタスクとして起動）
-        asyncio.create_task(self._start_environment_monitoring())
+        self._background_tasks.append(asyncio.create_task(self._start_environment_monitoring()))
 
         # 予測モデルの初期化
         await self._initialize_prediction_model()

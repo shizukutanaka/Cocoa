@@ -1235,6 +1235,9 @@ class HybridSystemManager:
             "gcp": {"regions": ["us-central1", "us-west1", "europe-west1"], "base_cost": 0.045}
         }
 
+        # バックグラウンドタスク参照（GC防止）
+        self._background_tasks: list = []
+
         logger.info("Hybrid System Manager initialized")
 
     def _get_local_resources(self) -> Dict[str, Any]:
@@ -1255,7 +1258,7 @@ class HybridSystemManager:
         """ハイブリッドシステムの初期化"""
         await self._discover_cloud_resources()
         await self._optimize_initial_allocation()
-        asyncio.create_task(self._start_energy_monitoring())
+        self._background_tasks.append(asyncio.create_task(self._start_energy_monitoring()))
 
     async def _discover_cloud_resources(self):
         """クラウドリソースを検出"""

@@ -126,13 +126,16 @@ class ARCloudManager:
         self.total_content = 0
         self.data_processed_mb = 0
 
+        # バックグラウンドタスク参照（GC防止）
+        self._background_tasks: list = []
+
         logger.info("AR Cloud Manager initialized")
 
     async def initialize(self):
         """ARクラウドマネージャーの初期化"""
         await self._load_existing_maps()
         await self._initialize_spatial_system()
-        asyncio.create_task(self._start_maintenance_tasks())
+        self._background_tasks.append(asyncio.create_task(self._start_maintenance_tasks()))
 
     async def _load_existing_maps(self):
         """既存のARマップを読み込み"""

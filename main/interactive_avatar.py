@@ -82,6 +82,9 @@ class InteractiveAvatar:
         self.websocket_server = None
         self.server_thread = None
 
+        # バックグラウンドタスク参照（GC防止）
+        self._background_tasks: list = []
+
         logger.info(f"Interactive Avatar {avatar_id} initialized")
 
     async def initialize(self):
@@ -127,7 +130,7 @@ class InteractiveAvatar:
             logger.info(f"Interactive Avatar server started on {host}:{port}")
 
             # メッセージ処理ループを開始
-            asyncio.create_task(self._process_messages())
+            self._background_tasks.append(asyncio.create_task(self._process_messages()))
 
             return True
 
