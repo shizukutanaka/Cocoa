@@ -336,7 +336,7 @@ class ConnectionManager:
     async def broadcast(self, message: str):
         """全接続にメッセージをブロードキャスト"""
         disconnected = []
-        for connection in self.active_connections:
+        for connection in list(self.active_connections):  # snapshot: disconnect() may run at each await
             try:
                 await connection.send_text(message)
             except Exception as e:

@@ -121,6 +121,27 @@ class TestConnectionManager(unittest.TestCase):
         self.assertNotIn(ws_bad, self.manager.active_connections)
         self.assertIn(ws_good, self.manager.active_connections)
 
+    def test_broadcast_tolerates_concurrent_disconnect(self):
+        """broadcast must snapshot active_connections so a disconnect mid-send doesn't crash.
+
+        Bug: iterating self.active_connections directly while await send_text() yields
+        allows a concurrent disconnect() to remove an item, raising RuntimeError.
+        Fix: iterate list(self.active_connections) — a snapshot taken before the loop.
+        """
+        manager = self.manager
+
+        async def send_that_disconnects(msg):
+            # Simulate another connection being removed while we are mid-broadcast
+            if manager.active_connections:
+                manager.active_connections.pop()
+
+        ws1 = AsyncMock()
+        ws2 = AsyncMock()
+        ws1.send_text = send_that_disconnects
+        manager.active_connections = [ws1, ws2]
+        # Must not raise RuntimeError: list changed size during iteration
+        asyncio.run(manager.broadcast("test"))
+
 
 class TestModuleConstants(unittest.TestCase):
 
