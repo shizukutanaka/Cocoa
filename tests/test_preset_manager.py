@@ -49,6 +49,54 @@ class TestPresetManagerBasic(unittest.TestCase):
                 mgr.delete_preset("phantom")
 
 
+class TestPresetManagerPathTraversal(unittest.TestCase):
+    def test_save_path_traversal_raises(self):
+        from preset_manager import PresetError
+        with tempfile.TemporaryDirectory() as d:
+            mgr = make_manager(d)
+            with self.assertRaises(PresetError):
+                mgr.save_preset("../evil", {"key": "val"})
+
+    def test_delete_path_traversal_raises(self):
+        from preset_manager import PresetError
+        with tempfile.TemporaryDirectory() as d:
+            mgr = make_manager(d)
+            with self.assertRaises(PresetError):
+                mgr.delete_preset("../../etc/passwd")
+
+    def test_nested_traversal_raises(self):
+        from preset_manager import PresetError
+        with tempfile.TemporaryDirectory() as d:
+            mgr = make_manager(d)
+            with self.assertRaises(PresetError):
+                mgr.save_preset("subdir/../../escape", {"x": 1})
+
+
+class TestPresetIndexStaleness(unittest.TestCase):
+    def test_resave_clears_old_tag_from_index(self):
+        """Updating a preset with different tags must remove the old tags from
+        the search index — stale entries cause false positives in search."""
+        with tempfile.TemporaryDirectory() as d:
+            mgr = make_manager(d)
+            mgr.save_preset("p1", {"tags": ["old_tag"]})
+            self.assertIn("p1", mgr.search_presets("old_tag"))
+            # Re-save with a completely different tag set
+            mgr.save_preset("p1", {"tags": ["new_tag"]})
+            self.assertNotIn("p1", mgr.search_presets("old_tag"))
+            self.assertIn("p1", mgr.search_presets("new_tag"))
+
+    def test_resave_clears_old_param_from_index(self):
+        """Updating a preset with different parameters must not leave old
+        parameter names as search hits."""
+        with tempfile.TemporaryDirectory() as d:
+            mgr = make_manager(d)
+            mgr.save_preset("p1", {"parameters": {"blue_eyes": 0.5}, "tags": []})
+            self.assertIn("p1", mgr.search_presets("blue_eyes"))
+            mgr.save_preset("p1", {"parameters": {"red_eyes": 0.5}, "tags": []})
+            self.assertNotIn("p1", mgr.search_presets("blue_eyes"))
+            self.assertIn("p1", mgr.search_presets("red_eyes"))
+
+
 class TestPresetManagerSearch(unittest.TestCase):
     def test_search_by_tag(self):
         with tempfile.TemporaryDirectory() as d:

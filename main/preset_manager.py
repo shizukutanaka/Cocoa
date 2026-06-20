@@ -79,15 +79,22 @@ class PresetManager:
         if not query:
             return list(self.presets.keys())
 
-        # パラメータ名による検索
+        q = query.lower()
         matching_presets = set()
+
+        # パラメータ名による検索
         for param_name in self._index:
-            if query.lower() in param_name.lower():
+            if q in param_name.lower():
                 matching_presets.update(self._index[param_name])
+
+        # タグによる検索 (_tags_index was built but previously not queried)
+        for tag_name in self._tags_index:
+            if q in tag_name.lower():
+                matching_presets.update(self._tags_index[tag_name])
 
         # プリセット名による検索
         for preset_name in self.presets:
-            if query.lower() in preset_name.lower():
+            if q in preset_name.lower():
                 matching_presets.add(preset_name)
 
         return list(matching_presets)
@@ -116,19 +123,35 @@ class PresetManager:
                 results[preset_name] = False
         return results
 
+    def _safe_preset_path(self, preset_name: str) -> Path:
+        """Return the resolved Path for preset_name, raising PresetError if it
+        would escape preset_dir (path-traversal guard)."""
+        candidate = (self.preset_dir / f"{preset_name}.json").resolve()
+        try:
+            candidate.relative_to(self.preset_dir.resolve())
+        except ValueError:
+            raise PresetError(f"無効なプリセット名です: {preset_name}")
+        return candidate
+
     def save_preset(self, preset_name: str, preset_data: Dict[str, Any]) -> None:
         """Save a new or updated preset"""
         try:
             # Validate data
             self._validate_preset(preset_data)
 
+            # Guard against path traversal
+            preset_file = self._safe_preset_path(preset_name)
+
             # Create preset directory if needed
             self.preset_dir.mkdir(parents=True, exist_ok=True)
 
             # Save preset
-            preset_file = self.preset_dir / f"{preset_name}.json"
             with open(preset_file, 'w', encoding='utf-8') as f:
                 json.dump(preset_data, f, ensure_ascii=False, indent=2)
+
+            # Remove stale index entries before adding new ones
+            if preset_name in self.presets:
+                self._remove_from_index(preset_name, self.presets[preset_name])
 
             # Update cache and index
             self.presets[preset_name] = preset_data
@@ -143,7 +166,7 @@ class PresetManager:
     def delete_preset(self, preset_name: str) -> None:
         """Delete a preset"""
         try:
-            preset_file = self.preset_dir / f"{preset_name}.json"
+            preset_file = self._safe_preset_path(preset_name)
             if preset_file.exists():
                 preset_file.unlink()
                 self.logger.info(f"Deleted preset: {preset_name}")
