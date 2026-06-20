@@ -219,6 +219,34 @@ class TestBrowsePublic(unittest.TestCase):
         result = self.store.browse_public(query="zzznomatch")
         self.assertEqual(result["total"], 0)
 
+    def test_browse_public_items_are_all_public(self):
+        """Every item in browse_public results must have is_public=True serialized."""
+        result = self.store.browse_public()
+        for item in result["items"]:
+            self.assertTrue(item["is_public"])
+
+
+class TestGetPublicConsistency(unittest.TestCase):
+    """get_public() must hold the lock when reading is_public / owner_id."""
+
+    def setUp(self):
+        self.store = CollectionStore()
+        self.col = self.store.create("u1", "Collection", is_public=False)
+
+    def test_get_public_private_as_owner_returns_collection(self):
+        result = self.store.get_public(self.col.collection_id, "u1")
+        self.assertIsNotNone(result)
+
+    def test_get_public_private_as_stranger_returns_none(self):
+        result = self.store.get_public(self.col.collection_id, "u2")
+        self.assertIsNone(result)
+
+    def test_get_public_after_visibility_change_reflects_update(self):
+        """get_public() must see the current is_public value."""
+        self.store.update(self.col.collection_id, "u1", is_public=True)
+        result = self.store.get_public(self.col.collection_id, "u2")
+        self.assertIsNotNone(result)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

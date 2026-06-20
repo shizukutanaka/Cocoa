@@ -133,19 +133,20 @@ class CollectionStore:
         """List a user's collections. If requester != owner, only public ones."""
         with self._lock:
             cols = [c for c in self._collections.values() if c.owner_id == owner_id]
-        if requester_id != owner_id:
-            cols = [c for c in cols if c.is_public]
-        cols.sort(key=lambda c: c.updated_at, reverse=True)
-        return [c.to_dict() for c in cols]
+            if requester_id != owner_id:
+                cols = [c for c in cols if c.is_public]
+            cols.sort(key=lambda c: c.updated_at, reverse=True)
+            return [c.to_dict() for c in cols]
 
     def get_public(self, collection_id: str, requester_id: Optional[str] = None) -> Optional[Collection]:
         """Return a collection only if public or owned by requester."""
-        col = self._collections.get(collection_id)
-        if not col:
+        with self._lock:
+            col = self._collections.get(collection_id)
+            if not col:
+                return None
+            if col.is_public or col.owner_id == requester_id:
+                return col
             return None
-        if col.is_public or col.owner_id == requester_id:
-            return col
-        return None
 
     def browse_public(
         self,
@@ -156,13 +157,14 @@ class CollectionStore:
         """Return paginated public collections, optionally filtered by name/description query."""
         with self._lock:
             items = [c for c in self._collections.values() if c.is_public]
-        if query:
-            q = query.lower()
-            items = [c for c in items if q in c.name.lower() or q in c.description.lower()]
-        items.sort(key=lambda c: c.updated_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset : offset + limit]
+            if query:
+                q = query.lower()
+                items = [c for c in items if q in c.name.lower() or q in c.description.lower()]
+            items.sort(key=lambda c: c.updated_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset : offset + limit]
+            serialized = [c.to_dict() for c in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -170,17 +172,17 @@ class CollectionStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [c.to_dict() for c in page],
+            "items": serialized,
         }
 
     def stats(self) -> Dict[str, Any]:
         with self._lock:
             cols = list(self._collections.values())
-        return {
-            "total_collections": len(cols),
-            "public_collections": sum(1 for c in cols if c.is_public),
-            "total_items": sum(len(c.item_ids) for c in cols),
-        }
+            return {
+                "total_collections": len(cols),
+                "public_collections": sum(1 for c in cols if c.is_public),
+                "total_items": sum(len(c.item_ids) for c in cols),
+            }
 
     # --- internal ---
     def _require_owned(self, collection_id: str, requester_id: str) -> Collection:

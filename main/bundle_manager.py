@@ -161,11 +161,12 @@ class BundleStore:
         with self._lock:
             ids = list(reversed(self._creator_bundles.get(creator_id, [])))
             bundles = [self._bundles[i] for i in ids if i in self._bundles]
-        if not include_inactive:
-            bundles = [b for b in bundles if b.is_active]
-        total = len(bundles)
-        offset, limit = normalize_pagination(offset, limit)
-        page = bundles[offset: offset + limit]
+            if not include_inactive:
+                bundles = [b for b in bundles if b.is_active]
+            total = len(bundles)
+            offset, limit = normalize_pagination(offset, limit)
+            page = bundles[offset: offset + limit]
+            serialized = [b.to_dict() for b in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -173,16 +174,17 @@ class BundleStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [b.to_dict() for b in page],
+            "items": serialized,
         }
 
     def list_active(self, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
         with self._lock:
             bundles = [b for b in self._bundles.values() if b.is_active]
-        bundles.sort(key=lambda b: b.created_at, reverse=True)
-        total = len(bundles)
-        offset, limit = normalize_pagination(offset, limit)
-        page = bundles[offset: offset + limit]
+            bundles.sort(key=lambda b: b.created_at, reverse=True)
+            total = len(bundles)
+            offset, limit = normalize_pagination(offset, limit)
+            page = bundles[offset: offset + limit]
+            serialized = [b.to_dict() for b in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -190,7 +192,7 @@ class BundleStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [b.to_dict() for b in page],
+            "items": serialized,
         }
 
 

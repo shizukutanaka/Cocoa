@@ -81,10 +81,11 @@ class WishlistStore:
     def get_wishlist(self, user_id: str, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
         with self._lock:
             items = list(self._wishlists.get(user_id, {}).values())
-        items.sort(key=lambda x: x.added_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset: offset + limit]
+            items.sort(key=lambda x: x.added_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset: offset + limit]
+            serialized = [i.to_dict() for i in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -92,7 +93,7 @@ class WishlistStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [i.to_dict() for i in page],
+            "items": serialized,
         }
 
     def get_wishlisters(self, listing_id: str) -> List[str]:
