@@ -151,9 +151,9 @@ class ReferralStore:
         with self._lock:
             ids = self._referrer_records.get(referrer_id, [])
             records = [self._records[i] for i in ids if i in self._records]
-        total = len(records)
-        converted = sum(1 for r in records if r.status == "converted")
-        total_bonus = sum(r.bonus_awarded for r in records)
+            total = len(records)
+            converted = sum(1 for r in records if r.status == "converted")
+            total_bonus = sum(r.bonus_awarded for r in records)
         return {
             "referrer_id": referrer_id,
             "total_referrals": total,

@@ -252,6 +252,17 @@ class TestReferralManager(unittest.TestCase):
         self.assertIsNotNone(info)
         self.assertEqual(info["referrer_id"], "ref1")
 
+    def test_stats_consistent_after_conversion(self):
+        """Stats must see converted status and bonus_awarded atomically."""
+        code = self.mgr.get_my_code("ref1")
+        self.mgr.apply_referral_code("new1", code)
+        self.mgr.on_first_purchase("new1", self.mp)
+        stats = self.mgr.get_my_stats("ref1")
+        self.assertEqual(stats["total_referrals"], 1)
+        self.assertEqual(stats["converted"], 1)
+        self.assertEqual(stats["pending"], 0)
+        self.assertEqual(stats["total_bonus_earned"], REFERRAL_BONUS_CREDITS)
+
 
 class TestReferralSingleton(unittest.TestCase):
     def test_singleton(self):
