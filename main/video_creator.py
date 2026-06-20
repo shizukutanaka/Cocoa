@@ -576,13 +576,16 @@ class VideoCreator:
 
 # グローバルインスタンス管理
 _video_creator_instance = None
+_video_creator_instance_lock = asyncio.Lock()
 
 async def get_video_creator() -> VideoCreator:
     """動画作成器のインスタンスを取得"""
     global _video_creator_instance
 
     if _video_creator_instance is None:
-        _video_creator_instance = VideoCreator()
-        await _video_creator_instance.initialize()
+        async with _video_creator_instance_lock:
+            if _video_creator_instance is None:
+                _video_creator_instance = VideoCreator()
+                await _video_creator_instance.initialize()
 
     return _video_creator_instance

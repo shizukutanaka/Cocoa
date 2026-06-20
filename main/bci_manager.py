@@ -4,6 +4,7 @@ Brain-Computer Interface Manager for Cocoa
 次世代入力デバイスに対応したBCIシステム
 """
 
+import asyncio
 import json
 import logging
 import queue
@@ -734,13 +735,16 @@ class BCIManager:
 
 # グローバルインスタンス
 _bci_manager = None
+_bci_manager_lock = asyncio.Lock()
 
 async def get_bci_manager() -> BCIManager:
     """BCIマネージャーのインスタンスを取得"""
     global _bci_manager
 
     if _bci_manager is None:
-        _bci_manager = BCIManager()
-        await _bci_manager.initialize()
+        async with _bci_manager_lock:
+            if _bci_manager is None:
+                _bci_manager = BCIManager()
+                await _bci_manager.initialize()
 
     return _bci_manager

@@ -778,13 +778,16 @@ class ARCloudManager:
 
 # グローバルインスタンス
 _ar_cloud_manager = None
+_ar_cloud_manager_lock = asyncio.Lock()
 
 async def get_ar_cloud_manager() -> ARCloudManager:
     """ARクラウドマネージャーのインスタンスを取得"""
     global _ar_cloud_manager
 
     if _ar_cloud_manager is None:
-        _ar_cloud_manager = ARCloudManager()
-        await _ar_cloud_manager.initialize()
+        async with _ar_cloud_manager_lock:
+            if _ar_cloud_manager is None:
+                _ar_cloud_manager = ARCloudManager()
+                await _ar_cloud_manager.initialize()
 
     return _ar_cloud_manager

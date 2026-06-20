@@ -1547,13 +1547,16 @@ class HybridSystemManager:
 
 # グローバルインスタンス
 _hybrid_system_manager = None
+_hybrid_system_manager_lock = asyncio.Lock()
 
 async def get_hybrid_system_manager() -> HybridSystemManager:
     """ハイブリッドシステムマネージャーのインスタンスを取得"""
     global _hybrid_system_manager
 
     if _hybrid_system_manager is None:
-        _hybrid_system_manager = HybridSystemManager()
-        await _hybrid_system_manager.initialize()
+        async with _hybrid_system_manager_lock:
+            if _hybrid_system_manager is None:
+                _hybrid_system_manager = HybridSystemManager()
+                await _hybrid_system_manager.initialize()
 
     return _hybrid_system_manager

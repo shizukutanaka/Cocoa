@@ -5,6 +5,7 @@ Provides encryption (AES-256-GCM), security auditing, input validation,
 behavioral anomaly detection and zero-trust session management.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -1550,14 +1551,19 @@ class AISecurityManager:
 
 # グローバルインスタンス
 _ai_security_manager = None
+_ai_security_manager_lock = asyncio.Lock()
 
 async def get_ai_security_manager() -> AISecurityManager:
     """AIセキュリティマネージャーのインスタンスを取得"""
     global _ai_security_manager
 
     if _ai_security_manager is None:
-        _ai_security_manager = AISecurityManager()
-        await _ai_security_manager.initialize()
+        async with _ai_security_manager_lock:
+            if _ai_security_manager is None:
+                _ai_security_manager = AISecurityManager()
+                await _ai_security_manager.initialize()
+
+    return _ai_security_manager
 
 class QuantumSafeManager:
     """
@@ -1985,13 +1991,16 @@ class QuantumSafeManager:
 
 # グローバルインスタンス
 _quantum_safe_manager = None
+_quantum_safe_manager_lock = asyncio.Lock()
 
 async def get_quantum_safe_manager() -> QuantumSafeManager:
     """量子安全マネージャーのインスタンスを取得"""
     global _quantum_safe_manager
 
     if _quantum_safe_manager is None:
-        _quantum_safe_manager = QuantumSafeManager()
-        await _quantum_safe_manager.initialize()
+        async with _quantum_safe_manager_lock:
+            if _quantum_safe_manager is None:
+                _quantum_safe_manager = QuantumSafeManager()
+                await _quantum_safe_manager.initialize()
 
     return _quantum_safe_manager

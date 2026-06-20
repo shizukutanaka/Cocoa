@@ -706,13 +706,16 @@ class GlobalEdgeManager:
 
 # グローバルインスタンス
 _global_edge_manager = None
+_global_edge_manager_lock = asyncio.Lock()
 
 async def get_global_edge_manager() -> GlobalEdgeManager:
     """グローバルエッジマネージャーのインスタンスを取得"""
     global _global_edge_manager
 
     if _global_edge_manager is None:
-        _global_edge_manager = GlobalEdgeManager()
-        await _global_edge_manager.initialize()
+        async with _global_edge_manager_lock:
+            if _global_edge_manager is None:
+                _global_edge_manager = GlobalEdgeManager()
+                await _global_edge_manager.initialize()
 
     return _global_edge_manager

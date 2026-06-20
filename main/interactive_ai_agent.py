@@ -581,16 +581,18 @@ class InteractiveAIAgent:
 
 # グローバルインスタンス管理
 _ai_agent_instance = None
+_ai_agent_instance_lock = asyncio.Lock()
 
 async def get_interactive_ai_agent() -> InteractiveAIAgent:
     """インタラクティブAIエージェントのインスタンスを取得"""
     global _ai_agent_instance
 
     if _ai_agent_instance is None:
-        use_openai = bool(os.getenv('OPENAI_API_KEY'))
-        _ai_agent_instance = InteractiveAIAgent(use_openai=use_openai)
-
-        if not await _ai_agent_instance.initialize_model():
-            logger.warning("Failed to initialize AI model, using fallback mode")
+        async with _ai_agent_instance_lock:
+            if _ai_agent_instance is None:
+                use_openai = bool(os.getenv('OPENAI_API_KEY'))
+                _ai_agent_instance = InteractiveAIAgent(use_openai=use_openai)
+                if not await _ai_agent_instance.initialize_model():
+                    logger.warning("Failed to initialize AI model, using fallback mode")
 
     return _ai_agent_instance

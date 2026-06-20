@@ -496,13 +496,16 @@ class EmotionalIntelligence:
 
 # グローバルインスタンス管理
 _emotional_intelligence_instance = None
+_emotional_intelligence_lock = asyncio.Lock()
 
 async def get_emotional_intelligence() -> EmotionalIntelligence:
     """感情認識システムのインスタンスを取得"""
     global _emotional_intelligence_instance
 
     if _emotional_intelligence_instance is None:
-        _emotional_intelligence_instance = EmotionalIntelligence()
-        await _emotional_intelligence_instance.initialize_models()
+        async with _emotional_intelligence_lock:
+            if _emotional_intelligence_instance is None:
+                _emotional_intelligence_instance = EmotionalIntelligence()
+                await _emotional_intelligence_instance.initialize_models()
 
     return _emotional_intelligence_instance

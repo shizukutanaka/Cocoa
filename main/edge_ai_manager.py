@@ -4,6 +4,7 @@ Edge AI Manager for Cocoa
 デバイスレベルでのAI処理と分散学習システム
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -737,13 +738,16 @@ class EdgeAIManager:
 
 # グローバルインスタンス
 _edge_ai_manager = None
+_edge_ai_manager_lock = asyncio.Lock()
 
 async def get_edge_ai_manager() -> EdgeAIManager:
     """Edge AIマネージャーのインスタンスを取得"""
     global _edge_ai_manager
 
     if _edge_ai_manager is None:
-        _edge_ai_manager = EdgeAIManager()
-        await _edge_ai_manager.initialize()
+        async with _edge_ai_manager_lock:
+            if _edge_ai_manager is None:
+                _edge_ai_manager = EdgeAIManager()
+                await _edge_ai_manager.initialize()
 
     return _edge_ai_manager

@@ -447,13 +447,16 @@ class AIAvatarGenerator:
 
 # グローバルインスタンス管理
 _avatar_generator_instance = None
+_avatar_generator_instance_lock = asyncio.Lock()
 
 async def get_ai_avatar_generator() -> AIAvatarGenerator:
     """AIアバター生成器のインスタンスを取得"""
     global _avatar_generator_instance
 
     if _avatar_generator_instance is None:
-        _avatar_generator_instance = AIAvatarGenerator()
-        await _avatar_generator_instance.initialize_models()
+        async with _avatar_generator_instance_lock:
+            if _avatar_generator_instance is None:
+                _avatar_generator_instance = AIAvatarGenerator()
+                await _avatar_generator_instance.initialize_models()
 
     return _avatar_generator_instance

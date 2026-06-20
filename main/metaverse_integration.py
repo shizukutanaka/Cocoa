@@ -1267,13 +1267,16 @@ class ARCloudAvatar {
 
 # グローバルインスタンス管理
 _metaverse_integration_instance = None
+_metaverse_integration_instance_lock = asyncio.Lock()
 
 async def get_metaverse_integration() -> MetaverseIntegration:
     """メタバース統合システムのインスタンスを取得"""
     global _metaverse_integration_instance
 
     if _metaverse_integration_instance is None:
-        _metaverse_integration_instance = MetaverseIntegration()
-        await _metaverse_integration_instance.initialize()
+        async with _metaverse_integration_instance_lock:
+            if _metaverse_integration_instance is None:
+                _metaverse_integration_instance = MetaverseIntegration()
+                await _metaverse_integration_instance.initialize()
 
     return _metaverse_integration_instance
