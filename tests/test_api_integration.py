@@ -2,6 +2,8 @@
 Unit tests for main/api_integration.py
 """
 
+import hashlib
+import hmac
 import inspect
 import os
 import sys
@@ -228,6 +230,54 @@ class TestAPIIntegrationServiceInit(unittest.TestCase):
         action = {}
         result = self.service._extract_script_from_input(action, "raw text")
         self.assertEqual(result, "raw text")
+
+
+class TestWebhookSignatureFailClosed(unittest.TestCase):
+    """Signature verification must never validate against a hardcoded default."""
+
+    def _service(self, env_secret=None):
+        saved = os.environ.get("WEBHOOK_SECRET")
+        if env_secret is None:
+            os.environ.pop("WEBHOOK_SECRET", None)
+        else:
+            os.environ["WEBHOOK_SECRET"] = env_secret
+        try:
+            with patch('api_integration.get_security_manager', return_value=mock_security_manager):
+                return APIIntegrationService()
+        finally:
+            if saved is None:
+                os.environ.pop("WEBHOOK_SECRET", None)
+            else:
+                os.environ["WEBHOOK_SECRET"] = saved
+
+    def _config(self, **api_keys):
+        return IntegrationConfig(
+            integration_id="i", name="n", type="webhook", provider="custom",
+            config={}, api_keys=api_keys,
+        )
+
+    def _sign(self, secret, payload):
+        return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+    def test_no_secret_configured_denies(self):
+        svc = self._service(env_secret=None)
+        cfg = self._config()  # no per-integration secret either
+        # Even a signature computed with the old default must be rejected.
+        forged = self._sign("default_secret", "payload")
+        self.assertFalse(svc._verify_webhook_signature("payload", forged, cfg))
+
+    def test_per_integration_secret_verifies(self):
+        svc = self._service(env_secret=None)
+        cfg = self._config(webhook_secret="integ-secret")
+        good = self._sign("integ-secret", "payload")
+        self.assertTrue(svc._verify_webhook_signature("payload", good, cfg))
+        self.assertFalse(svc._verify_webhook_signature("payload", "bad", cfg))
+
+    def test_service_wide_env_secret_verifies(self):
+        svc = self._service(env_secret="env-secret")
+        cfg = self._config()
+        good = self._sign("env-secret", "payload")
+        self.assertTrue(svc._verify_webhook_signature("payload", good, cfg))
 
 
 if __name__ == '__main__':

@@ -105,7 +105,9 @@ class APIIntegrationService:
         # 設定
         self.host = "0.0.0.0"
         self.port = 8081
-        self.webhook_secret = os.getenv("WEBHOOK_SECRET", "default_secret")
+        # No insecure default: an unset secret must make signature verification
+        # FAIL CLOSED, not validate against a publicly-known constant.
+        self.webhook_secret = os.getenv("WEBHOOK_SECRET") or None
 
         logger.info("API Integration Service initialized")
 
@@ -501,7 +503,13 @@ class APIIntegrationService:
 
     def _verify_webhook_signature(self, payload: str, signature: str, integration: IntegrationConfig) -> bool:
         """Webhookシグネチャを検証"""
-        secret = integration.api_keys.get('webhook_secret', self.webhook_secret)
+        # Prefer a per-integration secret, else the service-wide one. If neither
+        # is configured, deny: verifying against a hardcoded default would let
+        # anyone forge a valid signature.
+        secret = integration.api_keys.get('webhook_secret') or self.webhook_secret
+        if not secret:
+            logger.warning("Webhook signature rejected: no secret configured for integration")
+            return False
         expected_signature = hmac.new(
             secret.encode(),
             payload.encode(),
