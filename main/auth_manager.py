@@ -1013,7 +1013,7 @@ class AuthManager:
         q = query[:200].lower().strip()
         results = [
             u for u in self.store.list_users()
-            if u.is_active and (not q or q in u.username.lower() or q in (u.display_name or "").lower())
+            if u.is_active and not u.is_banned and (not q or q in u.username.lower() or q in (u.display_name or "").lower())
         ]
         if creator_verified is not None:
             results = [u for u in results if u.is_creator_verified == creator_verified]

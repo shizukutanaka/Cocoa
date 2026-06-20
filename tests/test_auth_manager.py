@@ -728,6 +728,24 @@ class TestUserSearch(unittest.TestCase):
         self.assertEqual(result["total"], 0)
         self.assertEqual(result["items"], [])
 
+    def test_search_excludes_banned_users(self):
+        """Banned accounts must not appear in search results.
+        ban_user() does NOT flip is_active, so search_users() must explicitly
+        filter by not is_banned; otherwise a banned user remains fully visible."""
+        admin = self.auth.register("sysadmin", "admin@example.com", "Passw0rd!")
+        alice_record = self.auth.store.get_by_username("alice")
+        # Ban alice via the admin path (requires admin role)
+        self.auth.store._by_id[admin.user_id].role = "admin"
+        admin_payload = {"sub": admin.user_id, "role": "admin"}
+        self.auth.ban_user(admin_payload, alice_record.user_id)
+        # Search with a prefix that matches both "alice" and "alicia"
+        result = self.auth.search_users("alic")
+        usernames = [u["username"] for u in result["items"]]
+        # Banned alice must not appear
+        self.assertNotIn("alice", usernames)
+        # Alicia (not banned) must still appear
+        self.assertIn("alicia", usernames)
+
 
 class TestApiKeyManagement(unittest.TestCase):
     def setUp(self):
