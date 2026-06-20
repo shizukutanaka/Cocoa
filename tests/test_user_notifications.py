@@ -85,6 +85,16 @@ class TestNotificationQueue(unittest.TestCase):
         result = self.q.get_notifications("u1", unread_only=True)
         self.assertEqual(result["total"], 1)
 
+    def test_unread_only_items_serialized_as_unread(self):
+        """Every item returned by unread_only=True must have is_read=False in to_dict()."""
+        n = self.q.push("u1", "system", "T1", "B")
+        self.q.push("u1", "system", "T2", "B")
+        self.q.mark_read("u1", n.notification_id)
+        result = self.q.get_notifications("u1", unread_only=True)
+        for item in result["items"]:
+            self.assertFalse(item["is_read"])
+        self.assertEqual(result["unread_count"], 1)
+
     def test_pagination(self):
         for i in range(10):
             self.q.push("u1", "system", f"T{i}", "B")

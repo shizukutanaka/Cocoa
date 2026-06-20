@@ -171,12 +171,14 @@ class NotificationQueue:
     ) -> Dict[str, Any]:
         with self._lock:
             items = list(self._queues.get(user_id, []))
-        if unread_only:
-            items = [n for n in items if not n.is_read]
-        items.sort(key=lambda n: n.created_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset: offset + limit]
+            if unread_only:
+                items = [n for n in items if not n.is_read]
+            items.sort(key=lambda n: n.created_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset: offset + limit]
+            unread_count = sum(1 for n in items if not n.is_read)
+            serialized = [n.to_dict() for n in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -184,8 +186,8 @@ class NotificationQueue:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "unread_count": sum(1 for n in items if not n.is_read),
-            "items": [n.to_dict() for n in page],
+            "unread_count": unread_count,
+            "items": serialized,
         }
 
     def mark_read(self, user_id: str, notification_id: str) -> bool:
