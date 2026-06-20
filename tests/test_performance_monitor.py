@@ -3,6 +3,7 @@
 Spec: docs/SPEC_PERFORMANCE_MONITOR.md (REQ-PM-01..02)
 Runnable without pytest:  python3 -m unittest tests.test_performance_monitor -v
 """
+import asyncio
 import sys
 import unittest
 from pathlib import Path
@@ -119,6 +120,60 @@ class TestGetPerformanceReport(unittest.TestCase):
         pm = PerformanceMonitor()
         report = pm.get_performance_report()
         self.assertIsInstance(report["custom_metrics"], dict)
+
+
+class TestCloudResourceInfo(unittest.TestCase):
+    """CloudResourceInfo dataclass must include bandwidth_mbps field."""
+
+    def test_cloud_resource_info_accepts_bandwidth_mbps(self):
+        from performance_monitor import CloudResourceInfo
+        resource = CloudResourceInfo(
+            provider="aws",
+            region="us-east-1",
+            instance_type="t3.medium",
+            cost_per_hour=0.05,
+            availability_score=0.99,
+            latency_ms=55.0,
+            bandwidth_mbps=100.0,
+        )
+        self.assertEqual(resource.bandwidth_mbps, 100.0)
+
+    def test_cloud_resource_info_bandwidth_default(self):
+        from performance_monitor import CloudResourceInfo
+        resource = CloudResourceInfo(
+            provider="gcp",
+            region="us-central1",
+            instance_type="n1-standard-1",
+            cost_per_hour=0.04,
+            availability_score=0.99,
+            latency_ms=60.0,
+        )
+        self.assertEqual(resource.bandwidth_mbps, 100.0)
+
+
+class TestHybridSystemManagerInitialize(unittest.TestCase):
+    """HybridSystemManager.initialize() must return promptly.
+
+    Two bugs were present:
+    1. CloudResourceInfo lacked bandwidth_mbps → TypeError on construction.
+    2. initialize() used `await self._start_energy_monitoring()` which is an
+       infinite while-True loop → initialize() never returned.
+    """
+
+    def test_initialize_does_not_block(self):
+        from performance_monitor import HybridSystemManager
+        mgr = HybridSystemManager()
+
+        async def run():
+            await asyncio.wait_for(mgr.initialize(), timeout=5.0)
+
+        asyncio.run(run())
+
+    def test_initialize_populates_cloud_resources(self):
+        from performance_monitor import HybridSystemManager
+        mgr = HybridSystemManager()
+        asyncio.run(mgr.initialize())
+        self.assertGreater(len(mgr.cloud_resources), 0)
 
 
 if __name__ == "__main__":

@@ -1201,6 +1201,8 @@ class CloudResourceInfo:
     cost_per_hour: float
     availability_score: float  # 0-1
     latency_ms: float
+    bandwidth_mbps: float = 100.0
+
 class HybridSystemManager:
     """
     ハイブリッドシステムマネージャー
@@ -1253,7 +1255,7 @@ class HybridSystemManager:
         """ハイブリッドシステムの初期化"""
         await self._discover_cloud_resources()
         await self._optimize_initial_allocation()
-        await self._start_energy_monitoring()
+        asyncio.create_task(self._start_energy_monitoring())
 
     async def _discover_cloud_resources(self):
         """クラウドリソースを検出"""
@@ -1298,8 +1300,11 @@ class HybridSystemManager:
     async def _collect_energy_metrics(self) -> EnergyMetrics:
         """エネルギー消費メトリクスを収集"""
         # 実際の実装ではハードウェアセンサーからデータを取得
-        cpu_percent = psutil.cpu_percent(interval=1)
-        memory_percent = psutil.virtual_memory().percent
+        if PSUTIL_AVAILABLE:
+            cpu_percent = psutil.cpu_percent(interval=1)
+            memory_percent = psutil.virtual_memory().percent
+        else:
+            cpu_percent, memory_percent = 50.0, 50.0
 
         # 電力消費量の推定（簡易的）
         power_consumption = self._estimate_power_consumption(cpu_percent, memory_percent)
@@ -1383,7 +1388,15 @@ class HybridSystemManager:
 
     async def _analyze_current_workload(self) -> Dict[str, Any]:
         """現在のワークロードを分析"""
-        # システムメトリクスを取得
+        if not PSUTIL_AVAILABLE:
+            return {
+                "cpu_demand": 0.5,
+                "memory_demand": 0.5,
+                "disk_demand": 0.5,
+                "network_demand": 0.3,
+                "expected_duration_hours": 1.0,
+                "priority": "normal",
+            }
         cpu_percent = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
