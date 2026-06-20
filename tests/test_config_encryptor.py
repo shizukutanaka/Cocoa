@@ -84,5 +84,41 @@ class TestEncryptDecryptFile(unittest.TestCase):
             self.assertEqual(restored["host"], "localhost")
 
 
+class TestSaltUniqueness(unittest.TestCase):
+    """Each _encrypt_data() call must use a fresh salt.
+
+    Bug: self.salt was set once in __init__() and reused for all encryptions,
+    weakening PBKDF2 by allowing an attacker to check all intercepted blobs
+    with a single PBKDF2 derivation per password candidate.
+    Fix: generate a fresh salt inside _encrypt_data() on every call.
+    """
+
+    def setUp(self):
+        from config_encryptor import CRYPTO_AVAILABLE
+        if not CRYPTO_AVAILABLE:
+            self.skipTest("cryptography not available")
+
+    def test_each_encryption_uses_unique_salt(self):
+        import base64
+        from config_encryptor import ConfigEncryptor
+        enc = ConfigEncryptor(encryption_key="test_key_for_salt_check")
+        data = b"same plaintext every time"
+        e1 = enc._encrypt_data(data)
+        e2 = enc._encrypt_data(data)
+        # First 16 bytes of decoded output are the salt
+        salt1 = base64.b64decode(e1)[:16]
+        salt2 = base64.b64decode(e2)[:16]
+        self.assertNotEqual(salt1, salt2, "Salt must be unique per encryption call")
+
+    def test_roundtrip_still_works_with_fresh_salt(self):
+        from config_encryptor import ConfigEncryptor
+        enc = ConfigEncryptor(encryption_key="key_for_roundtrip")
+        for i in range(3):
+            plaintext = f"config data round {i}".encode()
+            encrypted = enc._encrypt_data(plaintext)
+            decrypted = enc._decrypt_data(encrypted)
+            self.assertEqual(decrypted, plaintext, f"Roundtrip failed on iteration {i}")
+
+
 if __name__ == '__main__':
     unittest.main()

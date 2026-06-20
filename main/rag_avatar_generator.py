@@ -304,7 +304,8 @@ class AvatarRAGSystem:
             # コンテキストに基づいた提案を生成
             suggestions = []
 
-            if user_preferences and "documents" in user_preferences:
+            pref_docs = (user_preferences or {}).get("documents", [[]])
+            if pref_docs and pref_docs[0]:
                 # 過去の好みから提案を生成
                 suggestions = await self._generate_suggestions_from_preferences(
                     user_preferences, current_context, count
@@ -337,10 +338,9 @@ class AvatarRAGSystem:
             where={"type": "knowledge_base"}
         )
 
-        if similar_docs and "documents" in similar_docs:
-            documents = similar_docs["documents"][0]
-
-            for doc in documents[:count]:
+        kb_docs = (similar_docs or {}).get("documents", [[]])
+        if kb_docs and kb_docs[0]:
+            for doc in kb_docs[0][:count]:
                 # 提案フォーマットを作成
                 suggestion = f"提案: {doc} - {context}を反映したスタイル"
                 suggestions.append(suggestion)

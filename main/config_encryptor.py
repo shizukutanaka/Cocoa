@@ -38,9 +38,6 @@ class ConfigEncryptor:
         # キーをバイト列に変換
         self.key_bytes = self.key.encode('utf-8') if isinstance(self.key, str) else self.key
 
-        # ソルトの生成
-        self.salt = secrets.token_bytes(16)
-
     def _derive_key(self, salt: bytes) -> bytes:
         """パスワードから暗号化キーを派生"""
         kdf = PBKDF2HMAC(
@@ -122,11 +119,12 @@ class ConfigEncryptor:
 
     def _encrypt_data(self, data: bytes) -> bytes:
         """データを暗号化"""
-        # 初期化ベクターの生成
+        # ソルトと初期化ベクターを呼び出しごとに生成（再使用禁止）
+        salt = secrets.token_bytes(16)
         iv = secrets.token_bytes(12)
 
         # キーの派生
-        key = self._derive_key(self.salt)
+        key = self._derive_key(salt)
 
         # AES-GCM暗号化の設定
         cipher = Cipher(algorithms.AES(key), modes.GCM(iv), backend=default_backend())
@@ -137,7 +135,7 @@ class ConfigEncryptor:
 
         # 暗号化データをエンコード（salt + iv + tag + ciphertext）
         encrypted_data = (
-            self.salt +
+            salt +
             iv +
             encryptor.tag +
             ciphertext
