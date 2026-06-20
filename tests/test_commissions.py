@@ -187,6 +187,14 @@ class TestCommissionList(unittest.TestCase):
         accepted = self.store.list_received("creator1", status="accepted")
         self.assertEqual(accepted["total"], 1)
 
+    def test_list_received_filter_status_matches_serialized_status(self):
+        """Items in a status-filtered result must carry that status in to_dict()."""
+        reqs = self.store.list_received("creator1")["items"]
+        self.store.respond("creator1", reqs[0]["request_id"], accept=True)
+        accepted = self.store.list_received("creator1", status="accepted")
+        for item in accepted["items"]:
+            self.assertEqual(item["status"], "accepted")
+
     def test_list_pagination(self):
         page1 = self.store.list_sent("u1", limit=1, offset=0)
         page2 = self.store.list_sent("u1", limit=1, offset=1)

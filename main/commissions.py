@@ -184,12 +184,13 @@ class CommissionStore:
         """Paginated list of commissions received by a creator."""
         with self._lock:
             items = [r for r in self._requests.values() if r.creator_id == creator_id]
-        if status:
-            items = [r for r in items if r.status == status]
-        items.sort(key=lambda r: r.created_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset: offset + limit]
+            if status:
+                items = [r for r in items if r.status == status]
+            items.sort(key=lambda r: r.created_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset: offset + limit]
+            serialized = [r.to_dict() for r in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -197,7 +198,7 @@ class CommissionStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [r.to_dict() for r in page],
+            "items": serialized,
         }
 
     def list_sent(
@@ -210,12 +211,13 @@ class CommissionStore:
         """Paginated list of commissions sent by a requester."""
         with self._lock:
             items = [r for r in self._requests.values() if r.requester_id == requester_id]
-        if status:
-            items = [r for r in items if r.status == status]
-        items.sort(key=lambda r: r.created_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset: offset + limit]
+            if status:
+                items = [r for r in items if r.status == status]
+            items.sort(key=lambda r: r.created_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset: offset + limit]
+            serialized = [r.to_dict() for r in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -223,7 +225,7 @@ class CommissionStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [r.to_dict() for r in page],
+            "items": serialized,
         }
 
 
