@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hmac
 import io
 import logging
 import os
@@ -386,8 +387,8 @@ async def get_current_user(request: Request, credentials: HTTPAuthorizationCrede
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="無効なトークンです") from e
 
-    # Fallback: legacy API secret
-    if token != os.getenv("API_SECRET_TOKEN", "default-secret"):
+    # Fallback: legacy API secret (only if explicitly configured; never a default)
+    if not _verify_legacy_api_secret(token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="無効なトークンです")
     return {"user_id": "system", "username": "system", "role": "admin"}
 
@@ -397,6 +398,21 @@ async def get_current_admin(current_user: dict = Depends(get_current_user)):
     if current_user.get("role") not in ("admin", "moderator"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="管理者権限が必要です")
     return current_user
+
+
+def _verify_legacy_api_secret(token: str) -> bool:
+    """Return True only when a legacy API secret is EXPLICITLY configured via
+    API_SECRET_TOKEN and the presented token matches it (constant-time).
+
+    Fails closed when API_SECRET_TOKEN is unset/empty: previously the comparison
+    fell back to the literal default "default-secret", so any deployment that
+    forgot to set the env var accepted that publicly-known string as a full-admin
+    credential. An unset secret must grant access to no one.
+    """
+    configured = os.getenv("API_SECRET_TOKEN")
+    if not configured:
+        return False
+    return hmac.compare_digest(token, configured)
 
 
 def _verify_token(token: str) -> dict:
@@ -413,7 +429,7 @@ def _verify_token(token: str) -> dict:
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="無効なトークンです") from e
     # Fallback: legacy API secret — return a minimal admin payload
-    if token != os.getenv("API_SECRET_TOKEN", "default-secret"):
+    if not _verify_legacy_api_secret(token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="無効なトークンです")
     return {"sub": "system", "role": "admin"}
 

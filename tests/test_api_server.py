@@ -190,5 +190,36 @@ class TestBulkLogicDirect(unittest.TestCase):
         self.assertIsNotNone(self.mp.get_listing(self.l1.listing_id))
 
 
+class TestLegacyApiSecret(unittest.TestCase):
+    """The legacy API-secret fallback must fail closed when unconfigured."""
+
+    def setUp(self):
+        self._saved = os.environ.get("API_SECRET_TOKEN")
+
+    def tearDown(self):
+        if self._saved is None:
+            os.environ.pop("API_SECRET_TOKEN", None)
+        else:
+            os.environ["API_SECRET_TOKEN"] = self._saved
+
+    def test_unset_env_denies_everything(self):
+        os.environ.pop("API_SECRET_TOKEN", None)
+        # The old hardcoded default must no longer be accepted.
+        self.assertFalse(api_server._verify_legacy_api_secret("default-secret"))
+        self.assertFalse(api_server._verify_legacy_api_secret(""))
+        self.assertFalse(api_server._verify_legacy_api_secret("anything"))
+
+    def test_empty_env_denies_everything(self):
+        os.environ["API_SECRET_TOKEN"] = ""
+        self.assertFalse(api_server._verify_legacy_api_secret("default-secret"))
+        self.assertFalse(api_server._verify_legacy_api_secret(""))
+
+    def test_configured_secret_matches_only_exact(self):
+        os.environ["API_SECRET_TOKEN"] = "s3kr3t-configured"
+        self.assertTrue(api_server._verify_legacy_api_secret("s3kr3t-configured"))
+        self.assertFalse(api_server._verify_legacy_api_secret("default-secret"))
+        self.assertFalse(api_server._verify_legacy_api_secret("wrong"))
+
+
 if __name__ == "__main__":
     unittest.main()
