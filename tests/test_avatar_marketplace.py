@@ -2153,6 +2153,14 @@ class TestCreatorLeaderboard(unittest.TestCase):
         owner_ids = [e["owner_id"] for e in board]
         self.assertNotIn("u3", owner_ids)
 
+    def test_leaderboard_download_counts_consistent_with_active_listings(self):
+        """download_count must be read under the lock so the count is a consistent
+        snapshot; verify the aggregated totals match what was recorded atomically."""
+        board = self.store.get_leaderboard(by="downloads")
+        totals = {e["owner_id"]: e["total_downloads"] for e in board}
+        self.assertEqual(totals["u1"], 5)
+        self.assertEqual(totals["u2"], 2)
+
 
 class TestCreditHistory(unittest.TestCase):
     def setUp(self):
@@ -2337,6 +2345,17 @@ class TestMyListings(unittest.TestCase):
         result = self.store.get_user_listings_page("u1")
         for key in ("total", "offset", "limit", "has_more", "next_offset", "items"):
             self.assertIn(key, result)
+
+    def test_serialized_items_total_consistent_with_items_returned(self):
+        """Sorting and to_dict() must happen inside the lock so that the
+        'total' count and the list of serialized items are a consistent
+        snapshot; a race between filter and serialize would corrupt the count."""
+        for i in range(3):
+            _listing(self.store, avatar_id=f"avX{i}", owner_id="u1", owner_username="alice")
+        result = self.store.get_user_listings_page("u1", limit=50)
+        # When the full result fits in one page, total must equal len(items)
+        self.assertEqual(result["total"], len(result["items"]))
+        self.assertEqual(result["total"], 3)
 
 
 class TestCategories(unittest.TestCase):

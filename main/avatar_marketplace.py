@@ -1269,10 +1269,11 @@ class MarketplaceStore:
                 lst for lst in self._listings.values()
                 if lst.owner_id == owner_id and (include_inactive or lst.is_active)
             ]
-        items.sort(key=lambda x: x.published_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset : offset + limit]
+            items.sort(key=lambda x: x.published_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset : offset + limit]
+            serialized = [lst.to_dict() for lst in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -1280,7 +1281,7 @@ class MarketplaceStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [lst.to_dict() for lst in page],
+            "items": serialized,
         }
 
     def get_categories(self) -> List[Dict[str, Any]]:
@@ -1304,9 +1305,6 @@ class MarketplaceStore:
     ) -> List[Dict[str, Any]]:
         """Return top creators ranked by total downloads, average rating, or listing count."""
         from collections import defaultdict
-        with self._lock:
-            active = [lst for lst in self._listings.values() if lst.is_active]
-
         stats: Dict[str, Any] = defaultdict(lambda: {
             "total_downloads": 0,
             "total_rating_sum": 0,
@@ -1315,14 +1313,17 @@ class MarketplaceStore:
             "owner_id": "",
             "owner_username": "",
         })
-        for lst in active:
-            s = stats[lst.owner_id]
-            s["owner_id"] = lst.owner_id
-            s["owner_username"] = lst.owner_username
-            s["total_downloads"] += lst.download_count
-            s["total_rating_sum"] += lst.rating_sum
-            s["total_rating_count"] += lst.rating_count
-            s["listing_count"] += 1
+        with self._lock:
+            for lst in self._listings.values():
+                if not lst.is_active:
+                    continue
+                s = stats[lst.owner_id]
+                s["owner_id"] = lst.owner_id
+                s["owner_username"] = lst.owner_username
+                s["total_downloads"] += lst.download_count
+                s["total_rating_sum"] += lst.rating_sum
+                s["total_rating_count"] += lst.rating_count
+                s["listing_count"] += 1
 
         entries = list(stats.values())
         for s in entries:
