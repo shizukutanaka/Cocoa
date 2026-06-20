@@ -184,5 +184,46 @@ class TestDataclassConstruction(unittest.TestCase):
         self.assertIsNotNone(route.created_at.tzinfo)
 
 
+class TestGlobalEdgeManagerInitializeDoesNotBlock(unittest.IsolatedAsyncioTestCase):
+    """GlobalEdgeManager.initialize() must return promptly.
+
+    Bug: initialize() called `await self._start_health_monitoring()` and
+    `await self._start_analytics_collection()`, both of which are `while True:`
+    infinite loops. The health monitoring blocked initialize() forever, and the
+    analytics collection was never reached.
+    Fix: use asyncio.create_task() so both loops run in the background.
+    """
+
+    async def test_initialize_completes_without_blocking(self):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        with tempfile.TemporaryDirectory() as td:
+            mgr = _make_manager(td)
+            with patch.object(mgr, '_initialize_edge_nodes', new=AsyncMock()), \
+                 patch.object(mgr, '_load_traffic_routes', new=AsyncMock()):
+                try:
+                    await asyncio.wait_for(mgr.initialize(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    self.fail("GlobalEdgeManager.initialize() blocked — "
+                              "background loops must be create_task'd, not awaited")
+
+    async def test_initialize_launches_two_background_tasks(self):
+        """initialize() should launch health monitoring AND analytics as tasks."""
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        with tempfile.TemporaryDirectory() as td:
+            mgr = _make_manager(td)
+            tasks_before = len(asyncio.all_tasks())
+            with patch.object(mgr, '_initialize_edge_nodes', new=AsyncMock()), \
+                 patch.object(mgr, '_load_traffic_routes', new=AsyncMock()):
+                await asyncio.wait_for(mgr.initialize(), timeout=2.0)
+            tasks_after = len(asyncio.all_tasks())
+            self.assertGreaterEqual(tasks_after - tasks_before, 2,
+                                    "Both _start_health_monitoring and _start_analytics_collection "
+                                    "should be created as background tasks")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

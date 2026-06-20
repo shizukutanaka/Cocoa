@@ -129,5 +129,49 @@ class TestAvatarAgentServiceInitializeWithoutAiohttp(unittest.TestCase):
         self.assertFalse(hasattr(svc, 'template_env'))
 
 
+class TestAgenticAIManagerInitializeDoesNotBlock(unittest.IsolatedAsyncioTestCase):
+    """AgenticAIManager.initialize() must return promptly.
+
+    Bug: initialize() called `await self._start_environment_monitoring()`, which
+    is a `while self.autonomous_mode:` infinite loop, blocking initialize() forever
+    and preventing _initialize_prediction_model() from ever running.
+    Fix: use asyncio.create_task() so the monitoring loop runs in the background.
+    """
+
+    async def test_initialize_completes_without_blocking(self):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import avatar_agent
+
+        with patch('avatar_agent.get_security_manager', return_value=MagicMock()):
+            mgr = avatar_agent.AgenticAIManager()
+
+        with patch.object(mgr, '_load_default_task_templates', new=AsyncMock()), \
+             patch.object(mgr, '_initialize_prediction_model', new=AsyncMock()):
+            # Run initialize() with a short timeout; if it blocks, this raises.
+            try:
+                await asyncio.wait_for(mgr.initialize(), timeout=2.0)
+            except asyncio.TimeoutError:
+                self.fail("AgenticAIManager.initialize() blocked — "
+                          "_start_environment_monitoring must be create_task'd, not awaited")
+
+    async def test_initialize_launches_background_task(self):
+        """After initialize(), a background monitoring task must be running."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import avatar_agent
+
+        with patch('avatar_agent.get_security_manager', return_value=MagicMock()):
+            mgr = avatar_agent.AgenticAIManager()
+
+        tasks_before = len(asyncio.all_tasks())
+        with patch.object(mgr, '_load_default_task_templates', new=AsyncMock()), \
+             patch.object(mgr, '_initialize_prediction_model', new=AsyncMock()):
+            await asyncio.wait_for(mgr.initialize(), timeout=2.0)
+        tasks_after = len(asyncio.all_tasks())
+        self.assertGreater(tasks_after, tasks_before,
+                           "initialize() should have created a background task")
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -129,8 +129,8 @@ class GlobalEdgeManager:
         """グローバルエッジマネージャーの初期化"""
         await self._initialize_edge_nodes()
         await self._load_traffic_routes()
-        await self._start_health_monitoring()
-        await self._start_analytics_collection()
+        asyncio.create_task(self._start_health_monitoring())
+        asyncio.create_task(self._start_analytics_collection())
 
     async def _initialize_edge_nodes(self):
         """エッジノードを初期化"""
