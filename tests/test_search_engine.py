@@ -136,6 +136,19 @@ class TestSearchIndex(unittest.TestCase):
         suggestions = self.idx.suggest("", limit=2)
         self.assertLessEqual(len(suggestions), 2)
 
+    def test_suggest_ranks_higher_document_count_first(self):
+        """Token appearing in more documents must rank higher in suggestions."""
+        from search_engine import SearchDocument
+        idx = SearchIndex()
+        for i in range(3):
+            idx.index(SearchDocument(f"d{i}", "u1", name="cute avatar", tags=["cute"]))
+        idx.index(SearchDocument("d3", "u1", name="cool cat", tags=["cool"]))
+        # "cute" appears in 3 docs, "cool" in 1 — "cute" must rank first
+        suggestions = idx.suggest("c")
+        cute_pos = suggestions.index("cute") if "cute" in suggestions else len(suggestions)
+        cool_pos = suggestions.index("cool") if "cool" in suggestions else len(suggestions)
+        self.assertLess(cute_pos, cool_pos)
+
     def test_stats(self):
         s = self.idx.stats()
         self.assertIn("total_documents", s)

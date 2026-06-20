@@ -280,7 +280,8 @@ class SearchIndex:
         prefix = prefix.lower()
         with self._lock:
             matches = [tok for tok in self._inverted if tok.startswith(prefix)]
-        return sorted(matches, key=lambda t: -len(self._inverted.get(t, {})))[:limit]
+            matches.sort(key=lambda t: -len(self._inverted.get(t, {})))
+        return matches[:limit]
 
     def stats(self) -> Dict[str, Any]:
         with self._lock:
