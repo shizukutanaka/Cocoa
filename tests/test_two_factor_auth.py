@@ -141,5 +141,43 @@ class TestTwoFactorAuthManager(unittest.TestCase):
         self.assertFalse(mgr.verify_backup_code(7, "12345678")["valid"])
 
 
+class TestDisable2FA(unittest.TestCase):
+    """disable_2fa must never accept a hardcoded backdoor password."""
+
+    def _mgr(self, db=None):
+        from two_factor_auth import TwoFactorAuthManager
+        return TwoFactorAuthManager(secret_key="k", db_manager=db)
+
+    def test_no_verifier_fails_closed(self):
+        """Without a verify_password callable, disable must fail — not accept any
+        password (including the former hardcoded 'admin_password' backdoor)."""
+        mgr = self._mgr()
+        self.assertFalse(mgr.disable_2fa(1, "admin_password")["success"])
+        self.assertFalse(mgr.disable_2fa(1, "any_password")["success"])
+
+    def test_hardcoded_backdoor_no_longer_accepted(self):
+        """'admin_password' was the old hardcoded universal backdoor; it must be
+        rejected even when a db_manager is present but has no verify_password."""
+        class DbWithoutVerifier:
+            pass
+        mgr = self._mgr(db=DbWithoutVerifier())
+        self.assertFalse(mgr.disable_2fa(1, "admin_password")["success"])
+
+    def test_correct_password_via_verifier_succeeds(self):
+        """When verify_password returns True, disable must succeed."""
+        class _DB:
+            def verify_password(self, user_id, password):
+                return password == "correct"
+        mgr = self._mgr(db=_DB())
+        self.assertTrue(mgr.disable_2fa(1, "correct")["success"])
+
+    def test_wrong_password_via_verifier_fails(self):
+        class _DB:
+            def verify_password(self, user_id, password):
+                return False
+        mgr = self._mgr(db=_DB())
+        self.assertFalse(mgr.disable_2fa(1, "wrong")["success"])
+
+
 if __name__ == '__main__':
     unittest.main()

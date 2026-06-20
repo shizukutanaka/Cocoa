@@ -357,23 +357,30 @@ class TwoFactorAuthManager:
     def disable_2fa(self, user_id: int, password: str) -> Dict[str, Any]:
         """2FAを無効化（パスワード確認が必要）"""
         try:
-            # パスワード検証（実際の実装では適切なパスワード検証）
-            # ここでは仮の実装として、固定のパスワードを使用
-
-            if password == "admin_password":  # 仮のパスワード
-                # 2FAを無効化（実際の実装ではデータベースで無効化）
-                if self.db_manager:
-                    # データベースで無効化処理を実装
-                    pass
-
-                logger.info(f"2FA disabled for user: {user_id}")
+            # Verify the password against the real account credential.
+            # Fail closed if no verifier is available — a hardcoded fallback
+            # would let anyone who reads the source code disable 2FA for any user.
+            db = self.db_manager
+            verifier = getattr(db, "verify_password", None) if db is not None else None
+            if not callable(verifier):
+                logger.warning("disable_2fa: no verify_password callable — fail closed for user %s", user_id)
                 return {
-                    'success': True,
-                    'message': '2要素認証が無効になりました'
+                    'success': False,
+                    'error': 'パスワード検証機能が設定されていません'
                 }
+            if not verifier(user_id, password):
+                return {
+                    'success': False,
+                    'error': 'パスワードが正しくありません'
+                }
+
+            if self.db_manager:
+                pass  # database disable logic goes here
+
+            logger.info(f"2FA disabled for user: {user_id}")
             return {
-                'success': False,
-                'error': 'パスワードが正しくありません'
+                'success': True,
+                'message': '2要素認証が無効になりました'
             }
 
         except Exception as e:
