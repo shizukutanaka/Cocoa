@@ -149,9 +149,9 @@ class RedisCacheManager:
                     self.stats['misses'] += 1
                 return None
 
-            # TTLチェック
+            # TTLチェック（-2: キーが存在しない、-1: キーは存在するが期限なし）
             ttl = await self.redis_async_client.ttl(key)
-            if ttl == -1:  # キーが存在しない場合
+            if ttl == -2:  # キーが存在しない場合（GET後の競合で削除された）
                 with self.lock:
                     self.stats['misses'] += 1
                 return None
@@ -296,18 +296,14 @@ class RedisCacheManager:
                 cache_key = self._get_cache_key(func, args, kwargs)
 
                 # 非同期キャッシュから取得（同期関数でも非同期キャッシュを使用）
+                # ループが実行中の場合は create_task を使わない（リークするため）
+                cached_result = None
                 try:
                     loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        # イベントループが実行中の場合は新しいタスクを作成
-                        task = loop.create_task(self.get(cache_key))
-                        cached_result = loop.run_until_complete(task)
-                    else:
-                        # 新しいイベントループを作成
+                    if not loop.is_running():
                         cached_result = loop.run_until_complete(self.get(cache_key))
                 except RuntimeError:
-                    # イベントループがない場合は同期的に処理
-                    cached_result = None
+                    pass
 
                 if cached_result is not None:
                     return cached_result
@@ -317,13 +313,9 @@ class RedisCacheManager:
 
                 try:
                     loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        task = loop.create_task(self.set(cache_key, result, ttl))
-                        loop.run_until_complete(task)
-                    else:
+                    if not loop.is_running():
                         loop.run_until_complete(self.set(cache_key, result, ttl))
                 except RuntimeError:
-                    # イベントループがない場合は同期的に処理
                     pass
 
                 return result

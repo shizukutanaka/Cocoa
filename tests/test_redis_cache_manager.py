@@ -200,6 +200,93 @@ class TestFallbackCachedSyncDecorator(unittest.TestCase):
         self.assertEqual(sync_named.__name__, "sync_named")
 
 
+class TestRedisCacheManagerTtlCheck(unittest.TestCase):
+    """RedisCacheManager.get() must correctly interpret Redis TTL return codes.
+
+    Bug: the code checked `if ttl == -1` (key exists without expiry) and
+    treated it as a cache miss, so any key stored without a TTL was silently
+    invisible.  Redis semantics: -1 = key has no expiry (still a valid hit),
+    -2 = key does not exist.
+    Fix: check `if ttl == -2` instead.
+    """
+
+    def _make_redis_mgr(self):
+        """Build a RedisCacheManager with a mocked async redis client."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from redis_cache_manager import RedisCacheManager
+        with patch.object(RedisCacheManager, '__init__', lambda self: None):
+            mgr = RedisCacheManager.__new__(RedisCacheManager)
+        mgr.is_healthy = True
+        mgr.lock = __import__('threading').Lock()
+        mgr.stats = {'hits': 0, 'misses': 0, 'errors': 0}
+        mgr.redis_async_client = AsyncMock()
+        return mgr
+
+    def test_ttl_minus_2_returns_none(self):
+        """ttl==-2 means key was deleted; must be a miss."""
+        import asyncio
+        from unittest.mock import AsyncMock
+        mgr = self._make_redis_mgr()
+        mgr.redis_async_client.get = AsyncMock(return_value=b"some_value")
+        mgr.redis_async_client.ttl = AsyncMock(return_value=-2)
+        result = asyncio.run(mgr.get("test_key"))
+        self.assertIsNone(result)
+
+    def test_ttl_minus_1_is_a_cache_hit(self):
+        """ttl==-1 means key exists without expiry; must be a hit, not a miss."""
+        import asyncio
+        import pickle
+        from unittest.mock import AsyncMock
+        mgr = self._make_redis_mgr()
+        payload = pickle.dumps({"answer": 42}).decode('latin1')
+        mgr.redis_async_client.get = AsyncMock(return_value=payload)
+        mgr.redis_async_client.ttl = AsyncMock(return_value=-1)
+        result = asyncio.run(mgr.get("persistent_key"))
+        self.assertIsNotNone(result, "Key with no-expiry (ttl==-1) must return cached value, not None")
+        self.assertEqual(result["answer"], 42)
+
+
+class TestRedisCachedSyncNoLeakedTasks(unittest.TestCase):
+    """RedisCacheManager.cached_sync() must not create orphaned asyncio tasks.
+
+    Bug: when the event loop was already running, the decorator created tasks
+    via loop.create_task() then immediately called loop.run_until_complete(),
+    which raised RuntimeError.  The created tasks were orphaned (never awaited,
+    never cancelled) and leaked.
+    Fix: skip cache I/O entirely when the loop is already running instead of
+    creating tasks that can't be resolved.
+    """
+
+    def test_cached_sync_does_not_raise_inside_running_loop(self):
+        """cached_sync function must return the correct value from an async context."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from redis_cache_manager import RedisCacheManager
+
+        with patch.object(RedisCacheManager, '__init__', lambda self: None):
+            mgr = RedisCacheManager.__new__(RedisCacheManager)
+        mgr.is_healthy = True
+        mgr.lock = __import__('threading').Lock()
+        mgr.stats = {'hits': 0, 'misses': 0, 'errors': 0}
+        mgr.redis_async_client = AsyncMock()
+        mgr.redis_async_client.get = AsyncMock(return_value=None)
+        mgr.redis_async_client.set = AsyncMock(return_value=True)
+
+        call_count = [0]
+
+        @mgr.cached_sync(ttl=60)
+        def compute(n):
+            call_count[0] += 1
+            return n * 2
+
+        async def run_inside_loop():
+            result = compute(5)
+            return result
+
+        result = asyncio.run(run_inside_loop())
+        self.assertEqual(result, 10)
+        self.assertEqual(call_count[0], 1)
+
+
 class TestGetCacheManager(unittest.TestCase):
     def setUp(self):
         rcm._cache_manager = None
