@@ -229,6 +229,32 @@ class TestLicenseStore(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.store.get_listing_keys("lst1", "other-user")
 
+    def test_get_listing_keys_unknown_listing_fails_closed(self):
+        """Before any license is issued AND without register_listing_owner(),
+        the internal owner record is absent. The permission check must fail
+        closed (PermissionError) rather than silently succeeding with an empty
+        response — otherwise any user can probe arbitrary listing IDs."""
+        store = LicenseStore()
+        with self.assertRaises(PermissionError):
+            store.get_listing_keys("brand-new-listing", "anyone")
+
+    def test_register_listing_owner_allows_real_owner_empty_list(self):
+        """After register_listing_owner(), the real owner can see their empty
+        key list (i.e. before any buyer has downloaded)."""
+        store = LicenseStore()
+        store.register_listing_owner("lst-new", "alice")
+        result = store.get_listing_keys("lst-new", "alice")
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(result["items"], [])
+
+    def test_register_listing_owner_still_blocks_non_owner(self):
+        """register_listing_owner() must not allow anyone OTHER than the
+        registered owner to access the listing keys."""
+        store = LicenseStore()
+        store.register_listing_owner("lst-new", "alice")
+        with self.assertRaises(PermissionError):
+            store.get_listing_keys("lst-new", "bob")
+
 
 class TestLicenseManager(unittest.TestCase):
     def setUp(self):

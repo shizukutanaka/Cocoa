@@ -164,6 +164,16 @@ class LicenseStore:
             "items": page,
         }
 
+    def register_listing_owner(self, listing_id: str, owner_id: str) -> None:
+        """Register the owner for a listing before any license is issued.
+
+        Call this when a listing is published so that get_listing_keys() can
+        enforce ownership even before the first download.  Idempotent: a
+        second call for the same listing is a no-op (first-writer wins).
+        """
+        with self._lock:
+            self._listing_owner.setdefault(listing_id, owner_id)
+
     def get_listing_keys(
         self, listing_id: str, owner_id: str, limit: int = 100, offset: int = 0
     ) -> Dict[str, Any]:
@@ -175,7 +185,10 @@ class LicenseStore:
                 all_keys[0].owner_id if all_keys
                 else self._listing_owner.get(listing_id)
             )
-            if known_owner is not None and known_owner != owner_id:
+            # Fail closed: if we have no record of this listing's owner, we
+            # cannot verify the caller's claim — deny access rather than expose
+            # an empty (but unauthenticated) key list.
+            if known_owner is None or known_owner != owner_id:
                 raise PermissionError("このリスティングのオーナーのみがライセンスを確認できます")
             total = len(all_keys)
             offset, limit = normalize_pagination(offset, limit)
@@ -259,6 +272,10 @@ class LicenseManager:
 
     def __init__(self, store: Optional[LicenseStore] = None) -> None:
         self.store = store or LicenseStore()
+
+    def register_listing_owner(self, listing_id: str, owner_id: str) -> None:
+        """Register listing ownership before any download occurs."""
+        self.store.register_listing_owner(listing_id, owner_id)
 
     def issue_on_download(
         self,
