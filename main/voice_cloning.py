@@ -597,13 +597,16 @@ class VoiceCloningEngine:
 
 # グローバルインスタンス管理
 _voice_cloning_engine = None
+_voice_cloning_engine_lock = asyncio.Lock()
 
 async def get_voice_cloning_engine() -> VoiceCloningEngine:
     """音声クローニングエンジンのインスタンスを取得"""
     global _voice_cloning_engine
 
     if _voice_cloning_engine is None:
-        _voice_cloning_engine = VoiceCloningEngine()
-        await _voice_cloning_engine.initialize()
+        async with _voice_cloning_engine_lock:
+            if _voice_cloning_engine is None:
+                _voice_cloning_engine = VoiceCloningEngine()
+                await _voice_cloning_engine.initialize()
 
     return _voice_cloning_engine

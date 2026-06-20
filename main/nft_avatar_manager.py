@@ -3,6 +3,7 @@ NFT-Enhanced Avatar Management System for Cocoa
 ブロックチェーンとNFTを活用したアバター真正性証明システム
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -492,6 +493,7 @@ class NFTAvatarManager:
 
 # グローバルインスタンス
 _nft_manager = None
+_nft_manager_lock = asyncio.Lock()
 
 async def get_nft_manager() -> NFTAvatarManager:
     """NFTマネージャーのインスタンスを取得"""
@@ -499,7 +501,9 @@ async def get_nft_manager() -> NFTAvatarManager:
     global _nft_manager
 
     if _nft_manager is None:
-        _nft_manager = NFTAvatarManager()
-        await _nft_manager.initialize_blockchain()
+        async with _nft_manager_lock:
+            if _nft_manager is None:
+                _nft_manager = NFTAvatarManager()
+                await _nft_manager.initialize_blockchain()
 
     return _nft_manager

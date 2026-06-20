@@ -572,13 +572,16 @@ class PhotoToAvatarGenerator:
 
 # グローバルインスタンス管理
 _photo_generator_instance = None
+_photo_generator_instance_lock = asyncio.Lock()
 
 async def get_photo_to_avatar_generator() -> PhotoToAvatarGenerator:
     """写真からアバター生成者のインスタンスを取得"""
     global _photo_generator_instance
 
     if _photo_generator_instance is None:
-        _photo_generator_instance = PhotoToAvatarGenerator()
-        await _photo_generator_instance.initialize_models()
+        async with _photo_generator_instance_lock:
+            if _photo_generator_instance is None:
+                _photo_generator_instance = PhotoToAvatarGenerator()
+                await _photo_generator_instance.initialize_models()
 
     return _photo_generator_instance

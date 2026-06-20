@@ -4,6 +4,7 @@ Multi Avatar Manager Module for Cocoa
 複数アバターの同時管理と複雑な交信シーン作成
 """
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -793,13 +794,16 @@ class MultiAvatarManager:
 
 # グローバルインスタンス管理
 _multi_avatar_manager = None
+_multi_avatar_manager_lock = asyncio.Lock()
 
 async def get_multi_avatar_manager() -> MultiAvatarManager:
     """複数アバター管理システムのインスタンスを取得"""
     global _multi_avatar_manager
 
     if _multi_avatar_manager is None:
-        _multi_avatar_manager = MultiAvatarManager()
-        await _multi_avatar_manager.initialize()
+        async with _multi_avatar_manager_lock:
+            if _multi_avatar_manager is None:
+                _multi_avatar_manager = MultiAvatarManager()
+                await _multi_avatar_manager.initialize()
 
     return _multi_avatar_manager

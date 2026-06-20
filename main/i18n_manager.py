@@ -629,14 +629,17 @@ class I18NManager:
 
 # グローバルインスタンス管理
 _i18n_manager = None
+_i18n_manager_lock = asyncio.Lock()
 
 async def get_i18n_manager() -> I18NManager:
     """I18Nマネージャーのインスタンスを取得"""
     global _i18n_manager
 
     if _i18n_manager is None:
-        _i18n_manager = I18NManager()
-        await _i18n_manager.initialize()
+        async with _i18n_manager_lock:
+            if _i18n_manager is None:
+                _i18n_manager = I18NManager()
+                await _i18n_manager.initialize()
 
     return _i18n_manager
 

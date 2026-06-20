@@ -758,13 +758,16 @@ class AvatarPerformanceMonitor:
 
 # グローバルインスタンス管理
 _avatar_performance_monitor = None
+_avatar_performance_monitor_lock = asyncio.Lock()
 
 async def get_avatar_performance_monitor() -> AvatarPerformanceMonitor:
     """アバターパフォーマンス監視システムのインスタンスを取得"""
     global _avatar_performance_monitor
 
     if _avatar_performance_monitor is None:
-        _avatar_performance_monitor = AvatarPerformanceMonitor()
-        await _avatar_performance_monitor.initialize()
+        async with _avatar_performance_monitor_lock:
+            if _avatar_performance_monitor is None:
+                _avatar_performance_monitor = AvatarPerformanceMonitor()
+                await _avatar_performance_monitor.initialize()
 
     return _avatar_performance_monitor

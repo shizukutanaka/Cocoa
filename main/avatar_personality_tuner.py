@@ -4,6 +4,7 @@ Avatar Personality Tuner Module for Cocoa
 ユーザーの話し方・表情を分析して自然なアバター動作を最適化
 """
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -744,13 +745,16 @@ class AvatarPersonalityTuner:
 
 # グローバルインスタンス管理
 _avatar_personality_tuner = None
+_avatar_personality_tuner_lock = asyncio.Lock()
 
 async def get_avatar_personality_tuner() -> AvatarPersonalityTuner:
     """アバターパーソナリティチューナーのインスタンスを取得"""
     global _avatar_personality_tuner
 
     if _avatar_personality_tuner is None:
-        _avatar_personality_tuner = AvatarPersonalityTuner()
-        await _avatar_personality_tuner.initialize()
+        async with _avatar_personality_tuner_lock:
+            if _avatar_personality_tuner is None:
+                _avatar_personality_tuner = AvatarPersonalityTuner()
+                await _avatar_personality_tuner.initialize()
 
     return _avatar_personality_tuner

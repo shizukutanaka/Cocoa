@@ -3,6 +3,7 @@ RAG-Enhanced Avatar Generator for Cocoa
 Retrieval-Augmented Generationを活用した高度なアバター生成システム
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -376,6 +377,7 @@ class AvatarRAGSystem:
 
 # グローバルインスタンス
 _rag_system = None
+_rag_system_lock = asyncio.Lock()
 
 async def get_rag_system() -> AvatarRAGSystem:
     """RAGシステムのインスタンスを取得"""
@@ -383,7 +385,9 @@ async def get_rag_system() -> AvatarRAGSystem:
     global _rag_system
 
     if _rag_system is None:
-        _rag_system = AvatarRAGSystem()
-        await _rag_system.initialize_vector_store()
+        async with _rag_system_lock:
+            if _rag_system is None:
+                _rag_system = AvatarRAGSystem()
+                await _rag_system.initialize_vector_store()
 
     return _rag_system

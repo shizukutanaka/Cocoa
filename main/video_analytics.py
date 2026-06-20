@@ -783,13 +783,16 @@ class VideoAnalyticsService:
 
 # グローバルインスタンス管理
 _video_analytics_service = None
+_video_analytics_service_lock = asyncio.Lock()
 
 async def get_video_analytics_service() -> VideoAnalyticsService:
     """動画アナリティクスサービスのインスタンスを取得"""
     global _video_analytics_service
 
     if _video_analytics_service is None:
-        _video_analytics_service = VideoAnalyticsService()
-        await _video_analytics_service.initialize()
+        async with _video_analytics_service_lock:
+            if _video_analytics_service is None:
+                _video_analytics_service = VideoAnalyticsService()
+                await _video_analytics_service.initialize()
 
     return _video_analytics_service

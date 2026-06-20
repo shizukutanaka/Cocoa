@@ -4,6 +4,7 @@ Virtual Backgrounds Module for Cocoa
 仮想背景統合システム
 """
 
+import asyncio
 import json
 import logging
 import shutil
@@ -899,13 +900,16 @@ class VirtualBackgroundsService:
 
 # グローバルインスタンス管理
 _virtual_backgrounds_service = None
+_virtual_backgrounds_service_lock = asyncio.Lock()
 
 async def get_virtual_backgrounds_service() -> VirtualBackgroundsService:
     """仮想背景サービスのインスタンスを取得"""
     global _virtual_backgrounds_service
 
     if _virtual_backgrounds_service is None:
-        _virtual_backgrounds_service = VirtualBackgroundsService()
-        await _virtual_backgrounds_service.initialize()
+        async with _virtual_backgrounds_service_lock:
+            if _virtual_backgrounds_service is None:
+                _virtual_backgrounds_service = VirtualBackgroundsService()
+                await _virtual_backgrounds_service.initialize()
 
     return _virtual_backgrounds_service

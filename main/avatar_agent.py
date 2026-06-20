@@ -458,14 +458,17 @@ class AgenticAIManager:
 
 # グローバルインスタンス
 _agentic_ai_manager = None
+_agentic_ai_manager_lock = asyncio.Lock()
 
 async def get_agentic_ai_manager() -> AgenticAIManager:
     """Agentic AIマネージャーのインスタンスを取得"""
     global _agentic_ai_manager
 
     if _agentic_ai_manager is None:
-        _agentic_ai_manager = AgenticAIManager()
-        await _agentic_ai_manager.initialize()
+        async with _agentic_ai_manager_lock:
+            if _agentic_ai_manager is None:
+                _agentic_ai_manager = AgenticAIManager()
+                await _agentic_ai_manager.initialize()
 
     return _agentic_ai_manager
 class AvatarAgentService:

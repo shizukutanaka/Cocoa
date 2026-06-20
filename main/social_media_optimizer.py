@@ -681,13 +681,16 @@ class SocialMediaOptimizer:
 
 # グローバルインスタンス管理
 _social_media_optimizer = None
+_social_media_optimizer_lock = asyncio.Lock()
 
 async def get_social_media_optimizer() -> SocialMediaOptimizer:
     """ソーシャルメディア最適化ツールのインスタンスを取得"""
     global _social_media_optimizer
 
     if _social_media_optimizer is None:
-        _social_media_optimizer = SocialMediaOptimizer()
-        await _social_media_optimizer.initialize()
+        async with _social_media_optimizer_lock:
+            if _social_media_optimizer is None:
+                _social_media_optimizer = SocialMediaOptimizer()
+                await _social_media_optimizer.initialize()
 
     return _social_media_optimizer

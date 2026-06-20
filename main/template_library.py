@@ -4,6 +4,7 @@ Template Library Module for Cocoa
 多様なアバター・動画テンプレートライブラリ
 """
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -1191,13 +1192,16 @@ class TemplateLibrary:
 
 # グローバルインスタンス管理
 _template_library = None
+_template_library_lock = asyncio.Lock()
 
 async def get_template_library() -> TemplateLibrary:
     """テンプレートライブラリのインスタンスを取得"""
     global _template_library
 
     if _template_library is None:
-        _template_library = TemplateLibrary()
-        await _template_library.initialize()
+        async with _template_library_lock:
+            if _template_library is None:
+                _template_library = TemplateLibrary()
+                await _template_library.initialize()
 
     return _template_library

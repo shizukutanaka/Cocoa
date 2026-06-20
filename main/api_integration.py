@@ -4,6 +4,7 @@ API Integration Module for Cocoa
 外部システムとの自動動画作成ワークフロー統合
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -744,13 +745,16 @@ class APIIntegrationService:
 
 # グローバルインスタンス管理
 _api_integration_service = None
+_api_integration_service_lock = asyncio.Lock()
 
 async def get_api_integration_service() -> APIIntegrationService:
     """API統合サービスのインスタンスを取得"""
     global _api_integration_service
 
     if _api_integration_service is None:
-        _api_integration_service = APIIntegrationService()
-        await _api_integration_service.initialize()
+        async with _api_integration_service_lock:
+            if _api_integration_service is None:
+                _api_integration_service = APIIntegrationService()
+                await _api_integration_service.initialize()
 
     return _api_integration_service

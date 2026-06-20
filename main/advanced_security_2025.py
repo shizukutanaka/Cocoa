@@ -3,6 +3,7 @@ Advanced Security System for Cocoa 2025
 ゼロトラストセキュリティとポスト量子暗号を活用した高度なセキュリティシステム
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -542,6 +543,7 @@ class AdvancedSecurityManager:
 
 # グローバルインスタンス
 _advanced_security_manager = None
+_advanced_security_manager_lock = asyncio.Lock()
 
 async def get_advanced_security_manager() -> AdvancedSecurityManager:
     """高度セキュリティマネージャーのインスタンスを取得"""
@@ -549,7 +551,9 @@ async def get_advanced_security_manager() -> AdvancedSecurityManager:
     global _advanced_security_manager
 
     if _advanced_security_manager is None:
-        _advanced_security_manager = AdvancedSecurityManager()
-        await _advanced_security_manager.initialize_post_quantum_crypto()
+        async with _advanced_security_manager_lock:
+            if _advanced_security_manager is None:
+                _advanced_security_manager = AdvancedSecurityManager()
+                await _advanced_security_manager.initialize_post_quantum_crypto()
 
     return _advanced_security_manager
