@@ -1,6 +1,8 @@
 """Tests for blockchain_audit module."""
+import asyncio
 import os
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -79,6 +81,34 @@ class TestBlockchainAuditManagerInit(unittest.TestCase):
     def test_availability_flag(self):
         from blockchain_audit import WEB3_AVAILABLE
         self.assertIsInstance(WEB3_AVAILABLE, bool)
+
+
+class TestInitializeCompletesWithoutWeb3(unittest.TestCase):
+    """initialize() must return promptly when web3 is not available.
+
+    Two bugs prevented this:
+    1. _initialize_smart_contract() called self.web3.is_connected() without
+       guarding against web3=None → AttributeError.
+    2. initialize() used `await self._start_mining_process()` which loops
+       forever → initialize() never returned.
+    """
+
+    def test_initialize_does_not_block_without_web3(self):
+        from blockchain_audit import BlockchainAuditManager
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mgr = BlockchainAuditManager(audit_dir=tmpdir)
+            # Must complete quickly (under 5 s) — would never return with the bug.
+            async def run():
+                await asyncio.wait_for(mgr.initialize(), timeout=5.0)
+            asyncio.run(run())
+
+    def test_initialize_creates_genesis_block(self):
+        from blockchain_audit import BlockchainAuditManager
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mgr = BlockchainAuditManager(audit_dir=tmpdir)
+            asyncio.run(mgr.initialize())
+            self.assertGreaterEqual(len(mgr.blocks), 1)
+            self.assertEqual(mgr.blocks[0].block_index, 0)
 
 
 class TestChainCalculations(unittest.TestCase):

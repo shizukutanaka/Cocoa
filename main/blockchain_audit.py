@@ -102,7 +102,9 @@ class BlockchainAuditManager:
         """ブロックチェーン監査マネージャーの初期化"""
         await self._load_existing_blockchain()
         await self._initialize_smart_contract()
-        await self._start_mining_process()
+        # Start the mining loop as a background task — do NOT await it directly
+        # because _start_mining_process() loops forever and would block initialize().
+        asyncio.create_task(self._start_mining_process())
 
     async def _load_existing_blockchain(self):
         """既存のブロックチェーンを読み込み"""
@@ -166,7 +168,7 @@ class BlockchainAuditManager:
             gas_price_gwei=20
         )
 
-        if self.web3.is_connected():
+        if self.web3 and self.web3.is_connected():
             logger.info(f"Connected to blockchain network: {self.web3_provider}")
         else:
             logger.warning("Blockchain network not available. Using local blockchain only.")
