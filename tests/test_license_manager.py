@@ -255,6 +255,23 @@ class TestLicenseStore(unittest.TestCase):
         with self.assertRaises(PermissionError):
             store.get_listing_keys("lst-new", "bob")
 
+    def test_registered_owner_wins_over_key_embedded_owner(self):
+        """When register_listing_owner() was called with the real owner,
+        get_listing_keys() must use that record as the authority.  An
+        incorrect owner_id embedded in a LicenseKey (e.g. due to a caller
+        bug or payload tampering) must not override the registration and
+        must not grant the wrong party access to buyer data."""
+        store = LicenseStore()
+        store.register_listing_owner("lst1", "real_owner")
+        # Simulate a caller bug: issue_key called with wrong owner_id.
+        store.issue_key("lst1", "wrong_owner", "buyer1")
+        # Real owner can see their keys.
+        result = store.get_listing_keys("lst1", "real_owner")
+        self.assertEqual(result["total"], 1)
+        # Attacker supplied as owner must be blocked.
+        with self.assertRaises(PermissionError):
+            store.get_listing_keys("lst1", "wrong_owner")
+
 
 class TestLicenseManager(unittest.TestCase):
     def setUp(self):

@@ -181,10 +181,13 @@ class LicenseStore:
         with self._lock:
             ids = self._listing_keys.get(listing_id, [])
             all_keys = [self._keys[i] for i in ids if i in self._keys]
-            known_owner = (
-                all_keys[0].owner_id if all_keys
-                else self._listing_owner.get(listing_id)
-            )
+            # Prefer the explicitly registered owner (set via register_listing_owner
+            # or the first issue_key call) over the owner_id embedded in issued keys.
+            # The key-embedded field comes from callers and can be wrong; _listing_owner
+            # reflects the first authoritative write, so it wins when present.
+            known_owner = self._listing_owner.get(listing_id)
+            if known_owner is None and all_keys:
+                known_owner = all_keys[0].owner_id
             # Fail closed: if we have no record of this listing's owner, we
             # cannot verify the caller's claim — deny access rather than expose
             # an empty (but unauthenticated) key list.
