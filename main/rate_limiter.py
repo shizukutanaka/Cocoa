@@ -239,12 +239,15 @@ def get_client_ip(request: Any) -> str:
 
 # Shared singleton
 _rate_limiter: Optional[RateLimiter] = None
+_rl_lock = threading.Lock()
 
 
 def get_rate_limiter() -> RateLimiter:
     global _rate_limiter
     if _rate_limiter is None:
-        _rate_limiter = RateLimiter()
+        with _rl_lock:
+            if _rate_limiter is None:
+                _rate_limiter = RateLimiter()
     return _rate_limiter
 
 

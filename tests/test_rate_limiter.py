@@ -232,5 +232,19 @@ class TestClientIpExtraction(unittest.TestCase):
         self.assertEqual(get_client_ip(FakeRequest()), "unknown")
 
 
+class TestRateLimiterSingleton(unittest.TestCase):
+    def test_singleton_returns_same_instance(self):
+        a = get_rate_limiter()
+        b = get_rate_limiter()
+        self.assertIs(a, b)
+
+    def test_singleton_preserves_rate_limit_state(self):
+        """State accumulated via get_rate_limiter() must persist across calls."""
+        rl = get_rate_limiter()
+        rl.check("singleton-test-key", "/api/test-singleton")
+        rl2 = get_rate_limiter()
+        self.assertIs(rl, rl2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
