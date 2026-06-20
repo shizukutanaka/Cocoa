@@ -982,6 +982,24 @@ class TestSearch(unittest.TestCase):
         result = self.store.search(tags=many_tags)
         self.assertIsInstance(result, dict)
 
+    def test_search_serialized_items_match_active_filter(self):
+        """search() filters by is_active and to_dict() must happen inside the
+        same lock so that a concurrent unpublish() cannot make an inactive listing
+        appear in results. Verify total equals serialized item count (atomic snapshot)."""
+        # All listings created in setUp are active; total must equal len(items)
+        result = self.store.search(limit=100)
+        self.assertEqual(result["total"], len(result["items"]))
+
+    def test_search_price_filter_consistent_with_serialized_price(self):
+        """Price filtering and serialization must happen under the same lock so
+        that serialized items are consistent with the filter applied."""
+        self.store.publish("av99", "u_price", "seller", "Pricey", "expensive", [], "vrc", {},
+                           price_credits=500, is_free=False)
+        result = self.store.search(min_price=500, max_price=500)
+        for item in result["items"]:
+            self.assertGreaterEqual(item["price_credits"], 500)
+            self.assertLessEqual(item["price_credits"], 500)
+
 
 class TestCreatorAnalytics(unittest.TestCase):
     def setUp(self):

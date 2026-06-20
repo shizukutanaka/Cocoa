@@ -1360,52 +1360,71 @@ class MarketplaceStore:
         include_facets: bool = False,            # if True, include category/tag/license breakdowns
     ) -> Dict[str, Any]:
         query = query[:200]  # cap before any O(n) allocation
+        if tags:
+            tag_set = {t.lower().strip()[:64] for t in tags[:50]}
+        else:
+            tag_set = set()
         with self._lock:
             results = [lst for lst in self._listings.values() if lst.is_active]
 
-        if query:
-            q = query.lower()
-            results = [
-                lst for lst in results
-                if q in lst.name.lower() or q in lst.description.lower() or q in lst.owner_username.lower()
-            ]
+            if query:
+                q = query.lower()
+                results = [
+                    lst for lst in results
+                    if q in lst.name.lower() or q in lst.description.lower() or q in lst.owner_username.lower()
+                ]
 
-        if tags:
-            tag_set = {t.lower().strip()[:64] for t in tags[:50]}
-            results = [lst for lst in results if tag_set & set(lst.tags)]
+            if tag_set:
+                results = [lst for lst in results if tag_set & set(lst.tags)]
 
-        if category:
-            results = [lst for lst in results if lst.category.lower() == category.lower()]
+            if category:
+                results = [lst for lst in results if lst.category.lower() == category.lower()]
 
-        if owner_id:
-            results = [lst for lst in results if lst.owner_id == owner_id]
+            if owner_id:
+                results = [lst for lst in results if lst.owner_id == owner_id]
 
-        if license_type:
-            results = [lst for lst in results if lst.license_type == license_type]
+            if license_type:
+                results = [lst for lst in results if lst.license_type == license_type]
 
-        # Price filters
-        if is_free is not None:
-            results = [lst for lst in results if lst.is_free == is_free]
-        if min_price is not None:
-            results = [lst for lst in results if lst.price_credits >= min_price]
-        if max_price is not None:
-            results = [lst for lst in results if lst.price_credits <= max_price]
+            # Price filters
+            if is_free is not None:
+                results = [lst for lst in results if lst.is_free == is_free]
+            if min_price is not None:
+                results = [lst for lst in results if lst.price_credits >= min_price]
+            if max_price is not None:
+                results = [lst for lst in results if lst.price_credits <= max_price]
 
-        # Sort
-        if sort_by == "downloads":
-            results.sort(key=lambda x: x.download_count, reverse=True)
-        elif sort_by == "rating":
-            results.sort(key=lambda x: (x.average_rating, x.rating_count), reverse=True)
-        elif sort_by == "price_asc":
-            results.sort(key=lambda x: x.price_credits)
-        elif sort_by == "price_desc":
-            results.sort(key=lambda x: x.price_credits, reverse=True)
-        else:  # newest
-            results.sort(key=lambda x: x.published_at, reverse=True)
+            # Sort
+            if sort_by == "downloads":
+                results.sort(key=lambda x: x.download_count, reverse=True)
+            elif sort_by == "rating":
+                results.sort(key=lambda x: (x.average_rating, x.rating_count), reverse=True)
+            elif sort_by == "price_asc":
+                results.sort(key=lambda x: x.price_credits)
+            elif sort_by == "price_desc":
+                results.sort(key=lambda x: x.price_credits, reverse=True)
+            else:  # newest
+                results.sort(key=lambda x: x.published_at, reverse=True)
 
-        total = len(results)
-        offset, limit = normalize_pagination(offset, limit)
-        page = results[offset: offset + limit]
+            total = len(results)
+            offset, limit = normalize_pagination(offset, limit)
+            page = results[offset: offset + limit]
+            serialized = [lst.to_dict() for lst in page]
+
+            facets: Optional[Dict[str, Any]] = None
+            if include_facets:
+                from collections import Counter
+                cat_counts: Counter = Counter(lst.category for lst in results)
+                lic_counts: Counter = Counter(lst.license_type for lst in results)
+                tag_counts: Counter = Counter(
+                    tag for lst in results for tag in lst.tags
+                )
+                facets = {
+                    "categories": dict(cat_counts.most_common()),
+                    "license_types": dict(lic_counts.most_common()),
+                    "top_tags": dict(tag_counts.most_common(20)),
+                }
+
         has_more = offset + limit < total
         response: Dict[str, Any] = {
             "total": total,
@@ -1413,20 +1432,10 @@ class MarketplaceStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [lst.to_dict() for lst in page],
+            "items": serialized,
         }
-        if include_facets:
-            from collections import Counter
-            cat_counts: Counter = Counter(lst.category for lst in results)
-            lic_counts: Counter = Counter(lst.license_type for lst in results)
-            tag_counts: Counter = Counter(
-                tag for lst in results for tag in lst.tags
-            )
-            response["facets"] = {
-                "categories": dict(cat_counts.most_common()),
-                "license_types": dict(lic_counts.most_common()),
-                "top_tags": dict(tag_counts.most_common(20)),
-            }
+        if facets is not None:
+            response["facets"] = facets
         return response
 
     def get_listing(self, listing_id: str) -> Optional[MarketplaceListing]:
