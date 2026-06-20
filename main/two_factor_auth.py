@@ -222,15 +222,50 @@ class TwoFactorAuthManager:
             logger.error(f"2FAセットアップエラー: {e}")
             raise
 
+    def _get_user_secret(self, user_id: int) -> Optional[str]:
+        """Return the user's enrolled TOTP secret, or None if it can't be
+        retrieved securely.
+
+        SECURITY: verification must use the per-user secret created at setup.
+        Until a persistence layer exposing ``get_two_factor_secret`` is wired in,
+        this returns None so every verifier FAILS CLOSED — never falling back to
+        a hardcoded, source-visible secret that anyone reading this file could
+        use to mint valid tokens for any account.
+        """
+        db = self.db_manager
+        getter = getattr(db, "get_two_factor_secret", None) if db is not None else None
+        if callable(getter):
+            try:
+                return getter(user_id)
+            except Exception as e:  # pragma: no cover - defensive
+                logger.error(f"2FA secret retrieval failed: {e}")
+                return None
+        return None
+
+    def _get_user_backup_codes(self, user_id: int) -> List[str]:
+        """Return the user's remaining backup codes, or [] if unavailable
+        (→ fail closed, same rationale as _get_user_secret)."""
+        db = self.db_manager
+        getter = getattr(db, "get_two_factor_backup_codes", None) if db is not None else None
+        if callable(getter):
+            try:
+                return list(getter(user_id) or [])
+            except Exception as e:  # pragma: no cover - defensive
+                logger.error(f"2FA backup-code retrieval failed: {e}")
+                return []
+        return []
+
     def enable_2fa(self, user_id: int, username: str, token: str) -> Dict[str, Any]:
         """2FAを有効化（セットアップ完了）"""
         try:
-            # セットアップデータを取得（実際の実装ではデータベースから取得）
-            # ここでは仮の実装として、メモリから取得するものとする
-
-            # 秘密鍵でトークンを検証
-            # （実際の実装ではデータベースから秘密鍵を取得）
-            secret = "JBSWY3DPEHPK3PXP"  # 仮の秘密鍵
+            # Verify with the user's OWN enrolled secret — never a hardcoded one.
+            secret = self._get_user_secret(user_id)
+            if not secret:
+                logger.warning("2FA enable denied: no per-user secret for user %s", user_id)
+                return {
+                    'success': False,
+                    'error': '2要素認証が構成されていません'
+                }
 
             totp = TOTPGenerator(secret)
             if not totp.verify_token(token):
@@ -262,11 +297,15 @@ class TwoFactorAuthManager:
     def verify_2fa_token(self, user_id: int, token: str) -> Dict[str, Any]:
         """2FAトークンを検証"""
         try:
-            # ユーザー情報を取得（実際の実装ではデータベースから取得）
-            # ここでは仮の実装として、メモリから取得するものとする
-
-            # 秘密鍵を取得（実際の実装ではデータベースから取得）
-            secret = "JBSWY3DPEHPK3PXP"  # 仮の秘密鍵
+            # Validate against the user's OWN enrolled secret. If it cannot be
+            # retrieved, fail closed rather than accept a hardcoded global secret.
+            secret = self._get_user_secret(user_id)
+            if not secret:
+                logger.warning("2FA verify denied: no per-user secret for user %s", user_id)
+                return {
+                    'valid': False,
+                    'error': '2要素認証が構成されていません'
+                }
 
             totp = TOTPGenerator(secret)
             if totp.verify_token(token):
@@ -289,10 +328,14 @@ class TwoFactorAuthManager:
     def verify_backup_code(self, user_id: int, backup_code: str) -> Dict[str, Any]:
         """バックアップコードを検証"""
         try:
-            # バックアップコードを検証（実際の実装ではデータベースから取得して確認）
-            # ここでは仮の実装として、固定のバックアップコードを使用
-
-            valid_codes = ["12345678", "87654321", "11111111"]  # 仮のバックアップコード
+            # Validate against the user's OWN backup codes. No codes available →
+            # fail closed (never accept a hardcoded, source-visible code set).
+            valid_codes = self._get_user_backup_codes(user_id)
+            if not valid_codes:
+                return {
+                    'valid': False,
+                    'error': '2要素認証が構成されていません'
+                }
 
             if backup_code in valid_codes:
                 return {

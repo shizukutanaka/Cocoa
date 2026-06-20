@@ -92,6 +92,43 @@ class TestTwoFactorAuthManager(unittest.TestCase):
         self.assertIsInstance(mgr.issuer_name, str)
         self.assertGreater(len(mgr.issuer_name), 0)
 
+    def test_verify_fails_closed_without_db(self):
+        # No persistence wired → no per-user secret → verification must DENY,
+        # never accept a hardcoded global secret (closed backdoor).
+        from two_factor_auth import TOTPGenerator
+        mgr = self._make()
+        # A token generated from the old hardcoded secret must NOT pass.
+        backdoor = TOTPGenerator("JBSWY3DPEHPK3PXP").generate_token()
+        self.assertFalse(mgr.verify_2fa_token(1, backdoor)["valid"])
+        # Old hardcoded backup codes must NOT pass either.
+        for code in ("12345678", "87654321", "11111111"):
+            self.assertFalse(mgr.verify_backup_code(1, code)["valid"])
+        self.assertFalse(mgr.enable_2fa(1, "alice", backdoor)["success"])
+
+    def test_verify_uses_per_user_secret_when_available(self):
+        # With a persistence layer exposing the user's real secret, a token from
+        # THAT secret passes and a token from a different secret fails.
+        from two_factor_auth import TOTPGenerator
+        user_secret = "KVKFKRCPNZQUYMLXOVYDSQKJKZDTSRLD"
+
+        class _DB:
+            def get_two_factor_secret(self, user_id):
+                return user_secret if user_id == 7 else None
+            def get_two_factor_backup_codes(self, user_id):
+                return ["AAAA1111"] if user_id == 7 else []
+
+        from two_factor_auth import TwoFactorAuthManager
+        mgr = TwoFactorAuthManager(secret_key="k", db_manager=_DB())
+        good = TOTPGenerator(user_secret).generate_token()
+        self.assertTrue(mgr.verify_2fa_token(7, good)["valid"])
+        other = TOTPGenerator("JBSWY3DPEHPK3PXP").generate_token()
+        self.assertFalse(mgr.verify_2fa_token(7, other)["valid"])
+        # Unknown user (no secret) still fails closed.
+        self.assertFalse(mgr.verify_2fa_token(99, good)["valid"])
+        # Per-user backup code works; wrong one doesn't.
+        self.assertTrue(mgr.verify_backup_code(7, "AAAA1111")["valid"])
+        self.assertFalse(mgr.verify_backup_code(7, "12345678")["valid"])
+
 
 if __name__ == '__main__':
     unittest.main()
