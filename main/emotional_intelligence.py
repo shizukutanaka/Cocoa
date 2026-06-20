@@ -426,7 +426,7 @@ class EmotionalIntelligence:
             ])
 
         # 感情の強さに基づく追加提案
-        max_score = max(emotion_scores.values())
+        max_score = max(emotion_scores.values()) if emotion_scores else 0.0
         if max_score > 0.8:
             suggestions.append("感情の強さが非常に高いため、特別な注意を払う")
         elif max_score < 0.3:

@@ -90,5 +90,34 @@ class TestEmotionalIntelligenceInit(unittest.TestCase):
         self.assertTrue(inspect.iscoroutinefunction(get_emotional_intelligence))
 
 
+class TestGenerateAdaptationSuggestionsEmptyScores(unittest.TestCase):
+    """_generate_adaptation_suggestions must not crash with empty emotion_scores.
+
+    Bug: max(emotion_scores.values()) raises ValueError when emotion_scores is {}.
+    Fix: max(...) if emotion_scores else 0.0 guards the empty case.
+    """
+
+    def _make_ei(self):
+        with patch('emotional_intelligence.get_security_manager', return_value=MagicMock()):
+            from emotional_intelligence import EmotionalIntelligence
+            return EmotionalIntelligence()
+
+    def test_empty_emotion_scores_does_not_crash(self):
+        import asyncio
+        from emotional_intelligence import EmotionAnalysisRequest
+        ei = self._make_ei()
+        req = EmotionAnalysisRequest(user_id="u1", input_type="text", input_data="test")
+        result = asyncio.run(ei._generate_adaptation_suggestions("neutral", {}, req))
+        self.assertIsInstance(result, list)
+
+    def test_nonempty_emotion_scores_returns_suggestions(self):
+        import asyncio
+        from emotional_intelligence import EmotionAnalysisRequest
+        ei = self._make_ei()
+        req = EmotionAnalysisRequest(user_id="u1", input_type="text", input_data="happy")
+        result = asyncio.run(ei._generate_adaptation_suggestions("joy", {"joy": 0.9, "neutral": 0.1}, req))
+        self.assertIsInstance(result, list)
+
+
 if __name__ == '__main__':
     unittest.main()
