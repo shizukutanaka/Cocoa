@@ -1454,6 +1454,21 @@ class TestPurchaseDisputes(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.open_dispute(free.listing_id, "u_buyer", "other")
 
+    def test_open_dispute_allowed_after_seller_makes_listing_free(self):
+        """Eligibility must be based on what the buyer actually paid, not the
+        listing's current price.  If the seller makes the listing free AFTER
+        the buyer purchased it, the buyer must still be able to dispute."""
+        # Buyer already purchased the 50-credit listing in setUp (download was called)
+        self.store.update_listing(
+            self.paid_listing.listing_id, "u_seller",
+            is_free=True, price_credits=0,
+        )
+        # The listing is now free, but the buyer paid 50 credits — dispute allowed
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.assertEqual(dispute.amount_credits, 50)
+
     def test_duplicate_open_dispute_raises(self):
         self.store.open_dispute(self.paid_listing.listing_id, "u_buyer", "other")
         with self.assertRaises(ValueError):

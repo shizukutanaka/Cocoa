@@ -1650,8 +1650,6 @@ class MarketplaceStore:
             listing = self._listings.get(listing_id)
             if not listing:
                 raise ValueError("リスティングが見つかりません")
-            if listing.is_free or listing.price_credits == 0:
-                raise ValueError("無料リスティングは争議の対象外です")
             # Verify buyer actually downloaded this listing (O(1) via index)
             if not self._has_downloaded_locked(buyer_id, listing_id):
                 raise ValueError("ダウンロード履歴がありません")
@@ -1667,11 +1665,17 @@ class MarketplaceStore:
             # full price would over-compensate the buyer and over-charge the
             # seller on clawback.  Fall back to the list price if no purchase
             # entry is found.
+            # NOTE: eligibility is checked AFTER the ledger scan so that a
+            # buyer who paid for a listing that was later made free can still
+            # dispute; the current listing state is irrelevant — what matters
+            # is what the buyer actually paid.
             paid = listing.price_credits
             for entry in reversed(self._credit_ledger.get(buyer_id, [])):
                 if entry.get("kind") == "purchase" and entry.get("ref_id") == listing_id:
                     paid = -entry["amount"]
                     break
+            if paid <= 0:
+                raise ValueError("無料リスティングは争議の対象外です")
             dispute = PurchaseDispute(
                 dispute_id=secrets.token_hex(8),
                 listing_id=listing_id,
