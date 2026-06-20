@@ -301,7 +301,7 @@ class VideoAnalyticsService:
         if not force_refresh:
             with self.cache_lock:
                 cached = self.metrics_cache.get(video_id)
-                if cached and (datetime.now(timezone.utc) - cached.last_updated).seconds < self.cache_ttl:
+                if cached and (datetime.now(timezone.utc) - cached.last_updated).total_seconds() < self.cache_ttl:
                     return cached
 
         # データベースから読み込み
@@ -382,7 +382,7 @@ class VideoAnalyticsService:
                     watch_times.append(row[1])
 
             if play_events:
-                metrics.completion_rate = len(complete_events) / len(play_events)
+                metrics.completion_rate = min(len(complete_events) / len(play_events), 1.0)
 
             if watch_times:
                 metrics.average_watch_time = statistics.mean(watch_times)
@@ -749,7 +749,7 @@ class VideoAnalyticsService:
         with self.cache_lock:
             to_remove = []
             for video_id, metrics in self.metrics_cache.items():
-                if (current_time - metrics.last_updated).seconds > self.cache_ttl:
+                if (current_time - metrics.last_updated).total_seconds() > self.cache_ttl:
                     to_remove.append(video_id)
 
             for video_id in to_remove:
