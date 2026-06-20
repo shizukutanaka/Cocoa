@@ -121,5 +121,39 @@ class TestValidateConfig(unittest.TestCase):
             self.assertIsNotNone(result)
 
 
+class TestGetI18nManagerCalledWithAsyncioRun(unittest.TestCase):
+    """main.run() must call asyncio.run(get_i18n_manager()) not get_i18n_manager().
+
+    Bug: get_i18n_manager is async def. Calling it without await returns a coroutine
+    object; accessing .translate on that raises AttributeError. The fix wraps the
+    call with asyncio.run() so the caller gets the real I18NManager instance.
+    """
+
+    def test_run_uses_asyncio_run_for_i18n_manager(self):
+        """Verify the run() method calls asyncio.run() with get_i18n_manager."""
+        import ast
+        import pathlib
+        src = pathlib.Path('main/main.py').read_text()
+        tree = ast.parse(src)
+
+        calls_asyncio_run = False
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and
+                    isinstance(node.func, ast.Attribute) and
+                    node.func.attr == 'run' and
+                    len(node.args) == 1):
+                arg = node.args[0]
+                if (isinstance(arg, ast.Call) and
+                        isinstance(arg.func, ast.Name) and
+                        arg.func.id == 'get_i18n_manager'):
+                    calls_asyncio_run = True
+                    break
+
+        self.assertTrue(
+            calls_asyncio_run,
+            "main.py must call asyncio.run(get_i18n_manager()) not bare get_i18n_manager()"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

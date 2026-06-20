@@ -84,10 +84,11 @@ class CocoaLauncher:
 
         # 言語マネージャーの初期化を試行
         try:
+            import asyncio as _asyncio
             from i18n_manager import get_i18n_manager
-            i18n_manager = get_i18n_manager()
+            i18n_manager = _asyncio.run(get_i18n_manager())
             _ = i18n_manager.translate
-        except ImportError:
+        except (ImportError, Exception):
             # フォールバック: シンプルな翻訳関数
             def _(key, default=''):
                 return default if key.startswith(('error', 'config')) else key
