@@ -167,8 +167,10 @@ class SavedSearchStore:
     def find_matches(self, listing: Any) -> List["SavedSearch"]:
         """Return all notify-enabled saved searches that match the given listing."""
         with self._lock:
-            candidates = [ss for ss in self._searches.values() if ss.notify_on_match]
-        return [ss for ss in candidates if self._listing_matches(ss, listing)]
+            return [
+                ss for ss in self._searches.values()
+                if ss.notify_on_match and self._listing_matches(ss, listing)
+            ]
 
     def stats(self, user_id: str) -> Dict[str, Any]:
         searches = self.list(user_id)

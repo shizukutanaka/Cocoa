@@ -277,6 +277,17 @@ class TestSavedSearchNotify(unittest.TestCase):
         self.assertIn("notify_on_match", d)
         self.assertFalse(d["notify_on_match"])
 
+    def test_find_matches_sees_updated_query(self):
+        """find_matches() must read the current query/filters atomically."""
+        ss = self.store.create("u1", "Fantasy", query="fantasy")
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        # Update the query before matching — find_matches must use the new query
+        self.store.update("u1", ss.search_id, query="mecha")
+        listing = _FakeListing(name="Cool Fantasy Avatar")
+        # Old query "fantasy" would match; updated query "mecha" must not
+        matches = self.store.find_matches(listing)
+        self.assertEqual(matches, [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
