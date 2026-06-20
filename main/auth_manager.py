@@ -840,18 +840,20 @@ class AuthManager:
         reason = reason.strip()[:1000]
         if not reason:
             raise ValueError("申請理由を入力してください")
-        # Check for existing pending application
-        for app in self.store._applications.values():
-            if app.user_id == user_id and app.status == "pending":
-                raise ValueError("すでに審査中の申請があります")
-        application = CreatorApplication(
-            application_id=secrets.token_hex(10),
-            user_id=user_id,
-            username=user.username,
-            reason=reason,
-            portfolio_url=portfolio_url.strip()[:512],
-        )
-        self.store._applications[application.application_id] = application
+        with self.store._lock:
+            # Check for existing pending application under the lock so two
+            # concurrent submissions can't both pass the dedup check.
+            for app in self.store._applications.values():
+                if app.user_id == user_id and app.status == "pending":
+                    raise ValueError("すでに審査中の申請があります")
+            application = CreatorApplication(
+                application_id=secrets.token_hex(10),
+                user_id=user_id,
+                username=user.username,
+                reason=reason,
+                portfolio_url=portfolio_url.strip()[:512],
+            )
+            self.store._applications[application.application_id] = application
         logger.info("Creator application submitted by %s", user.username)
         return application
 
@@ -866,19 +868,20 @@ class AuthManager:
         self.require_role(admin_payload, "admin")
         if decision not in ("approved", "rejected"):
             raise ValueError("decision は 'approved' または 'rejected' のいずれかです")
-        app = self.store._applications.get(application_id)
-        if not app:
-            raise ValueError("申請が見つかりません")
-        if app.status != "pending":
-            raise ValueError("この申請はすでに審査済みです")
-        app.status = decision
-        app.reviewed_by = admin_payload.get("sub", "")
-        app.review_note = note.strip()[:500]
-        app.reviewed_at = datetime.now(timezone.utc)
-        if decision == "approved":
-            user = self.store.get_by_id(app.user_id)
-            if user:
-                user.is_creator_verified = True
+        with self.store._lock:
+            app = self.store._applications.get(application_id)
+            if not app:
+                raise ValueError("申請が見つかりません")
+            if app.status != "pending":
+                raise ValueError("この申請はすでに審査済みです")
+            app.status = decision
+            app.reviewed_by = admin_payload.get("sub", "")
+            app.review_note = note.strip()[:500]
+            app.reviewed_at = datetime.now(timezone.utc)
+            if decision == "approved":
+                user = self.store._by_id.get(app.user_id)
+                if user:
+                    user.is_creator_verified = True
         logger.info("Creator application %s: %s by admin %s", application_id, decision, app.reviewed_by)
         return app
 
@@ -889,13 +892,15 @@ class AuthManager:
         offset: int = 0,
     ) -> Dict[str, Any]:
         """Admin: list creator applications."""
-        items = list(self.store._applications.values())
-        if status:
-            items = [a for a in items if a.status == status]
-        items.sort(key=lambda a: a.created_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset: offset + limit]
+        with self.store._lock:
+            items = list(self.store._applications.values())
+            if status:
+                items = [a for a in items if a.status == status]
+            items.sort(key=lambda a: a.created_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset: offset + limit]
+            serialized = [a.to_dict() for a in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -903,16 +908,17 @@ class AuthManager:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [a.to_dict() for a in page],
+            "items": serialized,
         }
 
     def get_my_creator_application(self, user_id: str) -> Optional[CreatorApplication]:
         """Return the most recent application submitted by user_id."""
-        apps = [
-            a for a in self.store._applications.values()
-            if a.user_id == user_id
-        ]
-        return max(apps, key=lambda a: a.created_at, default=None)
+        with self.store._lock:
+            apps = [
+                a for a in self.store._applications.values()
+                if a.user_id == user_id
+            ]
+            return max(apps, key=lambda a: a.created_at, default=None)
 
     # --- Tag following ---
 

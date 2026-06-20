@@ -1055,6 +1055,15 @@ class TestCreatorApplications(unittest.TestCase):
         new_app = self.auth.submit_creator_application(self.uid1, "second attempt")
         self.assertEqual(new_app.status, "pending")
 
+    def test_get_creator_applications_filter_consistent_with_serialized_status(self):
+        """Items returned for status='pending' must all have status='pending' in to_dict()."""
+        self.auth.submit_creator_application(self.uid1, "reason1")
+        app2 = self.auth.submit_creator_application(self.uid2, "reason2")
+        self.auth.review_creator_application(self.admin_payload, app2.application_id, "approved")
+        result = self.auth.get_creator_applications(status="pending")
+        for item in result["items"]:
+            self.assertEqual(item["status"], "pending")
+
     def test_pagination_offset(self):
         self.auth.submit_creator_application(self.uid1, "reason1")
         self.auth.submit_creator_application(self.uid2, "reason2")
