@@ -326,6 +326,38 @@ class TestGiftCardManager(unittest.TestCase):
         result = self.mgr.purchase("buyer", 100, self.mkt, expires_at=future)
         self.assertIsNotNone(result["expires_at"])
 
+    def test_redeem_rolls_back_on_credit_failure(self):
+        """Card must not be permanently consumed if credit delivery fails."""
+        purchase = self.mgr.purchase("buyer", 100, self.mkt)
+        code = purchase["code"]
+
+        class _BrokenMarketplace(_FakeMarketplace):
+            def credit(self, *args, **kwargs):
+                raise RuntimeError("payment service unavailable")
+
+        broken_mkt = _BrokenMarketplace()
+        with self.assertRaises(RuntimeError):
+            self.mgr.redeem(code, "recipient", broken_mkt)
+
+        # Card must be available for a retry — not burned
+        info = self.mgr.lookup(code)
+        self.assertIsNotNone(info)
+        self.assertTrue(info["is_valid"])
+        self.assertFalse(info["is_redeemed"])
+
+    def test_reverse_redemption_restores_card_state(self):
+        """_reverse_redemption() on an un-redeemed card is a safe no-op."""
+        store = GiftCardStore()
+        card = store.create("u1", 50)
+        # Simulate a successful redemption then rollback
+        store.redeem(card.code, "u2")
+        self.assertTrue(store.get_by_id(card.card_id).is_redeemed)
+        store._reverse_redemption(card.card_id)
+        restored = store.get_by_id(card.card_id)
+        self.assertFalse(restored.is_redeemed)
+        self.assertEqual(restored.redeemed_by, "")
+        self.assertIsNone(restored.redeemed_at)
+
 
 class TestGiftCardSingleton(unittest.TestCase):
     def test_singleton_same_instance(self):

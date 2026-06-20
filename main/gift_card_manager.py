@@ -158,6 +158,16 @@ class GiftCardStore:
             card.redeemed_at = datetime.now(timezone.utc)
             return card
 
+    def _reverse_redemption(self, card_id: str) -> None:
+        """Roll back a redemption when the downstream credit step fails.
+        Only called from GiftCardManager.redeem() on a credit exception."""
+        with self._lock:
+            card = self._cards.get(card_id)
+            if card and card.is_redeemed:
+                card.is_redeemed = False
+                card.redeemed_by = ""
+                card.redeemed_at = None
+
     def get_my_cards(
         self, purchaser_id: str, limit: int = 50, offset: int = 0
     ) -> Dict[str, Any]:
@@ -221,9 +231,16 @@ class GiftCardManager:
         """Redeem a gift card code, adding credits to redeemer."""
         card = self.store.redeem(code, redeemer_id)
 
-        new_bal = marketplace_store.credit(
-            redeemer_id, card.amount, "gift_card_redeem", ref_id=card.card_id
-        )
+        try:
+            new_bal = marketplace_store.credit(
+                redeemer_id, card.amount, "gift_card_redeem", ref_id=card.card_id
+            )
+        except Exception:
+            # Credit delivery failed — reverse the redemption so the card can
+            # be retried rather than silently consumed without the user getting
+            # their credits.
+            self.store._reverse_redemption(card.card_id)
+            raise
 
         logger.info("Gift card redeemed: %s by %s (%d credits)", card.card_id, redeemer_id, card.amount)
         return {
