@@ -29,6 +29,7 @@ class AIAvatarGeneratorGUI:
         self.parent = parent_frame
         self.generator = None
         self.current_user_id = "default_user"  # 実際の運用では認証システムから取得
+        self._background_tasks: list = []
 
         # UI変数
         self.source_image_path = tk.StringVar()
@@ -213,7 +214,7 @@ class AIAvatarGeneratorGUI:
 
         # 初期化
         self.current_result = None
-        asyncio.create_task(self.initialize_generator())
+        self._background_tasks.append(asyncio.create_task(self.initialize_generator()))
 
     def setup_video_creation_tab(self, tab_frame):
         """動画作成タブのセットアップ"""
@@ -336,7 +337,7 @@ class AIAvatarGeneratorGUI:
 
         # 動画作成器の初期化
         self.video_creator = None
-        asyncio.create_task(self.initialize_video_creator())
+        self._background_tasks.append(asyncio.create_task(self.initialize_video_creator()))
 
     async def initialize_video_creator(self):
         """動画作成器を初期化"""
