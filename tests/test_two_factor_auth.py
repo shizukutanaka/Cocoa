@@ -179,5 +179,74 @@ class TestDisable2FA(unittest.TestCase):
         self.assertFalse(mgr.disable_2fa(1, "wrong")["success"])
 
 
+class TestTOTPReplayProtection(unittest.TestCase):
+    """verify_2fa_token() must reject a TOTP code that was already used in the same window.
+
+    Bug: the code called totp.verify_token() without tracking which codes had
+    already been accepted, allowing an attacker to reuse a captured code multiple
+    times within the same 30-second window.
+    Fix: TwoFactorAuthManager._used_totp_tokens tracks (time_step, code) pairs
+    per user; duplicate submissions within the valid window are rejected.
+    """
+
+    def _make_mgr(self):
+        from two_factor_auth import TwoFactorAuthManager
+        return TwoFactorAuthManager(secret_key="replay_test_key_abc123")
+
+    def _mgr_with_user_secret(self):
+        """Return a manager whose _get_user_secret() returns a fixed test secret."""
+        from unittest.mock import patch
+        from two_factor_auth import TwoFactorAuthManager, TOTPGenerator
+        mgr = TwoFactorAuthManager(secret_key="replay_test_key_abc123")
+        secret = mgr._generate_secret()
+        # Inject the secret so _get_user_secret returns it
+        with patch.object(mgr, '_get_user_secret', return_value=secret):
+            totp = TOTPGenerator(secret)
+            valid_token = totp.generate_token()
+            # First call must succeed
+            result1 = mgr.verify_2fa_token.__func__(mgr, 99, valid_token)
+        # We need the patch active for both calls — re-do with longer context
+        mgr2 = TwoFactorAuthManager(secret_key="replay_test_key_abc123")
+        return mgr2, secret
+
+    def test_same_token_rejected_on_second_use(self):
+        from unittest.mock import patch
+        from two_factor_auth import TwoFactorAuthManager, TOTPGenerator
+        mgr = TwoFactorAuthManager(secret_key="replay_test_key_abc123")
+        secret = mgr._generate_secret()
+
+        with patch.object(mgr, '_get_user_secret', return_value=secret):
+            totp = TOTPGenerator(secret)
+            valid_token = totp.generate_token()
+
+            result1 = mgr.verify_2fa_token(99, valid_token)
+            result2 = mgr.verify_2fa_token(99, valid_token)
+
+        self.assertTrue(result1['valid'], "First use of a valid token must succeed")
+        self.assertFalse(result2['valid'], "Second use of same token in same window must fail")
+
+    def test_different_users_same_token_independent(self):
+        """Two different users' token tracking must not interfere."""
+        from unittest.mock import patch
+        from two_factor_auth import TwoFactorAuthManager, TOTPGenerator
+        mgr = TwoFactorAuthManager(secret_key="replay_test_key_abc123")
+        secret1 = mgr._generate_secret()
+        secret2 = mgr._generate_secret()
+
+        with patch.object(mgr, '_get_user_secret', side_effect=lambda uid: secret1 if uid == 1 else secret2):
+            totp1 = TOTPGenerator(secret1)
+            totp2 = TOTPGenerator(secret2)
+            token1 = totp1.generate_token()
+            token2 = totp2.generate_token()
+
+            r1a = mgr.verify_2fa_token(1, token1)
+            r2a = mgr.verify_2fa_token(2, token2)
+            r1b = mgr.verify_2fa_token(1, token1)  # replay for user 1
+
+        self.assertTrue(r1a['valid'])
+        self.assertTrue(r2a['valid'])
+        self.assertFalse(r1b['valid'], "Replay for user 1 must be rejected")
+
+
 if __name__ == '__main__':
     unittest.main()

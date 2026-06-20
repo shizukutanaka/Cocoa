@@ -120,6 +120,10 @@ class TwoFactorAuthManager:
         self.backup_code_count = 10
         self.backup_code_length = 8
 
+        # リプレイ攻撃対策: 使用済み TOTP トークンを記録
+        # {user_id: [(time_step, token), ...]}
+        self._used_totp_tokens: Dict[int, List] = {}
+
         logger.info("TwoFactorAuthManager initialized")
 
     def _derive_key(self) -> bytes:
@@ -308,7 +312,21 @@ class TwoFactorAuthManager:
                 }
 
             totp = TOTPGenerator(secret)
+            # リプレイ攻撃対策: 同一ウィンドウ内で同じトークンを再使用させない
+            window = 1
+            current_step = int(time.time()) // totp.interval
+            valid_steps = {current_step + o for o in range(-window, window + 1)}
+            used = self._used_totp_tokens.get(user_id, [])
+            if any(step in valid_steps and tok == token for step, tok in used):
+                return {
+                    'valid': False,
+                    'error': 'このトークンは既に使用されています'
+                }
             if totp.verify_token(token):
+                # 使用済みトークンを記録し、古いエントリを削除
+                used.append((current_step, token))
+                cutoff = current_step - (window + 1)
+                self._used_totp_tokens[user_id] = [(s, t) for s, t in used if s >= cutoff]
                 return {
                     'valid': True,
                     'remaining_time': totp.get_remaining_time()
