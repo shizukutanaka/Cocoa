@@ -1138,13 +1138,16 @@ class AvatarAgentService:
 
 # グローバルインスタンス管理
 _avatar_agent_service = None
+_avatar_agent_service_lock = asyncio.Lock()
 
 async def get_avatar_agent_service() -> AvatarAgentService:
     """アバターエージェントサービスのインスタンスを取得"""
     global _avatar_agent_service
 
     if _avatar_agent_service is None:
-        _avatar_agent_service = AvatarAgentService()
-        await _avatar_agent_service.initialize()
+        async with _avatar_agent_service_lock:
+            if _avatar_agent_service is None:
+                _avatar_agent_service = AvatarAgentService()
+                await _avatar_agent_service.initialize()
 
     return _avatar_agent_service
