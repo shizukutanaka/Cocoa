@@ -666,16 +666,16 @@ class SocialMediaOptimizer:
             最適化結果のリスト
         """
         semaphore = asyncio.Semaphore(max_concurrent)
-        results = []
 
         async def process_request(request):
             async with semaphore:
-                result = await self.optimize_for_platforms(request)
-                results.append(result)
+                return await self.optimize_for_platforms(request)
 
-        await asyncio.gather(*[process_request(req) for req in requests])
-
-        return results
+        task_results = await asyncio.gather(
+            *[process_request(req) for req in requests],
+            return_exceptions=True,
+        )
+        return [r for r in task_results if not isinstance(r, Exception)]
 
 # グローバルインスタンス管理
 _social_media_optimizer = None

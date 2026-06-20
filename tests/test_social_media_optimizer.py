@@ -212,5 +212,72 @@ class TestOptimizeForPlatformsUnsupportedPlatform(unittest.IsolatedAsyncioTestCa
         self.assertEqual(result.metadata["successful_optimizations"], 0)
 
 
+class TestBatchOptimizeExceptionIsolation(unittest.IsolatedAsyncioTestCase):
+    """batch_optimize must not abort all requests when one task raises.
+
+    Bug: asyncio.gather(*tasks) without return_exceptions=True propagates the
+    first exception immediately, cancelling all pending tasks and leaving the
+    caller with a partially-populated (and unordered) results list.
+    Fix: return_exceptions=True + collect results via return values, not a
+    shared-list side-effect.
+    """
+
+    def _make_optimizer(self):
+        from social_media_optimizer import SocialMediaOptimizer
+        with patch('social_media_optimizer.get_security_manager', return_value=MagicMock()):
+            opt = SocialMediaOptimizer()
+        return opt
+
+    async def test_one_failing_task_does_not_abort_others(self):
+        from social_media_optimizer import OptimizationRequest, OptimizationResult
+        opt = self._make_optimizer()
+
+        call_count = 0
+
+        async def fake_optimize(request):
+            nonlocal call_count
+            call_count += 1
+            if request.video_path == "/tmp/bad.mp4":
+                raise RuntimeError("simulated failure")
+            return OptimizationResult(
+                success=True,
+                optimized_videos={},
+                metadata={"platform_results": {}, "successful_optimizations": 0},
+            )
+
+        opt.optimize_for_platforms = fake_optimize
+
+        requests = [
+            OptimizationRequest(video_path="/tmp/good1.mp4", platforms=["youtube"]),
+            OptimizationRequest(video_path="/tmp/bad.mp4", platforms=["youtube"]),
+            OptimizationRequest(video_path="/tmp/good2.mp4", platforms=["youtube"]),
+        ]
+        results = await opt.batch_optimize(requests, max_concurrent=3)
+        # All three tasks should have been attempted
+        self.assertEqual(call_count, 3)
+        # Failed task is dropped; two successes remain
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(r.success for r in results))
+
+    async def test_all_succeed_returns_all(self):
+        from social_media_optimizer import OptimizationRequest, OptimizationResult
+        opt = self._make_optimizer()
+
+        async def fake_optimize(request):
+            return OptimizationResult(
+                success=True,
+                optimized_videos={},
+                metadata={"platform_results": {}, "successful_optimizations": 0},
+            )
+
+        opt.optimize_for_platforms = fake_optimize
+        requests = [
+            OptimizationRequest(video_path=f"/tmp/v{i}.mp4", platforms=["youtube"])
+            for i in range(4)
+        ]
+        results = await opt.batch_optimize(requests, max_concurrent=2)
+        self.assertEqual(len(results), 4)
+
+
 if __name__ == '__main__':
     unittest.main()
