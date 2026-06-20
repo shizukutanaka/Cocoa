@@ -202,6 +202,16 @@ class TestRefundStore(unittest.TestCase):
         self.assertTrue(result["has_more"])
         self.assertEqual(result["next_offset"], 2)
 
+    def test_list_filter_and_serialization_consistent(self):
+        """Each item in items[] must have the status that matched the filter."""
+        req = self.store.create("o1", "u1", 100, "r1")
+        self.store.create("o2", "u2", 200, "r2")
+        self.store.transition(req.request_id, "pending", "approved", resolved_by="admin1")
+        result = self.store.list_requests(status="approved")
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["status"], "approved")
+        self.assertEqual(result["items"][0]["request_id"], req.request_id)
+
 
 class TestRefundManagerRequest(unittest.TestCase):
     def _setup(self, age_hours=0, status="completed"):

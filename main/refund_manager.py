@@ -106,14 +106,15 @@ class RefundStore:
     ) -> Dict[str, Any]:
         with self._lock:
             items: List[RefundRequest] = list(self._requests.values())
-        if status:
-            items = [r for r in items if r.status == status]
-        if user_id:
-            items = [r for r in items if r.user_id == user_id]
-        items.sort(key=lambda r: r.created_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset: offset + limit]
+            if status:
+                items = [r for r in items if r.status == status]
+            if user_id:
+                items = [r for r in items if r.user_id == user_id]
+            items.sort(key=lambda r: r.created_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset: offset + limit]
+            serialized = [r.to_dict() for r in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -121,7 +122,7 @@ class RefundStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [r.to_dict() for r in page],
+            "items": serialized,
         }
 
     def update(self, request_id: str, status: str, notes: str, resolved_by: str) -> RefundRequest:
