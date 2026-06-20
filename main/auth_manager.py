@@ -342,6 +342,37 @@ class UserStore:
         uid = self._by_email.get(self._email_key(email))
         return self._by_id.get(uid) if uid else None
 
+    def record_failed_login(self, user_id: str, max_failed: int, lockout_minutes: int) -> None:
+        """Atomically increment a user's failed-login counter and lock the account
+        once it reaches ``max_failed``.
+
+        Done under the store lock so concurrent wrong-password attempts can't lose
+        increments (a read-modify-write race would otherwise let many simultaneous
+        attempts each read the same count and skip past the lockout threshold,
+        defeating brute-force protection).
+        """
+        with self._lock:
+            user = self._by_id.get(user_id)
+            if not user:
+                return
+            user.failed_attempts += 1
+            if user.failed_attempts >= max_failed:
+                user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=lockout_minutes)
+                logger.warning(
+                    "Account locked after %d failed attempts: %s",
+                    max_failed, user.username,
+                )
+
+    def record_successful_login(self, user_id: str) -> None:
+        """Atomically reset the failed-login counter / lock and stamp last_login."""
+        with self._lock:
+            user = self._by_id.get(user_id)
+            if not user:
+                return
+            user.failed_attempts = 0
+            user.locked_until = None
+            user.last_login = datetime.now(timezone.utc)
+
     def list_users(self) -> List[UserRecord]:
         return list(self._by_id.values())
 
@@ -567,16 +598,13 @@ class AuthManager:
             raise AuthError("account_locked", f"アカウントがロックされています（{remaining}秒後に解除）")
 
         if not verify_password(password, user.password_hash):
-            user.failed_attempts += 1
-            if user.failed_attempts >= self._max_failed:
-                user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=self._lockout_minutes)
-                logger.warning("Account locked after %d failed attempts: %s", self._max_failed, username)
+            # Atomic increment + lockout under the store lock so concurrent
+            # wrong-password attempts can't race the counter past the threshold.
+            self.store.record_failed_login(user.user_id, self._max_failed, self._lockout_minutes)
             raise AuthError("invalid_credentials", "ユーザー名またはパスワードが正しくありません")
 
-        # Reset on success
-        user.failed_attempts = 0
-        user.locked_until = None
-        user.last_login = datetime.now(timezone.utc)
+        # Reset on success (atomic under the store lock).
+        self.store.record_successful_login(user.user_id)
 
         access = create_access_token(user.user_id, user.username, user.role)
         refresh = create_refresh_token(user.user_id)

@@ -296,6 +296,32 @@ class TestAuthManager(unittest.TestCase):
             auth2.login("locked", "Lock1234!")
         self.assertEqual(ctx.exception.code, "account_locked")
 
+    def test_concurrent_failed_logins_still_lock(self):
+        # Many simultaneous wrong-password attempts must not lose counter
+        # increments to a read-modify-write race; the account must end up locked
+        # and the recorded failed_attempts must reflect every attempt.
+        import contextlib
+        import threading
+        auth2 = AuthManager(max_failed_attempts=5)
+        auth2.register("racer", "race@x.com", "Race1234!")
+
+        def hammer():
+            with contextlib.suppress(AuthError):
+                auth2.login("racer", "wrong")
+
+        threads = [threading.Thread(target=hammer) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        user = auth2.store.get_by_username("racer")
+        self.assertEqual(user.failed_attempts, 20)
+        self.assertTrue(user.is_locked())
+        with self.assertRaises(AuthError) as ctx:
+            auth2.login("racer", "Race1234!")
+        self.assertEqual(ctx.exception.code, "account_locked")
+
     def test_password_reset_flow(self):
         token = self.auth.request_password_reset("alice@x.com")
         self.assertIsNotNone(token)
