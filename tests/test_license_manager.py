@@ -189,6 +189,18 @@ class TestLicenseStore(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertEqual(result["reason"], "revoked")
 
+    def test_verify_reports_activation_count_consistently(self):
+        # verify() reads the validity verdict and the activation_count under the
+        # same lock, so the returned count reflects exactly the activations
+        # recorded at verification time (a consistent snapshot).
+        lk = self.store.issue_key("lst1", "owner1", "buyer1", max_activations=5)
+        self.store.activate(lk.key_id, "buyer1")
+        self.store.activate(lk.key_id, "buyer1")
+        result = self.store.verify(lk.key)
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["activation_count"], 2)
+        self.assertEqual(result["max_activations"], 5)
+
     def test_get_holder_keys(self):
         lk1 = self.store.issue_key("lst1", "owner1", "buyer1")
         lk2 = self.store.issue_key("lst2", "owner1", "buyer1")

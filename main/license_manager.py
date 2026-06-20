@@ -234,19 +234,24 @@ class LicenseStore:
 
     def verify(self, key: str) -> Dict[str, Any]:
         """Verify whether a key string is valid and not revoked."""
-        lk = self.get_by_key_string(key)
-        if not lk:
-            return {"valid": False, "reason": "not_found"}
-        if lk.is_revoked:
-            return {"valid": False, "reason": "revoked"}
-        return {
-            "valid": True,
-            "key_id": lk.key_id,
-            "listing_id": lk.listing_id,
-            "holder_id": lk.holder_id,
-            "activation_count": lk.activation_count(),
-            "max_activations": lk.max_activations,
-        }
+        with self._lock:
+            kid = self._by_key.get(key.upper())
+            lk = self._keys.get(kid) if kid else None
+            if not lk:
+                return {"valid": False, "reason": "not_found"}
+            if lk.is_revoked:
+                return {"valid": False, "reason": "revoked"}
+            # Read every field under the lock so the verdict and the returned
+            # counts are a consistent snapshot — a concurrent revoke()/activate()
+            # can't slip between the is_revoked check and the field reads.
+            return {
+                "valid": True,
+                "key_id": lk.key_id,
+                "listing_id": lk.listing_id,
+                "holder_id": lk.holder_id,
+                "activation_count": lk.activation_count(),
+                "max_activations": lk.max_activations,
+            }
 
 
 class LicenseManager:
