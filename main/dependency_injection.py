@@ -11,6 +11,7 @@ FastAPI との統合を想定した実装
 
 import inspect
 import logging
+import threading
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, Type, TypeVar, Union
 
@@ -39,13 +40,19 @@ class Dependency:
         self.scope = scope
         self.dependencies = dependencies or {}
         self._instances: Dict[str, Any] = {}  # シングルトンの保存
+        self._singleton_lock = threading.Lock()
 
     def get_instance(self, **kwargs) -> Any:
         """依存性のインスタンスを取得"""
         if self.scope == Scope.SINGLETON:
             key = "_singleton"
+            # Double-checked locking: fast path avoids lock acquisition once the
+            # singleton is created; slow path (inside the lock) guarantees only
+            # one thread runs the factory even under concurrent first access.
             if key not in self._instances:
-                self._instances[key] = self.factory(**kwargs)
+                with self._singleton_lock:
+                    if key not in self._instances:
+                        self._instances[key] = self.factory(**kwargs)
             return self._instances[key]
         # REQUEST / TRANSIENT
         return self.factory(**kwargs)

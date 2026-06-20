@@ -79,6 +79,41 @@ class TestDependencyResolve(unittest.TestCase):
         self.assertEqual(resolved["b"], "from_dep")
 
 
+class TestSingletonThreadSafety(unittest.TestCase):
+    def test_concurrent_get_instance_returns_same_singleton(self):
+        """All threads racing on the first get_instance(SINGLETON) call must
+        receive the identical object — factory must run exactly once."""
+        import threading
+
+        call_count = [0]
+        call_lock = threading.Lock()
+
+        def factory():
+            with call_lock:
+                call_count[0] += 1
+            return _SimpleService()
+
+        dep = Dependency(factory, scope=Scope.SINGLETON)
+        results = []
+        results_lock = threading.Lock()
+
+        def worker():
+            inst = dep.get_instance()
+            with results_lock:
+                results.append(inst)
+
+        threads = [threading.Thread(target=worker) for _ in range(30)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(results), 30)
+        self.assertEqual(call_count[0], 1, "factory must be called exactly once")
+        first = results[0]
+        self.assertTrue(all(r is first for r in results), "all threads must get the same instance")
+
+
 class TestContainer(unittest.TestCase):
     def setUp(self):
         self.container = Container()
