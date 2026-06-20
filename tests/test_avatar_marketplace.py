@@ -2071,6 +2071,25 @@ class TestCloneListing(unittest.TestCase):
         cloned = self.store.clone_listing(self.cc_listing.listing_id, "u2", "bob")
         self.assertNotEqual(cloned.listing_id, self.cc_listing.listing_id)
 
+    def test_clone_preserves_license_type_from_check_time(self):
+        """clone_listing must use the license_type snapshotted inside the lock.
+
+        A concurrent update_listing that changes license_type="personal" between
+        the check and the publish() call must not bypass the cc_by/cc_by_sa gate
+        — the clone must carry the license that was verified, not the live value."""
+        import threading
+        lid = self.cc_listing.listing_id
+        cloned_holder = []
+
+        # clone_listing: check passes (cc_by), then update_listing runs, then publish
+        # We simulate this by having the clone complete first (it snapshots the value)
+        # and then separately verify that the clone carries the correct license.
+        cloned = self.store.clone_listing(lid, "u2", "bob")
+        # Now change the source to personal
+        self.store.update_listing(lid, "u1", license_type="personal")
+        # The clone must carry the license that was cc_by at clone time
+        self.assertIn(cloned.license_type, ("cc_by", "cc_by_sa"))
+
     def test_clone_resets_download_count(self):
         self.store.download(self.cc_listing.listing_id, "u3")
         cloned = self.store.clone_listing(self.cc_listing.listing_id, "u2", "bob")

@@ -1826,27 +1826,39 @@ class MarketplaceStore:
         Copies all metadata but resets download/rating counters and sets a new owner.
         Useful for remixing a free/open-source avatar.
         """
+        # Snapshot all needed metadata under the lock so a concurrent
+        # update_listing() that changes license_type (e.g. "cc_by" → "personal")
+        # between the license check and the publish() call cannot bypass the
+        # clone-permission gate.
         with self._lock:
             source = self._listings.get(listing_id)
             if not source or not source.is_active:
                 raise ValueError("リスティングが見つかりません")
             if source.license_type not in ("cc_by", "cc_by_sa"):
                 raise PermissionError("このライセンスではクローンできません（CC BY または CC BY-SA のみ）")
-        # publish uses the lock internally — call outside to avoid deadlock
+            src_name = source.name
+            src_description = source.description
+            src_tags = list(source.tags)
+            src_category = source.category
+            src_parameters = dict(source.parameters)
+            src_thumbnail_url = source.thumbnail_url
+            src_license_type = source.license_type
+            src_license_details = source.license_details
+        # publish() acquires the same lock — call outside to avoid deadlock.
         cloned = self.publish(
             avatar_id=secrets.token_hex(8),
             owner_id=requester_id,
             owner_username=requester_username,
-            name=f"{source.name} (clone)",
-            description=source.description,
-            tags=list(source.tags),
-            category=source.category,
-            parameters=dict(source.parameters),
-            thumbnail_url=source.thumbnail_url,
+            name=f"{src_name} (clone)",
+            description=src_description,
+            tags=src_tags,
+            category=src_category,
+            parameters=src_parameters,
+            thumbnail_url=src_thumbnail_url,
             is_free=True,  # clones are always free
             price_credits=0,
-            license_type=source.license_type,
-            license_details=f"Cloned from listing {listing_id}. {source.license_details}".strip(),
+            license_type=src_license_type,
+            license_details=f"Cloned from listing {listing_id}. {src_license_details}".strip(),
         )
         return cloned
 
