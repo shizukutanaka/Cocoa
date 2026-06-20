@@ -184,6 +184,24 @@ class CartStore:
             cart.updated_at = datetime.now(timezone.utc)
             return cart
 
+    def remove_items(self, user_id: str, listing_ids: List[str]) -> Cart:
+        """Remove a set of listings from the cart in one atomic operation.
+
+        Used by checkout to drop exactly the items that were purchased while
+        leaving any that failed, so a partial checkout never discards items the
+        buyer hasn't paid for. Unknown ids are ignored. No-op if the id set is
+        empty.
+        """
+        with self._lock:
+            cart = self._carts.get(user_id)
+            if not cart:
+                raise ValueError("カートが見つかりません")
+            if listing_ids:
+                remove = set(listing_ids)
+                cart.items = [i for i in cart.items if i.listing_id not in remove]
+                cart.updated_at = datetime.now(timezone.utc)
+            return cart
+
     def clear_cart(self, user_id: str) -> None:
         with self._lock:
             if user_id in self._carts:
@@ -309,6 +327,7 @@ class CartManager:
         order_items: List[OrderItem] = []
         total_spent = 0
         failed_items: List[Dict[str, Any]] = []
+        purchased_ids: List[str] = []
 
         for item in list(cart.items):
             try:
@@ -339,6 +358,7 @@ class CartManager:
                     discount_percent=discount_pct,
                 ))
                 total_spent += final_price
+                purchased_ids.append(item.listing_id)
             except (ValueError, KeyError) as e:
                 failed_items.append({"listing_id": item.listing_id, "reason": str(e)})
 
@@ -355,7 +375,10 @@ class CartManager:
             }
 
         order = self.store.create_order(user_id, order_items, total_spent)
-        self.store.clear_cart(user_id)
+        # Remove only the items we actually charged for; leave failed items in
+        # the cart so the buyer can retry or remove them (clearing the whole
+        # cart would silently discard items they never paid for).
+        self.store.remove_items(user_id, purchased_ids)
         logger.info("Checkout completed: user=%s order=%s total=%d", user_id, order.order_id, total_spent)
         return {
             "order": order.to_dict(),

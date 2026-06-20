@@ -209,6 +209,28 @@ class TestCartStore(unittest.TestCase):
         self.store.clear_cart("u1")
         self.assertEqual(self.store.get_cart("u1").items, [])
 
+    def test_remove_items_removes_only_listed(self):
+        self.store.add_item("u1", _cart_item("lst1"))
+        self.store.add_item("u1", _cart_item("lst2"))
+        self.store.add_item("u1", _cart_item("lst3"))
+        self.store.remove_items("u1", ["lst1", "lst3"])
+        remaining = [i.listing_id for i in self.store.get_cart("u1").items]
+        self.assertEqual(remaining, ["lst2"])
+
+    def test_remove_items_empty_list_is_noop(self):
+        self.store.add_item("u1", _cart_item("lst1"))
+        self.store.remove_items("u1", [])
+        self.assertEqual(len(self.store.get_cart("u1").items), 1)
+
+    def test_remove_items_unknown_ids_ignored(self):
+        self.store.add_item("u1", _cart_item("lst1"))
+        self.store.remove_items("u1", ["nope"])
+        self.assertEqual(len(self.store.get_cart("u1").items), 1)
+
+    def test_remove_items_no_cart_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.remove_items("no-user", ["lst1"])
+
     def test_set_promo_code(self):
         self.store.add_item("u1", _cart_item("lst1"))
         self.store.set_promo_code("u1", "lst1", "SAVE10")
@@ -354,6 +376,25 @@ class TestCartManagerCheckout(unittest.TestCase):
         result = self.mgr.checkout("buyer", self.mp)
         self.assertFalse(result["success"])
         self.assertEqual(result["order"]["status"], "failed")
+
+    def test_checkout_partial_success_keeps_failed_items_in_cart(self):
+        # One purchasable item, one that fails: only the purchased item should be
+        # removed from the cart; the failed item must remain for retry.
+        self._add("lst1", 100)
+        self._add("nonexistent", 50, "owner1")
+        result = self.mgr.checkout("buyer", self.mp)
+        self.assertTrue(result["success"])
+        remaining = self.mgr.get_cart("buyer")["items"]
+        remaining_ids = [i["listing_id"] for i in remaining]
+        self.assertEqual(remaining_ids, ["nonexistent"])
+
+    def test_checkout_full_success_empties_cart(self):
+        # When every item is purchased, the cart ends up empty.
+        self._add("lst1", 100)
+        self._add("lst2", 200, "owner2")
+        result = self.mgr.checkout("buyer", self.mp)
+        self.assertTrue(result["success"])
+        self.assertEqual(self.mgr.get_cart("buyer")["items"], [])
 
     def test_get_order_by_id(self):
         self._add("lst1")
