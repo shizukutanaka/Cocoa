@@ -177,6 +177,14 @@ def verify_password(password: str, hashed: str) -> bool:
     return False
 
 
+# A throwaway hash of a random password, computed once at import using the same
+# algorithm as real hashes. login() verifies against this when the username does
+# not exist so the response time matches the user-exists-wrong-password path,
+# closing the timing side-channel an attacker could use to enumerate valid
+# usernames. The result is always discarded (and always False).
+_DUMMY_PASSWORD_HASH = hash_password(secrets.token_hex(16))
+
+
 # ---------------------------------------------------------------------------
 # JWT utilities (with pure-Python fallback)
 # ---------------------------------------------------------------------------
@@ -542,6 +550,10 @@ class AuthManager:
     def login(self, username: str, password: str) -> TokenPair:
         user = self.store.get_by_username(username)
         if not user:
+            # Run a dummy verification so a missing username takes the same time
+            # as an existing one with a wrong password — otherwise the fast
+            # early return leaks which usernames are registered (enumeration).
+            verify_password(password, _DUMMY_PASSWORD_HASH)
             raise AuthError("invalid_credentials", "ユーザー名またはパスワードが正しくありません")
 
         if not user.is_active:

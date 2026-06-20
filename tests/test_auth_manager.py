@@ -177,6 +177,23 @@ class TestAuthManager(unittest.TestCase):
             self.auth.login("nobody", "pass")
         self.assertEqual(ctx.exception.code, "invalid_credentials")
 
+    def test_unknown_user_and_wrong_password_same_error_code(self):
+        # Both paths must surface the identical generic code so an attacker can't
+        # distinguish "no such user" from "wrong password" (user enumeration).
+        with self.assertRaises(AuthError) as c1:
+            self.auth.login("nobody", "whatever")
+        with self.assertRaises(AuthError) as c2:
+            self.auth.login("alice", "wrong")
+        self.assertEqual(c1.exception.code, c2.exception.code)
+
+    def test_dummy_password_hash_is_valid_and_unmatchable(self):
+        # The timing-equalizing dummy hash must be a real, verifiable hash so the
+        # missing-user path does the same PBKDF2/bcrypt work as a real check, and
+        # no caller-supplied password ever verifies against it.
+        from auth_manager import _DUMMY_PASSWORD_HASH, verify_password
+        self.assertTrue(_DUMMY_PASSWORD_HASH)
+        self.assertFalse(verify_password("any-guess", _DUMMY_PASSWORD_HASH))
+
     def test_logout_revokes_token(self):
         tokens = self.auth.login("alice", "Alice123!")
         self.auth.logout(tokens.access_token, tokens.refresh_token)
