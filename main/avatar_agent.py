@@ -509,17 +509,19 @@ class AvatarAgentService:
         self.agentic_ai_manager = await get_agentic_ai_manager()
 
         # Webアプリケーション作成
-        self.web_app = web.Application()
-        self.setup_routes()
+        if AIOHTTP_AVAILABLE:
+            self.web_app = web.Application()
+            self.setup_routes()
 
         # デフォルトエージェント作成
         await self.create_default_agents()
 
         # Jinja2テンプレート環境
-        self.template_env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(str(self.template_dir)),
-            autoescape=True
-        )
+        if JINJA2_AVAILABLE:
+            self.template_env = jinja2.Environment(
+                loader=jinja2.FileSystemLoader(str(self.template_dir)),
+                autoescape=True
+            )
 
     def setup_routes(self):
         """Webルート設定"""

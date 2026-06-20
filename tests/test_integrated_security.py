@@ -153,5 +153,46 @@ class TestSecurityValidator(unittest.TestCase):
         self.assertTrue(ok)
 
 
+class TestUpdateMlModelWithoutSklearn(unittest.TestCase):
+    """_update_ml_model() must be a no-op when sklearn is unavailable.
+
+    Bug: method called StandardScaler() / IsolationForest() unconditionally,
+    raising NameError when SKLEARN_AVAILABLE=False.
+    Fix: early return guarded by SKLEARN_AVAILABLE.
+    """
+
+    def _make_anomaly_detector(self):
+        from integrated_security import AdvancedBehaviorAnalyzer
+        return AdvancedBehaviorAnalyzer()
+
+    def test_update_ml_model_no_crash_without_sklearn(self):
+        from unittest.mock import patch
+        import integrated_security as isec
+        detector = self._make_anomaly_detector()
+        # Simulate sklearn being unavailable at runtime
+        with patch.object(isec, 'SKLEARN_AVAILABLE', False):
+            for i in range(60):
+                detector.record_behavior("u1", "login", float(i))
+            # Must not raise NameError / AttributeError
+            detector._update_ml_model("u1", "login")
+
+    def test_update_ml_model_skips_training_without_sklearn(self):
+        from unittest.mock import patch
+        import integrated_security as isec
+        detector = self._make_anomaly_detector()
+        with patch.object(isec, 'SKLEARN_AVAILABLE', False):
+            # Pre-populate the behavior buffer with 60 entries
+            from collections import deque
+            behavior_key = "login_u2"
+            detector.user_behaviors[behavior_key] = deque(
+                [{"value": float(i), "timestamp": i, "user_id": "u2", "behavior_type": "login"}
+                 for i in range(60)],
+                maxlen=1000
+            )
+            # Should return without creating a model
+            detector._update_ml_model("u2", "login")
+            self.assertNotIn("u2", detector.ml_models)
+
+
 if __name__ == '__main__':
     unittest.main()

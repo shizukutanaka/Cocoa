@@ -248,6 +248,9 @@ class AdvancedBehaviorAnalyzer:
 
     def _update_ml_model(self, user_id: str, behavior_type: str):
         """機械学習モデルを更新"""
+        if not SKLEARN_AVAILABLE:
+            return
+
         behavior_key = f"{behavior_type}_{user_id}"
 
         if len(self.user_behaviors[behavior_key]) < 50:

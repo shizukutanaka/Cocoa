@@ -92,5 +92,42 @@ class TestAgenticAIManager(unittest.TestCase):
         self.assertTrue(mgr.learning_enabled)
 
 
+class TestAvatarAgentServiceInitializeWithoutAiohttp(unittest.TestCase):
+    """AvatarAgentService.initialize() must not crash when aiohttp/jinja2 are absent.
+
+    Bug: initialize() called web.Application() and jinja2.Environment() unconditionally,
+    raising NameError when AIOHTTP_AVAILABLE / JINJA2_AVAILABLE are False.
+    Fix: wrap those blocks with availability guards.
+    """
+
+    def _run_initialize(self):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import avatar_agent
+
+        async def _do():
+            with patch('avatar_agent.get_security_manager', return_value=MagicMock()), \
+                 patch('avatar_agent.get_agentic_ai_manager', new=AsyncMock(return_value=MagicMock())), \
+                 patch.object(avatar_agent, 'AIOHTTP_AVAILABLE', False), \
+                 patch.object(avatar_agent, 'JINJA2_AVAILABLE', False), \
+                 patch('pathlib.Path.mkdir'), \
+                 patch.object(avatar_agent.AvatarAgentService, 'create_default_agents', new=AsyncMock()):
+                svc = avatar_agent.AvatarAgentService()
+                await svc.initialize()
+                return svc
+
+        return asyncio.run(_do())
+
+    def test_initialize_no_crash_without_aiohttp(self):
+        svc = self._run_initialize()
+        # web_app stays None when aiohttp is absent
+        self.assertIsNone(svc.web_app)
+
+    def test_initialize_no_crash_without_jinja2(self):
+        svc = self._run_initialize()
+        # template_env stays unset when jinja2 is absent
+        self.assertFalse(hasattr(svc, 'template_env'))
+
+
 if __name__ == '__main__':
     unittest.main()
