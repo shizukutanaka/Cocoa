@@ -157,6 +157,20 @@ class TestLicenseStore(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.revoke("no-id", "owner1")
 
+    def test_revoke_already_revoked_raises(self):
+        lk = self.store.issue_key("lst1", "owner1", "buyer1")
+        self.store.revoke(lk.key_id, "owner1", "first reason")
+        with self.assertRaises(ValueError):
+            self.store.revoke(lk.key_id, "owner1", "second reason")
+
+    def test_admin_revoke_not_overwritten_by_owner(self):
+        lk = self.store.issue_key("lst1", "owner1", "buyer1")
+        self.store.revoke(lk.key_id, "admin99", reason="policy violation", is_admin=True)
+        self.assertEqual(lk.revoked_by, "admin99")
+        with self.assertRaises(ValueError):
+            self.store.revoke(lk.key_id, "owner1", reason="owner override attempt")
+        self.assertEqual(lk.revoked_by, "admin99")
+
     def test_verify_valid_key(self):
         lk = self.store.issue_key("lst1", "owner1", "buyer1")
         result = self.store.verify(lk.key)

@@ -175,11 +175,12 @@ class LicenseStore:
                 all_keys[0].owner_id if all_keys
                 else self._listing_owner.get(listing_id)
             )
-        if known_owner is not None and known_owner != owner_id:
-            raise PermissionError("このリスティングのオーナーのみがライセンスを確認できます")
-        total = len(all_keys)
-        offset, limit = normalize_pagination(offset, limit)
-        page = all_keys[offset: offset + limit]
+            if known_owner is not None and known_owner != owner_id:
+                raise PermissionError("このリスティングのオーナーのみがライセンスを確認できます")
+            total = len(all_keys)
+            offset, limit = normalize_pagination(offset, limit)
+            page = all_keys[offset: offset + limit]
+            serialized = [k.to_dict() for k in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -187,7 +188,7 @@ class LicenseStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [k.to_dict() for k in page],
+            "items": serialized,
         }
 
     def activate(self, key_id: str, holder_id: str, note: str = "") -> LicenseKey:
@@ -212,11 +213,17 @@ class LicenseStore:
     def revoke(
         self, key_id: str, revoker_id: str, reason: str = "", is_admin: bool = False
     ) -> LicenseKey:
-        """Revoke a license key.  revoker_id must be owner_id or admin."""
+        """Revoke a license key.  revoker_id must be owner_id or admin.
+
+        Raises ValueError if the key is already revoked — preserves the original
+        revocation audit record and prevents an owner from overwriting an admin revocation.
+        """
         with self._lock:
             lk = self._keys.get(key_id)
             if not lk:
                 raise ValueError("ライセンスキーが見つかりません")
+            if lk.is_revoked:
+                raise ValueError("このライセンスキーはすでに失効しています")
             if not is_admin and lk.owner_id != revoker_id:
                 raise PermissionError("このライセンスキーを失効させる権限がありません")
             lk.is_revoked = True
