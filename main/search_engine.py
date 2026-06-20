@@ -275,11 +275,25 @@ class SearchIndex:
             "top_tags": dict(top_tags),
         }
 
-    def suggest(self, prefix: str, limit: int = 10) -> List[str]:
-        """Autocomplete suggestions based on index tokens."""
+    def suggest(self, prefix: str, limit: int = 10, *, public_only: bool = True) -> List[str]:
+        """Autocomplete suggestions based on index tokens.
+
+        When ``public_only=True`` (default) only tokens that appear in at least
+        one public document are returned.  Without this guard every token in the
+        inverted index is a candidate — including tokens from private documents
+        whose names/tags can be inferred by any caller via autocomplete, leaking
+        information the user intended to keep private.
+        """
         prefix = prefix.lower()
         with self._lock:
-            matches = [tok for tok in self._inverted if tok.startswith(prefix)]
+            if public_only:
+                public_ids: set = {did for did, doc in self._docs.items() if doc.is_public}
+                matches = [
+                    tok for tok, doc_map in self._inverted.items()
+                    if tok.startswith(prefix) and bool(public_ids & doc_map.keys())
+                ]
+            else:
+                matches = [tok for tok in self._inverted if tok.startswith(prefix)]
             matches.sort(key=lambda t: -len(self._inverted.get(t, {})))
         return matches[:limit]
 

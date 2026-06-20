@@ -136,6 +136,33 @@ class TestSearchIndex(unittest.TestCase):
         suggestions = self.idx.suggest("", limit=2)
         self.assertLessEqual(len(suggestions), 2)
 
+    def test_suggest_does_not_leak_private_doc_tokens(self):
+        """suggest() must not expose tokens that appear ONLY in private documents.
+
+        An attacker can call suggest() with any prefix; if private-only tokens
+        are returned they can reconstruct content the owner never made public.
+        Default public_only=True should filter them out."""
+        idx = SearchIndex()
+        idx.index_from_dict({
+            "doc_id": "pub", "owner_id": "u1", "name": "Alpha Avatar",
+            "description": "public content", "tags": ["alpha"], "is_public": True,
+        })
+        idx.index_from_dict({
+            "doc_id": "priv", "owner_id": "u2", "name": "SecretBeta Project",
+            "description": "confidential work", "tags": ["secretbeta"], "is_public": False,
+        })
+        # Default (public_only=True): private-only token must not appear
+        public_sugg = idx.suggest("sec")
+        self.assertNotIn("secretbeta", public_sugg)
+        # Explicit public_only=False: the private token IS visible (admin use)
+        all_sugg = idx.suggest("sec", public_only=False)
+        self.assertIn("secretbeta", all_sugg)
+
+    def test_suggest_public_only_includes_public_tokens(self):
+        """suggest(public_only=True) must still include tokens from public docs."""
+        suggestions = self.idx.suggest("cu")  # default public_only=True
+        self.assertIn("cute", suggestions)    # from d1 (public)
+
     def test_suggest_ranks_higher_document_count_first(self):
         """Token appearing in more documents must rank higher in suggestions."""
         from search_engine import SearchDocument
@@ -143,8 +170,10 @@ class TestSearchIndex(unittest.TestCase):
         for i in range(3):
             idx.index(SearchDocument(f"d{i}", "u1", name="cute avatar", tags=["cute"]))
         idx.index(SearchDocument("d3", "u1", name="cool cat", tags=["cool"]))
-        # "cute" appears in 3 docs, "cool" in 1 — "cute" must rank first
-        suggestions = idx.suggest("c")
+        # These docs are private (is_public defaults to False), so use
+        # public_only=False to test the ranking behaviour in isolation from the
+        # privacy filter.
+        suggestions = idx.suggest("c", public_only=False)
         cute_pos = suggestions.index("cute") if "cute" in suggestions else len(suggestions)
         cool_pos = suggestions.index("cool") if "cool" in suggestions else len(suggestions)
         self.assertLess(cute_pos, cool_pos)
