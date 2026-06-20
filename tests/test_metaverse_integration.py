@@ -82,5 +82,52 @@ class TestMetaverseIntegration(unittest.TestCase):
         self.assertGreater(len(svc.platform_configs), 0)
 
 
+class TestOptimizeForEdgeAiNullGuard(unittest.IsolatedAsyncioTestCase):
+    """_optimize_for_edge_ai must not crash when global_edge_manager is None.
+
+    Bug: the method guarded on `if self.edge_ai_manager:` but then unconditionally
+    called `self.global_edge_manager.find_optimal_route(...)`, raising AttributeError
+    when edge_ai_manager is initialised but global_edge_manager is not yet available.
+    Fix: change guard to `if self.edge_ai_manager and self.global_edge_manager:`.
+    """
+
+    def _make(self):
+        with patch('metaverse_integration.get_security_manager', return_value=MagicMock()):
+            from metaverse_integration import MetaverseIntegration, MetaverseAvatarRequest
+            svc = MetaverseIntegration()
+            return svc, MetaverseAvatarRequest
+
+    async def test_edge_ai_set_but_global_manager_none_does_not_crash(self):
+        svc, MetaverseAvatarRequest = self._make()
+        svc.edge_ai_manager = MagicMock()
+        svc.global_edge_manager = None
+        req = MetaverseAvatarRequest(user_id="u1", avatar_id="av1", platform="unity", environment="vr")
+        result = await svc._optimize_for_edge_ai({"key": "val"}, req)
+        # No crash; original data returned unchanged since no route could be found
+        self.assertIsInstance(result, dict)
+        self.assertNotIn("edge_optimization", result)
+
+    async def test_both_managers_set_calls_find_optimal_route(self):
+        svc, MetaverseAvatarRequest = self._make()
+        mock_route = MagicMock()
+        mock_route.route_id = "r1"
+        mock_route.estimated_latency_ms = 10.0
+        mock_route.bandwidth_capacity_mbps = 100.0
+        mock_route.reliability_score = 0.99
+        mock_route.optimal_nodes = ["n1"]
+        mock_global = MagicMock()
+        # find_optimal_route is async
+        import asyncio
+        async def fake_find(*a, **kw):
+            return mock_route
+        mock_global.find_optimal_route = fake_find
+        svc.edge_ai_manager = MagicMock()
+        svc.global_edge_manager = mock_global
+        req = MetaverseAvatarRequest(user_id="u1", avatar_id="av1", platform="unity", environment="vr")
+        result = await svc._optimize_for_edge_ai({}, req)
+        self.assertIn("edge_optimization", result)
+        self.assertEqual(result["edge_optimization"]["optimal_route"], "r1")
+
+
 if __name__ == '__main__':
     unittest.main()

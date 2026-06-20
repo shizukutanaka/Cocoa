@@ -728,7 +728,7 @@ const metaverseAI = new MetaverseAgenticAI(avatar, '{request.environment}');
         """Edge AI最適化を追加"""
         edge_optimized_data = avatar_data.copy()
 
-        if self.edge_ai_manager:
+        if self.edge_ai_manager and self.global_edge_manager:
             # 最適なエッジノードを検索
             user_location = (35.6762, 139.6503)  # デフォルト東京
             route = await self.global_edge_manager.find_optimal_route(user_location, "avatar_data")
