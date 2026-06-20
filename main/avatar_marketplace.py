@@ -1439,10 +1439,12 @@ class MarketplaceStore:
         return response
 
     def get_listing(self, listing_id: str) -> Optional[MarketplaceListing]:
-        return self._listings.get(listing_id)
+        with self._lock:
+            return self._listings.get(listing_id)
 
     def get_user_listings(self, owner_id: str) -> List[MarketplaceListing]:
-        return [lst for lst in self._listings.values() if lst.owner_id == owner_id and lst.is_active]
+        with self._lock:
+            return [lst for lst in self._listings.values() if lst.owner_id == owner_id and lst.is_active]
 
     def deactivate_all_listings(self, owner_id: str) -> List[str]:
         """Force-deactivate every active listing owned by ``owner_id``.
