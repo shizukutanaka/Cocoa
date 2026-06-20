@@ -5,18 +5,26 @@ from datetime import datetime
 from preset_change_history import PresetChangeHistory
 
 
+_MISSING = object()
+
+
 def diff_dict(d1, d2, prefix=""):
     """dict 差分を返す。ネストした dict は再帰し、ドット区切りのパスで表示する。
 
     返り値: ["path: v1 -> v2", ...]（変更箇所のみ）。フラットな dict では従来と同じ出力。
+    Missing key と明示的 None 値を区別する。
     """
     diffs = []
     keys = set(d1.keys()) | set(d2.keys())
     for k in sorted(keys, key=str):
         path = f"{prefix}{k}"
-        v1 = d1.get(k)
-        v2 = d2.get(k)
-        if isinstance(v1, dict) and isinstance(v2, dict):
+        v1 = d1[k] if k in d1 else _MISSING
+        v2 = d2[k] if k in d2 else _MISSING
+        if v1 is _MISSING:
+            diffs.append(f"{path}: <missing> -> {v2}")
+        elif v2 is _MISSING:
+            diffs.append(f"{path}: {v1} -> <missing>")
+        elif isinstance(v1, dict) and isinstance(v2, dict):
             diffs.extend(diff_dict(v1, v2, prefix=f"{path}."))
         elif v1 != v2:
             diffs.append(f"{path}: {v1} -> {v2}")

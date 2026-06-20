@@ -92,3 +92,43 @@ class TestLoggingManager(unittest.TestCase):
         stats = self.lm.get_log_stats()
         self.assertIn("line_count", stats)
         self.assertIn("file_size", stats)
+
+
+class TestEncryptedFileHandlerRotation(unittest.TestCase):
+    """EncryptedFileHandler.emit() must trigger rotation when maxBytes is set.
+
+    Bug: the encrypted path wrote directly to self.stream without calling
+    shouldRollover() / doRollover(), so log files grew without bound when
+    encryption was active.
+    Fix: call shouldRollover() before writing the encrypted payload.
+    """
+
+    def _make_handler(self, path, max_bytes):
+        from logging_manager import CRYPTOGRAPHY_AVAILABLE, EncryptedFileHandler
+        if not CRYPTOGRAPHY_AVAILABLE:
+            self.skipTest("cryptography not available")
+        from cryptography.fernet import Fernet
+        key = Fernet.generate_key()
+        return EncryptedFileHandler(path, encryption_key=key, maxBytes=max_bytes, backupCount=1)
+
+    def test_rotation_occurs_with_encryption(self):
+        """After exceeding maxBytes the handler must create a backup file."""
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            log_path = os.path.join(d, "enc.log")
+            handler = self._make_handler(log_path, max_bytes=500)
+            logger_ = logging.getLogger("enc_test")
+            logger_.addHandler(handler)
+            try:
+                for i in range(20):
+                    logger_.warning("rotation test message %d — padding to trigger rollover", i)
+            finally:
+                logger_.removeHandler(handler)
+                handler.close()
+            # A backup file enc.log.1 should have been created
+            backup_path = log_path + ".1"
+            self.assertTrue(
+                os.path.exists(backup_path),
+                "Rotation backup enc.log.1 must exist after maxBytes exceeded with encryption"
+            )

@@ -39,12 +39,16 @@ class EncryptedFileHandler(logging.handlers.RotatingFileHandler):
     def emit(self, record):
         if self.fernet:
             try:
+                # ローテーションチェック（スキップすると maxBytes が機能しない）
+                if self.shouldRollover(record):
+                    self.doRollover()
                 # ログメッセージを暗号化
                 message = self.format(record)
                 encrypted_message = self.fernet.encrypt(message.encode('utf-8'))
                 # 暗号化されたメッセージをファイルに書き込み
                 self.stream.write(encrypted_message.decode('latin1') + '\n')
                 self.stream.write('---ENCRYPTED---\n')  # マーカー
+                self.flush()
             except Exception:
                 # 暗号化失敗時は通常のログを記録
                 super().emit(record)

@@ -82,6 +82,22 @@ class TestDiffDict(unittest.TestCase):
         diffs = diff_dict({"flag": True}, {"flag": False})
         self.assertEqual(len(diffs), 1)
 
+    def test_explicit_none_vs_missing_key_detected(self):
+        """Bug: d1={"x": None}, d2={} used to report no diff because .get()
+        returned None for both (missing key and explicit None look identical).
+        Fix: use key-in-dict sentinel to distinguish the two cases."""
+        # d1 has explicit None; d2 is missing the key entirely
+        diffs = diff_dict({"x": None}, {})
+        self.assertEqual(len(diffs), 1, "explicit None vs missing key must show as a diff")
+
+    def test_missing_key_vs_explicit_none_detected(self):
+        diffs = diff_dict({}, {"x": None})
+        self.assertEqual(len(diffs), 1, "missing key vs explicit None must show as a diff")
+
+    def test_explicit_none_vs_explicit_none_is_not_diff(self):
+        diffs = diff_dict({"x": None}, {"x": None})
+        self.assertEqual(diffs, [], "same explicit None on both sides is not a diff")
+
 
 class TestFindEntryByTime(unittest.TestCase):
 

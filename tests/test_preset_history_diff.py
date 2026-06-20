@@ -26,8 +26,8 @@ class TestDiffDict(unittest.TestCase):
 
     def test_added_and_removed_keys(self):
         diffs = ph.diff_dict({"a": 1}, {"b": 2})
-        self.assertIn("a: 1 -> None", diffs)
-        self.assertIn("b: None -> 2", diffs)
+        self.assertIn("a: 1 -> <missing>", diffs)
+        self.assertIn("b: <missing> -> 2", diffs)
 
     def test_identical_no_diff(self):
         self.assertEqual(ph.diff_dict({"a": {"x": 1}}, {"a": {"x": 1}}), [])
