@@ -47,6 +47,17 @@ class TestTOTPGenerator(unittest.TestCase):
         c2 = gen.generate_token()
         self.assertEqual(c1, c2)
 
+    def test_verify_token_rejects_prefix_match(self):
+        """verify_token must use constant-time comparison so a correct prefix does
+        not pass; a 6-digit token must not accept a truncated or padded variant."""
+        gen = self._make()
+        code = gen.generate_token()
+        # The exact match passes
+        self.assertTrue(gen.verify_token(code))
+        # A code that shares a prefix but differs later must not pass
+        tweaked = code[:-1] + ("0" if code[-1] != "0" else "1")
+        self.assertFalse(gen.verify_token(tweaked))
+
 
 class TestTwoFactorAuthManager(unittest.TestCase):
     def _make(self, secret_key="test_secret_key_12345"):

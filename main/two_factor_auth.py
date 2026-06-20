@@ -91,7 +91,7 @@ class TOTPGenerator:
 
         for offset in range(-window, window + 1):
             timestamp = current_time + (offset * self.interval)
-            if self.generate_token(timestamp) == token:
+            if hmac.compare_digest(self.generate_token(timestamp), token):
                 return True
 
         return False
@@ -337,7 +337,7 @@ class TwoFactorAuthManager:
                     'error': '2要素認証が構成されていません'
                 }
 
-            if backup_code in valid_codes:
+            if any(hmac.compare_digest(backup_code, vc) for vc in valid_codes):
                 return {
                     'valid': True,
                     'message': 'バックアップコードが認証されました'
