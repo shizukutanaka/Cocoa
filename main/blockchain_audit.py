@@ -567,13 +567,16 @@ class BlockchainAuditManager:
 
 # グローバルインスタンス
 _blockchain_audit_manager = None
+_blockchain_audit_manager_lock = asyncio.Lock()
 
 async def get_blockchain_audit_manager() -> BlockchainAuditManager:
     """ブロックチェーン監査マネージャーのインスタンスを取得"""
     global _blockchain_audit_manager
 
     if _blockchain_audit_manager is None:
-        _blockchain_audit_manager = BlockchainAuditManager()
-        await _blockchain_audit_manager.initialize()
+        async with _blockchain_audit_manager_lock:
+            if _blockchain_audit_manager is None:
+                _blockchain_audit_manager = BlockchainAuditManager()
+                await _blockchain_audit_manager.initialize()
 
     return _blockchain_audit_manager
