@@ -132,7 +132,7 @@ class ARCloudManager:
         """ARクラウドマネージャーの初期化"""
         await self._load_existing_maps()
         await self._initialize_spatial_system()
-        await self._start_maintenance_tasks()
+        asyncio.create_task(self._start_maintenance_tasks())
 
     async def _load_existing_maps(self):
         """既存のARマップを読み込み"""

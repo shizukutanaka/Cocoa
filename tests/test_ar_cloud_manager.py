@@ -193,5 +193,46 @@ class TestARCloudManagerCreateMap(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [])
 
 
+class TestARCloudManagerInitializeDoesNotBlock(unittest.IsolatedAsyncioTestCase):
+    """ARCloudManager.initialize() must return promptly.
+
+    Bug: initialize() called `await self._start_maintenance_tasks()`, a `while True:`
+    infinite loop that blocked initialize() permanently.
+    Fix: wrap the call in asyncio.create_task() so it runs as a background task.
+    """
+
+    async def test_initialize_completes_without_blocking(self):
+        import asyncio
+        import tempfile
+        from unittest.mock import AsyncMock, patch
+        from ar_cloud_manager import ARCloudManager
+
+        with tempfile.TemporaryDirectory() as td:
+            mgr = ARCloudManager(cloud_dir=td)
+            with patch.object(mgr, '_load_existing_maps', new=AsyncMock()), \
+                 patch.object(mgr, '_initialize_spatial_system', new=AsyncMock()):
+                try:
+                    await asyncio.wait_for(mgr.initialize(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    self.fail("ARCloudManager.initialize() blocked — "
+                              "_start_maintenance_tasks must be create_task'd, not awaited")
+
+    async def test_initialize_launches_background_maintenance_task(self):
+        import asyncio
+        import tempfile
+        from unittest.mock import AsyncMock, patch
+        from ar_cloud_manager import ARCloudManager
+
+        with tempfile.TemporaryDirectory() as td:
+            mgr = ARCloudManager(cloud_dir=td)
+            tasks_before = len(asyncio.all_tasks())
+            with patch.object(mgr, '_load_existing_maps', new=AsyncMock()), \
+                 patch.object(mgr, '_initialize_spatial_system', new=AsyncMock()):
+                await asyncio.wait_for(mgr.initialize(), timeout=2.0)
+            tasks_after = len(asyncio.all_tasks())
+            self.assertGreater(tasks_after, tasks_before,
+                               "initialize() should launch _start_maintenance_tasks as a background task")
+
+
 if __name__ == "__main__":
     unittest.main()
