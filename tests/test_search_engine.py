@@ -124,6 +124,17 @@ class TestSearchIndex(unittest.TestCase):
     def test_remove_unknown_returns_false(self):
         self.assertFalse(self.idx.remove("no-such-doc"))
 
+    def test_suggest_no_ghost_tokens_after_remove(self):
+        """After removing the sole document containing a token, suggest(public_only=False)
+        must not return that token — stale empty inverted-index entries must be pruned."""
+        from search_engine import SearchDocument
+        idx = SearchIndex()
+        idx.index(SearchDocument("d1", "u1", name="unicorn avatar", tags=["unicorn"], is_public=False))
+        self.assertIn("unicorn", idx.suggest("uni", public_only=False))
+        idx.remove("d1")
+        self.assertNotIn("unicorn", idx.suggest("uni", public_only=False))
+        self.assertNotIn("unicorn", idx.suggest("uni", public_only=True))
+
     def test_suggest_autocomplete(self):
         suggestions = self.idx.suggest("cu")
         self.assertIn("cute", suggestions)

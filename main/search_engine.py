@@ -134,8 +134,13 @@ class SearchIndex:
             return True
 
     def _remove_from_inverted(self, doc_id: str) -> None:
-        for tok_map in self._inverted.values():
+        empty_tokens = []
+        for tok, tok_map in self._inverted.items():
             tok_map.pop(doc_id, None)
+            if not tok_map:
+                empty_tokens.append(tok)
+        for tok in empty_tokens:
+            del self._inverted[tok]
 
     # --- Search ---
 
