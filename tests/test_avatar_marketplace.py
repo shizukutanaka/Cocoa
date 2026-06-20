@@ -1273,6 +1273,22 @@ class TestReviews(unittest.TestCase):
         result = self.store.get_reviews("no-such-listing")
         self.assertEqual(result["total"], 0)
 
+    def test_get_reviews_hidden_filter_consistent_with_serialized(self):
+        """Filtering out hidden reviews and to_dict() must happen under the same
+        lock so a concurrent hide_review() can't leak a hidden review into the
+        public (include_hidden=False) result."""
+        store = _store()
+        lst = _listing(store)
+        lid = lst.listing_id
+        _buy(store, lid, "rv1", "rv2")
+        _, r1 = store.review(lid, "rv1", "ann", 5, "great")
+        _, r2 = store.review(lid, "rv2", "bob", 1, "bad")
+        store.hide_review(r2.review_id)
+        result = store.get_reviews(lid, include_hidden=False)
+        for item in result["items"]:
+            self.assertFalse(item["is_hidden"])
+        self.assertEqual(result["total"], 1)
+
 
 class TestReviewSorting(unittest.TestCase):
     def setUp(self):

@@ -1098,24 +1098,24 @@ class MarketplaceStore:
         include_hidden: bool = False,
     ) -> Dict[str, Any]:
         """Return paginated reviews for a listing."""
-        listing = self._listings.get(listing_id)
-        if not listing:
-            return {"total": 0, "items": []}
         with self._lock:
+            if listing_id not in self._listings:
+                return {"total": 0, "items": []}
             items = list(self._reviews[listing_id].values())
-        if not include_hidden:
-            items = [r for r in items if not r.is_hidden]
-        if sort_by == "helpful":
-            items.sort(key=lambda r: (r.helpful_count, r.created_at), reverse=True)
-        elif sort_by == "rating_high":
-            items.sort(key=lambda r: (r.stars, r.created_at), reverse=True)
-        elif sort_by == "rating_low":
-            items.sort(key=lambda r: r.stars)
-        else:  # newest
-            items.sort(key=lambda r: r.created_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset: offset + limit]
+            if not include_hidden:
+                items = [r for r in items if not r.is_hidden]
+            if sort_by == "helpful":
+                items.sort(key=lambda r: (r.helpful_count, r.created_at), reverse=True)
+            elif sort_by == "rating_high":
+                items.sort(key=lambda r: (r.stars, r.created_at), reverse=True)
+            elif sort_by == "rating_low":
+                items.sort(key=lambda r: r.stars)
+            else:  # newest
+                items.sort(key=lambda r: r.created_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset: offset + limit]
+            serialized = [r.to_dict() for r in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -1123,7 +1123,7 @@ class MarketplaceStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [r.to_dict() for r in page],
+            "items": serialized,
         }
 
     def delete_review(self, listing_id: str, user_id: str) -> bool:
@@ -1471,11 +1471,11 @@ class MarketplaceStore:
                 lid for lid, _, ts, _ap in self._download_log if ts >= cutoff
             )
             active = [lst for lst in self._listings.values() if lst.is_active]
-        if recent_counts:
-            active.sort(key=lambda x: recent_counts.get(x.listing_id, 0), reverse=True)
-        else:
-            active.sort(key=lambda x: x.download_count, reverse=True)
-        return [lst.to_dict() for lst in active[:limit]]
+            if recent_counts:
+                active.sort(key=lambda x: recent_counts.get(x.listing_id, 0), reverse=True)
+            else:
+                active.sort(key=lambda x: x.download_count, reverse=True)
+            return [lst.to_dict() for lst in active[:limit]]
 
     def get_trending_tags(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Aggregate tag popularity across active listings, weighted by downloads.
@@ -1484,14 +1484,15 @@ class MarketplaceStore:
         Returns [{tag, listing_count, download_count, score}, ...] descending by score.
         """
         from collections import defaultdict
-        with self._lock:
-            active = [lst for lst in self._listings.values() if lst.is_active]
         listing_counts: Dict[str, int] = defaultdict(int)
         download_counts: Dict[str, int] = defaultdict(int)
-        for lst in active:
-            for tag in lst.tags:
-                listing_counts[tag] += 1
-                download_counts[tag] += lst.download_count
+        with self._lock:
+            for lst in self._listings.values():
+                if not lst.is_active:
+                    continue
+                for tag in lst.tags:
+                    listing_counts[tag] += 1
+                    download_counts[tag] += lst.download_count
         rows = [
             {
                 "tag": tag,
@@ -1521,15 +1522,16 @@ class MarketplaceStore:
                 lst for lst in self._listings.values()
                 if lst.is_active and any(t in tag_set for t in lst.tags)
             ]
-        if sort_by == "downloads":
-            results.sort(key=lambda x: x.download_count, reverse=True)
-        elif sort_by == "rating":
-            results.sort(key=lambda x: x.average_rating, reverse=True)
-        else:  # newest
-            results.sort(key=lambda x: x.published_at, reverse=True)
-        total = len(results)
-        offset, limit = normalize_pagination(offset, limit)
-        page = results[offset: offset + limit]
+            if sort_by == "downloads":
+                results.sort(key=lambda x: x.download_count, reverse=True)
+            elif sort_by == "rating":
+                results.sort(key=lambda x: x.average_rating, reverse=True)
+            else:  # newest
+                results.sort(key=lambda x: x.published_at, reverse=True)
+            total = len(results)
+            offset, limit = normalize_pagination(offset, limit)
+            page = results[offset: offset + limit]
+            serialized = [lst.to_dict() for lst in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -1537,7 +1539,7 @@ class MarketplaceStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [lst.to_dict() for lst in page],
+            "items": serialized,
         }
 
     # --- Featured listings (admin-curated) ---
@@ -1562,13 +1564,12 @@ class MarketplaceStore:
     def get_featured(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Return featured active listings in curator order."""
         with self._lock:
-            ids = list(self._featured[:limit])
-        result = []
-        for lid in ids:
-            lst = self._listings.get(lid)
-            if lst and lst.is_active:
-                result.append(lst.to_dict())
-        return result
+            result = []
+            for lid in self._featured[:limit]:
+                lst = self._listings.get(lid)
+                if lst and lst.is_active:
+                    result.append(lst.to_dict())
+            return result
 
     # --- Price history ---
 
@@ -1746,12 +1747,13 @@ class MarketplaceStore:
     ) -> Dict[str, Any]:
         with self._lock:
             items = list(self._disputes.values())
-        if status:
-            items = [d for d in items if d.status == status]
-        items.sort(key=lambda d: d.created_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset: offset + limit]
+            if status:
+                items = [d for d in items if d.status == status]
+            items.sort(key=lambda d: d.created_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset: offset + limit]
+            serialized = [d.to_dict() for d in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -1759,7 +1761,7 @@ class MarketplaceStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [d.to_dict() for d in page],
+            "items": serialized,
         }
 
     def get_related(self, listing_id: str, limit: int = 6) -> List[Dict[str, Any]]:
@@ -1771,19 +1773,18 @@ class MarketplaceStore:
             source = self._listings.get(listing_id)
             if not source:
                 return []
+            src_tags = set(source.tags)
+            src_cat = source.category.lower()
             candidates = [lst for lst in self._listings.values() if lst.is_active and lst.listing_id != listing_id]
-
-        src_tags = set(source.tags)
-        src_cat = source.category.lower()
-        scored: List[Tuple[float, "MarketplaceListing"]] = []
-        for lst in candidates:
-            score = 2 * len(src_tags & set(lst.tags))
-            if lst.category.lower() == src_cat:
-                score += 1
-            if score > 0:
-                scored.append((score, lst))
-        scored.sort(key=lambda x: (-x[0], -x[1].download_count))
-        return [lst.to_dict() for _, lst in scored[:limit]]
+            scored: List[Tuple[float, "MarketplaceListing"]] = []
+            for lst in candidates:
+                score = 2 * len(src_tags & set(lst.tags))
+                if lst.category.lower() == src_cat:
+                    score += 1
+                if score > 0:
+                    scored.append((score, lst))
+            scored.sort(key=lambda x: (-x[0], -x[1].download_count))
+            return [lst.to_dict() for _, lst in scored[:limit]]
 
     def has_downloaded(self, listing_id: str, user_id: str) -> bool:
         """Return True if user_id has downloaded listing_id (O(1) via index)."""
@@ -1900,12 +1901,12 @@ class MarketplaceStore:
     def get_stats(self) -> Dict[str, Any]:
         with self._lock:
             active = [lst for lst in self._listings.values() if lst.is_active]
-        return {
-            "total_listings": len(active),
-            "total_downloads": sum(lst.download_count for lst in active),
-            "total_ratings": sum(lst.rating_count for lst in active),
-            "categories": list({lst.category for lst in active}),
-        }
+            return {
+                "total_listings": len(active),
+                "total_downloads": sum(lst.download_count for lst in active),
+                "total_ratings": sum(lst.rating_count for lst in active),
+                "categories": list({lst.category for lst in active}),
+            }
 
     def get_listing_analytics(self, listing_id: str, owner_id: str) -> Dict[str, Any]:
         """Download/rating analytics for a single listing.
@@ -1919,6 +1920,8 @@ class MarketplaceStore:
                 raise ValueError("リスティングが見つかりません")
             if listing.owner_id != owner_id:
                 raise PermissionError("このリスティングの所有者のみが分析情報を取得できます")
+            listing_name = listing.name
+            total_downloads = listing.download_count
             logs = [(lid, did, ts) for lid, did, ts, _ap in self._download_log if lid == listing_id]
             review_count = len(self._reviews.get(listing_id, {}))
             # Snapshot visible votes under the lock (was read unlocked before,
@@ -1941,8 +1944,8 @@ class MarketplaceStore:
 
         return {
             "listing_id": listing_id,
-            "name": listing.name,
-            "total_downloads": listing.download_count,
+            "name": listing_name,
+            "total_downloads": total_downloads,
             "unique_downloaders": len(unique_downloaders),
             "total_reviews": review_count,
             "average_rating": avg,
@@ -1952,6 +1955,7 @@ class MarketplaceStore:
 
     def get_creator_analytics(self, owner_id: str) -> Dict[str, Any]:
         """Per-creator dashboard stats."""
+        from collections import Counter
         with self._lock:
             listings = [lst for lst in self._listings.values() if lst.owner_id == owner_id]
             logs = [(lid, did, ts, ap) for lid, did, ts, ap in self._download_log
@@ -1963,41 +1967,41 @@ class MarketplaceStore:
             # headline average (hidden-review votes excluded).
             vote_snapshots = {lid: self._visible_votes_locked(lid) for lid in listing_ids}
 
-        total_downloads = sum(lst.download_count for lst in listings)
-        active_count = sum(1 for lst in listings if lst.is_active)
-        total_reviews = sum(review_counts.values())
+            total_downloads = sum(lst.download_count for lst in listings)
+            active_count = sum(1 for lst in listings if lst.is_active)
+            total_reviews = sum(review_counts.values())
 
-        # Rating distribution across all listings
-        rating_dist: Dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        for lid, stars_by_user in vote_snapshots.items():
-            for stars in stars_by_user.values():
-                rating_dist[stars] = rating_dist.get(stars, 0) + 1
+            # Rating distribution across all listings
+            rating_dist: Dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+            for lid, stars_by_user in vote_snapshots.items():
+                for stars in stars_by_user.values():
+                    rating_dist[stars] = rating_dist.get(stars, 0) + 1
 
-        # Downloads by day (last 30 days)
-        from collections import Counter
-        day_counts: Counter = Counter()
-        for _, _, ts, _ap in logs:
-            day_counts[ts.strftime("%Y-%m-%d")] += 1
+            # Downloads by day
+            day_counts: Counter = Counter()
+            for _, _, ts, _ap in logs:
+                day_counts[ts.strftime("%Y-%m-%d")] += 1
 
-        # Downloads by tag and category
-        listing_map = {lst.listing_id: lst for lst in listings}
-        tag_counts: Counter = Counter()
-        category_counts: Counter = Counter()
-        for lid, _, _, _ap in logs:
-            lst = listing_map.get(lid)
-            if lst:
-                for tag in lst.tags:
+            # Downloads by tag and category using snapshotted listing attributes
+            listing_tags = {lst.listing_id: list(lst.tags) for lst in listings}
+            listing_cats = {lst.listing_id: lst.category for lst in listings}
+            tag_counts: Counter = Counter()
+            category_counts: Counter = Counter()
+            for lid, _, _, _ap in logs:
+                for tag in listing_tags.get(lid, []):
                     tag_counts[tag] += 1
-                if lst.category:
-                    category_counts[lst.category] += 1
+                cat = listing_cats.get(lid)
+                if cat:
+                    category_counts[cat] += 1
 
-        # Revenue: sum the amount_paid stored at download time so re-downloads
-        # (charged 0) and promo discounts are reflected accurately, not inflated
-        # by the listing's current price.
-        credits_earned = sum(ap for _, _, _, ap in logs)
+            # Revenue: sum the amount_paid stored at download time so re-downloads
+            # (charged 0) and promo discounts are reflected accurately, not inflated
+            # by the listing's current price.
+            credits_earned = sum(ap for _, _, _, ap in logs)
 
-        # Top listing by downloads
-        top = max(listings, key=lambda lst: lst.download_count, default=None)
+            # Top listing by downloads
+            top_dict = max((lst.to_dict() for lst in listings),
+                           key=lambda d: d["download_count"], default=None)
 
         return {
             "owner_id": owner_id,
@@ -2010,7 +2014,7 @@ class MarketplaceStore:
             "downloads_by_day": dict(day_counts),
             "downloads_by_tag": dict(tag_counts.most_common(20)),
             "downloads_by_category": dict(category_counts),
-            "top_listing": top.to_dict() if top else None,
+            "top_listing": top_dict,
         }
 
     # --- Earnings summary ---
@@ -2071,19 +2075,19 @@ class MarketplaceStore:
         """Return paginated list of listings this user has downloaded, newest first."""
         with self._lock:
             entries = [(lid, ts) for lid, did, ts, _ap in self._download_log if did == user_id]
-        entries.sort(key=lambda x: x[1], reverse=True)
-        total = len(entries)
-        offset, limit = normalize_pagination(offset, limit)
-        page = entries[offset: offset + limit]
-        items = []
-        for lid, ts in page:
-            listing = self._listings.get(lid)
-            row: Dict[str, Any] = {"listing_id": lid, "downloaded_at": ts.isoformat()}
-            if listing:
-                row["name"] = listing.name
-                row["owner_username"] = listing.owner_username
-                row["is_active"] = listing.is_active
-            items.append(row)
+            entries.sort(key=lambda x: x[1], reverse=True)
+            total = len(entries)
+            offset, limit = normalize_pagination(offset, limit)
+            page = entries[offset: offset + limit]
+            items = []
+            for lid, ts in page:
+                listing = self._listings.get(lid)
+                row: Dict[str, Any] = {"listing_id": lid, "downloaded_at": ts.isoformat()}
+                if listing:
+                    row["name"] = listing.name
+                    row["owner_username"] = listing.owner_username
+                    row["is_active"] = listing.is_active
+                items.append(row)
         has_more = offset + limit < total
         return {
             "total": total,
@@ -2126,12 +2130,13 @@ class MarketplaceStore:
         """List moderation reports, optionally filtered by status (admin)."""
         with self._lock:
             items = list(self._reports.values())
-        if status:
-            items = [r for r in items if r.status == status]
-        items.sort(key=lambda r: r.created_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset: offset + limit]
+            if status:
+                items = [r for r in items if r.status == status]
+            items.sort(key=lambda r: r.created_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset: offset + limit]
+            serialized = [r.to_dict() for r in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -2139,7 +2144,7 @@ class MarketplaceStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [r.to_dict() for r in page],
+            "items": serialized,
         }
 
     def resolve_report(self, report_id: str, moderator_id: str, action: str, note: str = "", *, takedown: bool = False) -> ListingReport:
@@ -2166,12 +2171,12 @@ class MarketplaceStore:
     def get_report_stats(self) -> Dict[str, Any]:
         with self._lock:
             items = list(self._reports.values())
-        by_status: Dict[str, int] = {"pending": 0, "resolved": 0, "dismissed": 0}
-        by_reason: Dict[str, int] = {}
-        for r in items:
-            by_status[r.status] = by_status.get(r.status, 0) + 1
-            by_reason[r.reason] = by_reason.get(r.reason, 0) + 1
-        return {"total": len(items), "by_status": by_status, "by_reason": by_reason}
+            by_status: Dict[str, int] = {"pending": 0, "resolved": 0, "dismissed": 0}
+            by_reason: Dict[str, int] = {}
+            for r in items:
+                by_status[r.status] = by_status.get(r.status, 0) + 1
+                by_reason[r.reason] = by_reason.get(r.reason, 0) + 1
+            return {"total": len(items), "by_status": by_status, "by_reason": by_reason}
 
     # --- Review reports ---
 
@@ -2206,12 +2211,13 @@ class MarketplaceStore:
         """List review moderation reports (admin)."""
         with self._lock:
             items = list(self._review_reports.values())
-        if status:
-            items = [r for r in items if r.status == status]
-        items.sort(key=lambda r: r.created_at, reverse=True)
-        total = len(items)
-        offset, limit = normalize_pagination(offset, limit)
-        page = items[offset: offset + limit]
+            if status:
+                items = [r for r in items if r.status == status]
+            items.sort(key=lambda r: r.created_at, reverse=True)
+            total = len(items)
+            offset, limit = normalize_pagination(offset, limit)
+            page = items[offset: offset + limit]
+            serialized = [r.to_dict() for r in page]
         has_more = offset + limit < total
         return {
             "total": total,
@@ -2219,7 +2225,7 @@ class MarketplaceStore:
             "limit": limit,
             "has_more": has_more,
             "next_offset": offset + limit if has_more else None,
-            "items": [r.to_dict() for r in page],
+            "items": serialized,
         }
 
     def resolve_review_report(
