@@ -2338,8 +2338,8 @@ class MarketplaceStore:
         """List all promo codes created by a creator."""
         with self._lock:
             codes = [pc for pc in self._promo_codes.values() if pc.creator_id == creator_id]
-        codes.sort(key=lambda pc: pc.created_at, reverse=True)
-        return [pc.to_dict() for pc in codes]
+            codes.sort(key=lambda pc: pc.created_at, reverse=True)
+            return [pc.to_dict() for pc in codes]
 
     def lookup_promo_code(self, code: str, listing_id: str) -> Optional[Dict[str, Any]]:
         """Public lookup: validate a code for a specific listing. Returns info or None."""
