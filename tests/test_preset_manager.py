@@ -155,5 +155,39 @@ class TestBatchOperations(unittest.TestCase):
             self.assertTrue(results["d2"])
 
 
+class TestPresetTagsNonList(unittest.TestCase):
+    """_update_index() and _remove_from_index() must not crash when 'tags' is not a list.
+
+    Bug: preset JSON files may have "tags": "string" or "tags": null instead of
+    a list.  Iterating directly over a string would index individual characters;
+    iterating over None would raise TypeError.
+    Fix: guard with `if not isinstance(tags, list): tags = []` in both methods.
+    """
+
+    def test_save_preset_with_string_tags_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as d:
+            mgr = make_manager(d)
+            # tags is a string instead of a list
+            mgr.save_preset("bad_tags", {"name": "test", "tags": "should_be_list"})
+            # Should be searchable by name at minimum
+            results = mgr.search_presets("bad_tags")
+            self.assertIn("bad_tags", results)
+
+    def test_save_preset_with_none_tags_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as d:
+            mgr = make_manager(d)
+            mgr.save_preset("null_tags", {"name": "test", "tags": None})
+            results = mgr.search_presets("null_tags")
+            self.assertIn("null_tags", results)
+
+    def test_delete_preset_with_string_tags_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as d:
+            mgr = make_manager(d)
+            mgr.save_preset("bad_tags2", {"name": "test", "tags": "string_not_list"})
+            # Delete should not crash when removing from tags index
+            mgr.delete_preset("bad_tags2")
+            self.assertIsNone(mgr.get_preset("bad_tags2"))
+
+
 if __name__ == '__main__':
     unittest.main()

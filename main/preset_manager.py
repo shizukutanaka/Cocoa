@@ -68,8 +68,10 @@ class PresetManager:
         for param_name in preset_data.get('parameters', {}):
             self._index[param_name].add(preset_name)
 
-        # タグによるインデックス
+        # タグによるインデックス（tags が list でない場合は無視）
         tags = preset_data.get('tags', [])
+        if not isinstance(tags, list):
+            tags = []
         for tag in tags:
             if preset_name not in self._tags_index[tag]:
                 self._tags_index[tag].append(preset_name)
@@ -200,8 +202,10 @@ class PresetManager:
                 if not self._index[param_name]:
                     del self._index[param_name]
 
-        # タグによるインデックスから削除
+        # タグによるインデックスから削除（tags が list でない場合は無視）
         tags = preset_data.get('tags', [])
+        if not isinstance(tags, list):
+            tags = []
         for tag in tags:
             if preset_name in self._tags_index[tag]:
                 self._tags_index[tag].remove(preset_name)
