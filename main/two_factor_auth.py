@@ -433,8 +433,19 @@ class TwoFactorAuthService:
 
     def __init__(self):
         """サービスを初期化"""
-        # 実際の運用では適切な秘密鍵を使用
-        self.secret_key = os.getenv("COCOA_2FA_SECRET", "cocoa_2fa_secret_key_2025")
+        # The 2FA master secret encrypts all stored TOTP seeds. A hardcoded
+        # fallback would mean every deployment that forgot to set the env var
+        # shares the same key — anyone with the source could decrypt their
+        # users' TOTP seeds. Fail closed instead.
+        secret = os.getenv("COCOA_2FA_SECRET")
+        if not secret:
+            raise RuntimeError(
+                "COCOA_2FA_SECRET must be set to initialize 2FA. "
+                "Generate one with `python -c 'import secrets; "
+                "print(secrets.token_urlsafe(32))'` and store it in your "
+                "environment / secret manager."
+            )
+        self.secret_key = secret
         self.tfa_manager = TwoFactorAuthManager(self.secret_key)
 
     def setup_user_2fa(self, user_id: int, username: str) -> Dict[str, Any]:

@@ -248,5 +248,63 @@ class TestTOTPReplayProtection(unittest.TestCase):
         self.assertFalse(r1b['valid'], "Replay for user 1 must be rejected")
 
 
+class TestTwoFactorAuthServiceFailsClosed(unittest.TestCase):
+    """TwoFactorAuthService must refuse to start without COCOA_2FA_SECRET.
+
+    A hardcoded fallback like `cocoa_2fa_secret_key_2025` would mean every
+    deployment that forgot to set the env var shares the same key — anyone
+    with read access to the source could decrypt all stored TOTP seeds.
+
+    Fix: raise RuntimeError when the env var is missing or empty.
+    """
+
+    def test_raises_without_env_var(self):
+        from two_factor_auth import TwoFactorAuthService
+        saved = os.environ.pop("COCOA_2FA_SECRET", None)
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                TwoFactorAuthService()
+            self.assertIn("COCOA_2FA_SECRET", str(ctx.exception))
+        finally:
+            if saved is not None:
+                os.environ["COCOA_2FA_SECRET"] = saved
+
+    def test_raises_with_empty_env_var(self):
+        from two_factor_auth import TwoFactorAuthService
+        saved = os.environ.get("COCOA_2FA_SECRET")
+        os.environ["COCOA_2FA_SECRET"] = ""
+        try:
+            with self.assertRaises(RuntimeError):
+                TwoFactorAuthService()
+        finally:
+            if saved is None:
+                os.environ.pop("COCOA_2FA_SECRET", None)
+            else:
+                os.environ["COCOA_2FA_SECRET"] = saved
+
+    def test_succeeds_with_env_var(self):
+        from two_factor_auth import TwoFactorAuthService
+        saved = os.environ.get("COCOA_2FA_SECRET")
+        os.environ["COCOA_2FA_SECRET"] = "test-only-secret-not-for-production"
+        try:
+            svc = TwoFactorAuthService()
+            self.assertEqual(svc.secret_key, "test-only-secret-not-for-production")
+        finally:
+            if saved is None:
+                os.environ.pop("COCOA_2FA_SECRET", None)
+            else:
+                os.environ["COCOA_2FA_SECRET"] = saved
+
+    def test_no_hardcoded_default_in_source(self):
+        """Source must not contain the legacy hardcoded fallback."""
+        import pathlib
+        src = pathlib.Path("main/two_factor_auth.py").read_text()
+        self.assertNotIn(
+            "cocoa_2fa_secret_key_2025",
+            src,
+            "Legacy hardcoded 2FA secret default must be removed",
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
