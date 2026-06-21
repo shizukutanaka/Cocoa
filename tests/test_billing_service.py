@@ -126,3 +126,44 @@ class TestStripeBillingServiceInit(unittest.TestCase):
         config = BillingConfig.from_dict({"billing": {"enabled": True}})
         with self.assertRaises(BillingError):
             StripeBillingService(config=config)
+
+
+class TestBillingEventLogTimestampParsing(unittest.TestCase):
+    """BillingEventLog must parse 'Z'-suffixed timestamps as timezone-aware.
+
+    Bug: _parse_ts used raw.replace('Z', '') which strips the tzinfo,
+    yielding a naive datetime. Later code compares it against
+    datetime.now(timezone.utc) — an aware datetime — which raises
+    `TypeError: can't compare offset-naive and offset-aware datetimes`.
+
+    Qiita/Zenn anti-pattern: datetime.fromisoformat without preserving
+    tz info, then comparing against an aware datetime.
+    """
+
+    def test_parse_ts_keeps_tzinfo_for_z_suffix(self):
+        from billing_service import BillingEventLog
+        result = BillingEventLog._parse_ts("2024-06-01T12:00:00Z")
+        self.assertIsNotNone(result)
+        self.assertIsNotNone(result.tzinfo,
+            "Z-suffixed timestamp must produce a timezone-aware datetime")
+
+    def test_parse_ts_can_be_compared_to_aware_now(self):
+        """Regression: the failure mode is a TypeError when comparing."""
+        from datetime import datetime, timezone
+        from billing_service import BillingEventLog
+        parsed = BillingEventLog._parse_ts("2024-01-01T00:00:00Z")
+        now = datetime.now(timezone.utc)
+        # Before the fix, this comparison raised TypeError.
+        self.assertTrue(parsed < now)
+
+    def test_parse_ts_returns_none_for_invalid(self):
+        from billing_service import BillingEventLog
+        self.assertIsNone(BillingEventLog._parse_ts("not-a-date"))
+        self.assertIsNone(BillingEventLog._parse_ts(None))
+        self.assertIsNone(BillingEventLog._parse_ts(""))
+
+    def test_parse_ts_keeps_tzinfo_for_explicit_offset(self):
+        from billing_service import BillingEventLog
+        result = BillingEventLog._parse_ts("2024-06-01T12:00:00+09:00")
+        self.assertIsNotNone(result)
+        self.assertIsNotNone(result.tzinfo)

@@ -265,7 +265,9 @@ class BillingEventLog:
         if not raw:
             return None
         try:
-            return datetime.fromisoformat(raw.replace("Z", ""))
+            # Preserve timezone info; comparing the result against
+            # datetime.now(timezone.utc) later requires an aware datetime.
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
             return None
 
