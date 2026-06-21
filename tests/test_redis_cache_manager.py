@@ -7,6 +7,8 @@ All tests exercise FallbackCacheManager because redis is not installed in the
 test environment. RedisCacheManager itself is tested only at the import level.
 """
 import asyncio
+import os
+import pickle
 import sys
 import unittest
 from pathlib import Path
@@ -235,10 +237,12 @@ class TestRedisCacheManagerTtlCheck(unittest.TestCase):
     def test_ttl_minus_1_is_a_cache_hit(self):
         """ttl==-1 means key exists without expiry; must be a hit, not a miss."""
         import asyncio
-        import pickle
+        import json
         from unittest.mock import AsyncMock
         mgr = self._make_redis_mgr()
-        payload = pickle.dumps({"answer": 42}).decode('latin1')
+        # Use the canonical JSON serialization (raw unsigned pickle is now
+        # refused on read for security — see TestSignedPickleDeserialization).
+        payload = json.dumps({"answer": 42})
         mgr.redis_async_client.get = AsyncMock(return_value=payload)
         mgr.redis_async_client.ttl = AsyncMock(return_value=-1)
         result = asyncio.run(mgr.get("persistent_key"))
@@ -303,6 +307,106 @@ class TestGetCacheManager(unittest.TestCase):
         m1 = get_cache_manager()
         m2 = get_cache_manager()
         self.assertIs(m1, m2)
+
+
+# Module-level flag a malicious pickle would flip if pickle.loads() ran it.
+_rce_canary = {"fired": False}
+
+
+def _trip_canary():
+    _rce_canary["fired"] = True
+    return "pwned"
+
+
+class _EvilPayload:
+    """When unpickled, calls _trip_canary() — simulates an RCE gadget."""
+    def __reduce__(self):
+        return (_trip_canary, ())
+
+
+class TestSignedPickleDeserialization(unittest.TestCase):
+    """RedisCacheManager must never pickle.loads() untrusted/forged cache data.
+
+    pickle.loads() executes arbitrary code via __reduce__, so a poisoned Redis
+    value (the 'untrusted cache source' Qiita flags) is an RCE vector. The fix
+    HMAC-signs pickle payloads: only data Cocoa itself serialized (with the
+    secret) is ever unpickled. With no key configured, pickle is disabled
+    entirely (fail closed).
+    """
+
+    def _mgr(self):
+        # Bypass __init__ (which needs redis); only serializer state is needed.
+        mgr = rcm.RedisCacheManager.__new__(rcm.RedisCacheManager)
+        mgr.compression_threshold = 1 << 30
+        return mgr
+
+    def setUp(self):
+        self._saved = os.environ.get("COCOA_CACHE_HMAC_KEY")
+        _rce_canary["fired"] = False
+
+    def tearDown(self):
+        if self._saved is None:
+            os.environ.pop("COCOA_CACHE_HMAC_KEY", None)
+        else:
+            os.environ["COCOA_CACHE_HMAC_KEY"] = self._saved
+        _rce_canary["fired"] = False
+
+    def test_json_value_roundtrips_without_key(self):
+        os.environ.pop("COCOA_CACHE_HMAC_KEY", None)
+        mgr = self._mgr()
+        s = mgr._serialize_value({"a": 1, "b": [1, 2, 3]})
+        self.assertEqual(mgr._deserialize_value(s), {"a": 1, "b": [1, 2, 3]})
+
+    def test_non_json_value_roundtrips_with_key(self):
+        os.environ["COCOA_CACHE_HMAC_KEY"] = "unit-test-secret"
+        mgr = self._mgr()
+        # dict with a tuple key is NOT JSON-serializable even with default=str.
+        value = {(1, 2): "x", (3, 4): "y"}
+        s = mgr._serialize_value(value)
+        self.assertTrue(s.startswith(rcm.RedisCacheManager._PICKLE_MARKER))
+        self.assertEqual(mgr._deserialize_value(s), value)
+
+    def test_non_json_value_refused_without_key(self):
+        os.environ.pop("COCOA_CACHE_HMAC_KEY", None)
+        mgr = self._mgr()
+        with self.assertRaises(ValueError):
+            mgr._serialize_value({(1, 2): "x"})  # would need pickle, but no key
+
+    def test_forged_pickle_is_not_unpickled(self):
+        """A poisoned value carrying our marker but a bad HMAC must NOT run."""
+        os.environ["COCOA_CACHE_HMAC_KEY"] = "the-real-secret"
+        mgr = self._mgr()
+        # Attacker builds an RCE pickle and guesses the wire format, but cannot
+        # forge the HMAC without the secret.
+        evil_raw = pickle.dumps(_EvilPayload())
+        forged = (rcm.RedisCacheManager._PICKLE_MARKER
+                  + "deadbeef" * 8 + ":" + evil_raw.decode("latin1"))
+        with self.assertRaises(ValueError):
+            mgr._deserialize_value(forged)
+        self.assertFalse(_rce_canary["fired"],
+                         "pickle.loads must NOT run on a payload with an invalid HMAC")
+
+    def test_forged_pickle_refused_when_key_unset(self):
+        os.environ.pop("COCOA_CACHE_HMAC_KEY", None)
+        mgr = self._mgr()
+        evil_raw = pickle.dumps(_EvilPayload())
+        forged = (rcm.RedisCacheManager._PICKLE_MARKER
+                  + "00" + ":" + evil_raw.decode("latin1"))
+        with self.assertRaises(ValueError):
+            mgr._deserialize_value(forged)
+        self.assertFalse(_rce_canary["fired"])
+
+    def test_validly_signed_pickle_does_run(self):
+        """Sanity: the legitimate self-signed path still works end to end."""
+        os.environ["COCOA_CACHE_HMAC_KEY"] = "the-real-secret"
+        mgr = self._mgr()
+        # Nest the gadget under a tuple key so json.dumps fails and the pickle
+        # path is taken; we sign it ourselves so it is trusted on the way back.
+        signed = mgr._serialize_value({(0,): _EvilPayload()})
+        self.assertTrue(signed.startswith(rcm.RedisCacheManager._PICKLE_MARKER))
+        mgr._deserialize_value(signed)
+        # Our own signed payload is trusted, so __reduce__ runs on read-back.
+        self.assertTrue(_rce_canary["fired"])
 
 
 if __name__ == "__main__":

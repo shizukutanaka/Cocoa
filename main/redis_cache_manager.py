@@ -8,6 +8,7 @@ Production-gradeのRedisキャッシュ機能を提供し、
 import asyncio
 import functools
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -116,6 +117,14 @@ class RedisCacheManager:
         # プレフィックスを追加して名前空間を確保
         return f"cocoa:cache:{key_hash}"
 
+    # 署名付きpickleのマーカー（JSON出力は決してこの先頭バイトを取らない）。
+    _PICKLE_MARKER = "\x00cocoa-pkl1:"
+
+    @staticmethod
+    def _pickle_hmac_key() -> bytes:
+        """pickleペイロード署名用の鍵。未設定なら空（pickle無効）。"""
+        return os.getenv("COCOA_CACHE_HMAC_KEY", "").encode("utf-8")
+
     def _serialize_value(self, value: Any) -> str:
         """値をシリアライズ"""
         try:
@@ -126,16 +135,41 @@ class RedisCacheManager:
 
             return json.dumps(value, default=str)
         except (TypeError, ValueError):
-            # JSONでシリアライズできない場合はpickleを使用
-            return pickle.dumps(value).decode('latin1')
+            # JSONでシリアライズできない場合はpickleを使用する。ただし
+            # pickle.loads は任意コード実行（RCE）の温床なので、HMAC署名を
+            # 付けて「Cocoa 自身が書いた値」だけを後で復元できるようにする。
+            # 署名鍵が未設定なら pickle は使わず例外送出 → 呼び出し側
+            # （set）はキャッシュをスキップするだけで安全側に倒れる。
+            key = self._pickle_hmac_key()
+            if not key:
+                raise ValueError(
+                    "value is not JSON-serializable and COCOA_CACHE_HMAC_KEY "
+                    "is unset; refusing to emit unsigned pickle"
+                )
+            raw = pickle.dumps(value)
+            sig = hmac.new(key, raw, hashlib.sha256).hexdigest()
+            return f"{self._PICKLE_MARKER}{sig}:{raw.decode('latin1')}"
 
     def _deserialize_value(self, value: str) -> Any:
         """値をデシリアライズ"""
-        try:
-            return json.loads(value)
-        except (json.JSONDecodeError, TypeError):
-            # JSONでデシリアライズできない場合はpickleを使用
-            return pickle.loads(value.encode('latin1'))
+        if value.startswith(self._PICKLE_MARKER):
+            # 署名付きpickle。HMAC を検証できたものだけ unpickle する。
+            # 検証に失敗（改ざん・鍵未設定）したら例外送出 → get は
+            # キャッシュミス扱いになり、攻撃者が仕込んだ値で pickle.loads
+            # が走ることは無い。
+            key = self._pickle_hmac_key()
+            if not key:
+                raise ValueError("signed pickle present but COCOA_CACHE_HMAC_KEY is unset")
+            body = value[len(self._PICKLE_MARKER):]
+            sig, sep, payload = body.partition(":")
+            if not sep:
+                raise ValueError("malformed signed-pickle payload")
+            raw = payload.encode("latin1")
+            expected = hmac.new(key, raw, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(sig, expected):
+                raise ValueError("signed-pickle HMAC verification failed; refusing to unpickle")
+            return pickle.loads(raw)
+        return json.loads(value)
 
     async def get(self, key: str) -> Optional[Any]:
         """キャッシュから値を取得（非同期）"""
