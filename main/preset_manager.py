@@ -195,11 +195,15 @@ class PresetManager:
 
     def _remove_from_index(self, preset_name: str, preset_data: Dict[str, Any]) -> None:
         """プリセットをインデックスから削除"""
-        # パラメータ名によるインデックスから削除
+        # パラメータ名によるインデックスから削除。
+        # self._index は defaultdict なので、未登録の param_name を [] で
+        # 読むと空 set が新規生成されて残留する（メモリリーク + インデックス
+        # 汚染）。.get() で読んで、存在するバケットだけ操作する。
         for param_name in preset_data.get('parameters', {}):
-            if preset_name in self._index[param_name]:
-                self._index[param_name].remove(preset_name)
-                if not self._index[param_name]:
+            bucket = self._index.get(param_name)
+            if bucket is not None and preset_name in bucket:
+                bucket.remove(preset_name)
+                if not bucket:
                     del self._index[param_name]
 
         # タグによるインデックスから削除（tags が list でない場合は無視）
@@ -207,9 +211,10 @@ class PresetManager:
         if not isinstance(tags, list):
             tags = []
         for tag in tags:
-            if preset_name in self._tags_index[tag]:
-                self._tags_index[tag].remove(preset_name)
-                if not self._tags_index[tag]:
+            bucket = self._tags_index.get(tag)
+            if bucket is not None and preset_name in bucket:
+                bucket.remove(preset_name)
+                if not bucket:
                     del self._tags_index[tag]
 
     def get_preset(self, preset_name: str) -> Optional[Dict[str, Any]]:

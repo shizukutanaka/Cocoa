@@ -96,6 +96,46 @@ class TestPresetIndexStaleness(unittest.TestCase):
             self.assertNotIn("p1", mgr.search_presets("blue_eyes"))
             self.assertIn("p1", mgr.search_presets("red_eyes"))
 
+    def test_remove_does_not_create_empty_index_entries(self):
+        """_remove_from_index must not create empty defaultdict buckets for
+        param/tag names that aren't already indexed.
+
+        Bug: `if preset_name in self._index[param_name]` reads a defaultdict
+        with [], silently inserting an empty set for an absent key. The cleanup
+        `del` was gated behind the membership check being True, so the empty
+        bucket leaked — unbounded growth + index pollution with keys driven by
+        whatever parameters the removed preset happened to carry.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            mgr = make_manager(d)
+            # Index p1 under params {a} and tag {t1}.
+            mgr.save_preset("p1", {"parameters": {"a": 1}, "tags": ["t1"]})
+            index_keys_before = set(mgr._index.keys())
+            tag_keys_before = set(mgr._tags_index.keys())
+
+            # Re-save with DIFFERENT params/tags. _remove_from_index runs for
+            # the OLD data, but also delete to force the remove path with
+            # params/tags that may not be in the index after rebuilds.
+            mgr.delete_preset("p1")
+
+            # Now manually drive a removal of data whose param/tag names were
+            # never indexed — this is the case that used to leak.
+            mgr._remove_from_index("ghost", {"parameters": {"never_indexed": 1},
+                                             "tags": ["never_tagged"]})
+
+            self.assertNotIn("never_indexed", mgr._index,
+                             "absent param must not be created as an empty bucket")
+            self.assertNotIn("never_tagged", mgr._tags_index,
+                             "absent tag must not be created as an empty bucket")
+            # And no empty buckets anywhere.
+            self.assertFalse([k for k, v in mgr._index.items() if not v],
+                             "no empty sets should remain in _index")
+            self.assertFalse([k for k, v in mgr._tags_index.items() if not v],
+                             "no empty lists should remain in _tags_index")
+            # Sanity: original keys weren't disturbed beyond the legitimate delete.
+            self.assertTrue(index_keys_before)  # had at least 'a'
+            self.assertTrue(tag_keys_before)    # had at least 't1'
+
 
 class TestPresetManagerSearch(unittest.TestCase):
     def test_search_by_tag(self):
