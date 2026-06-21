@@ -127,5 +127,60 @@ class TestListBackups(unittest.TestCase):
         self.assertEqual(result, [])
 
 
+class TestExtractAllUsesDataFilter(unittest.TestCase):
+    """Restore must use tar.extractall(filter='data') — Tar Slip defense.
+
+    Without filter=, a malicious backup tar containing a '../../etc/passwd'
+    entry would be extracted OUTSIDE the restore directory; Python 3.14+
+    will also start raising for filter=None. We verify the source uses
+    filter='data' (the safest builtin filter — strips absolute paths,
+    parent-dir traversal, links, and special files).
+    """
+
+    def test_source_passes_data_filter_to_extractall(self):
+        import ast, pathlib
+        tree = ast.parse(pathlib.Path("main/enhanced_disaster_recovery.py").read_text())
+        offenders = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            if not (isinstance(f, ast.Attribute) and f.attr == "extractall"):
+                continue
+            filter_kw = next((kw for kw in node.keywords if kw.arg == "filter"), None)
+            if filter_kw is None:
+                offenders.append(f"line {node.lineno}: extractall called without filter=")
+                continue
+            v = filter_kw.value
+            if not (isinstance(v, ast.Constant) and v.value == "data"):
+                offenders.append(f"line {node.lineno}: filter is not 'data'")
+        self.assertEqual(offenders, [],
+            "All extractall() calls must pass filter='data' for Tar Slip safety: "
+            + "; ".join(offenders))
+
+    def test_tar_slip_entry_is_rejected(self):
+        """Integration: a tarball with '../escape' must not write outside dest."""
+        import io
+        import tarfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            tar_path = tmp / "evil.tar"
+            payload = b"escaped"
+            buf = io.BytesIO(payload)
+            with tarfile.open(tar_path, "w") as tf:
+                info = tarfile.TarInfo(name="../escape.txt")
+                info.size = len(payload)
+                tf.addfile(info, buf)
+
+            restore = tmp / "restore"
+            restore.mkdir()
+            # filter='data' must refuse the traversing entry.
+            with tarfile.open(tar_path, "r:*") as tar:
+                with self.assertRaises(Exception):
+                    tar.extractall(restore, filter="data")
+            # And nothing must have leaked above the restore dir.
+            self.assertFalse((tmp / "escape.txt").exists())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

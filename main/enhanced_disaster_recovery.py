@@ -404,7 +404,7 @@ class Enhanced321BackupManager:
         backups = []
 
         for metadata_file in self.metadata_dir.glob('*_metadata.json'):
-            with open(metadata_file) as f:
+            with open(metadata_file, encoding='utf-8') as f:
                 metadata = json.load(f)
 
             # 検証済みフィルター
@@ -467,9 +467,11 @@ class Enhanced321BackupManager:
             # 復元ディレクトリ作成
             restore_dir.mkdir(parents=True, exist_ok=True)
 
-            # 解凍
+            # 解凍 — filter='data' を指定して Tar Slip / device-file 系の
+            # 不正エントリを拒否する。Python 3.12+ ではフィルタ無し extractall
+            # は DeprecationWarning、3.14+ では例外。
             with tarfile.open(backup_file, 'r:*') as tar:
-                tar.extractall(restore_dir)
+                tar.extractall(restore_dir, filter='data')
 
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
 
@@ -620,7 +622,7 @@ class Enhanced321BackupManager:
         if not metadata_file.exists():
             return False
 
-        with open(metadata_file) as f:
+        with open(metadata_file, encoding='utf-8') as f:
             metadata = json.load(f)
 
         timestamp = datetime.fromisoformat(metadata['timestamp'])
@@ -634,7 +636,7 @@ class Enhanced321BackupManager:
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
 
         for metadata_file in self.metadata_dir.glob('*_metadata.json'):
-            with open(metadata_file) as f:
+            with open(metadata_file, encoding='utf-8') as f:
                 metadata = json.load(f)
 
             timestamp = datetime.fromisoformat(metadata['timestamp'])

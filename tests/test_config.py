@@ -151,5 +151,48 @@ class TestGetConfig(unittest.TestCase):
         self.assertIsNot(c1, c2)
 
 
+class TestFromFileExplicitUtf8(unittest.TestCase):
+    """Config.from_file must pass encoding='utf-8' to open().
+
+    Without it, open() falls back to the platform's locale encoding —
+    cp932 on Japanese Windows — and a config JSON with Japanese names or
+    descriptions raises UnicodeDecodeError. Qiita/Zenn's most-repeated
+    cross-platform encoding trap.
+    """
+
+    def test_japanese_config_loads_on_any_platform(self):
+        import json
+        import tempfile
+        from config import Config
+        payload = {
+            "database": {"host": "ホスト", "port": 5432, "database": "コアラ",
+                         "user": "ユーザー"},
+        }
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".json", delete=False, encoding="utf-8"
+        ) as f:
+            json.dump(payload, f, ensure_ascii=False)
+            path = f.name
+        try:
+            cfg = Config.from_file(path)
+            self.assertEqual(cfg.database.host, "ホスト")
+            self.assertEqual(cfg.database.database, "コアラ")
+        finally:
+            os.unlink(path)
+
+    def test_source_passes_encoding_to_open(self):
+        import ast, pathlib
+        tree = ast.parse(pathlib.Path("main/config.py").read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name) and node.func.id == "open":
+                has_encoding = any(kw.arg == "encoding" for kw in node.keywords)
+                self.assertTrue(
+                    has_encoding,
+                    f"open() at line {node.lineno} must specify encoding=",
+                )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
