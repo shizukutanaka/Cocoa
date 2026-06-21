@@ -93,6 +93,7 @@ SAFE_MODULES = [
     "tests.test_open_encoding_explicit",
     "tests.test_no_dynamic_sql",
     "tests.test_singleton_dcl",
+    "tests.test_http_timeout_required",
     "tests.test_interactive_ai_agent",
     "tests.test_photo_to_avatar_generator",
     "tests.test_voice_cloning",
