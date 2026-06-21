@@ -19,6 +19,7 @@ import logging
 import os
 import secrets
 import threading
+import unicodedata
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -307,9 +308,16 @@ class UserStore:
 
     @staticmethod
     def _uname_key(username: str) -> str:
-        """Case-insensitive, whitespace-trimmed key for username uniqueness/lookup
-        so 'alice', 'Alice', and ' alice ' resolve to one account (anti-impersonation)."""
-        return username.strip().casefold()
+        """Case-insensitive, whitespace-trimmed, NFKC-normalized key for username
+        uniqueness/lookup so 'alice', 'Alice', ' alice ', and the full-width
+        homoglyph 'ａｌｉｃｅ' all resolve to one account (anti-impersonation).
+
+        NFKC collapses Unicode compatibility characters (full-width latin,
+        ligatures, etc.) to their canonical form *before* case-folding, so an
+        attacker cannot register 'Ａdmin'/'ＡＤＭＩＮ' alongside a real 'admin'.
+        (NFKC does not unify cross-script homoglyphs like Cyrillic 'а'; those
+        need a separate confusables/scripts check, out of scope here.)"""
+        return unicodedata.normalize("NFKC", username.strip()).casefold()
 
     @staticmethod
     def _email_key(email: str) -> str:

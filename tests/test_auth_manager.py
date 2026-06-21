@@ -87,6 +87,26 @@ class TestUserStore(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.create_user("bob2", "bob@x.com", "h", "user")
 
+    def test_duplicate_username_case_insensitive(self):
+        with self.assertRaises(ValueError):
+            self.store.create_user("BOB", "bob3@x.com", "h", "user")
+        with self.assertRaises(ValueError):
+            self.store.create_user(" Bob ", "bob4@x.com", "h", "user")
+
+    def test_duplicate_username_fullwidth_homoglyph_raises(self):
+        """NFKC normalization must block a full-width homoglyph of an existing
+        username (anti-impersonation). 'ｂｏｂ' renders like 'bob'."""
+        with self.assertRaises(ValueError):
+            self.store.create_user("ｂｏｂ", "bob5@x.com", "h", "user")
+        with self.assertRaises(ValueError):
+            self.store.create_user("ＢＯＢ", "bob6@x.com", "h", "user")
+
+    def test_lookup_finds_user_via_fullwidth_variant(self):
+        """A login attempt with a full-width username variant resolves to the
+        same account (consistent normalization on store + lookup)."""
+        self.assertIsNotNone(self.store.get_by_username("ｂｏｂ"))
+        self.assertEqual(self.store.get_by_username("ＢＯＢ").username, "bob")
+
     def test_delete_user(self):
         u = self.store.get_by_username("bob")
         ok = self.store.delete_user(u.user_id)
