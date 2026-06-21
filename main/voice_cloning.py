@@ -5,6 +5,7 @@ Voice Cloning Module for Cocoa
 """
 
 import asyncio
+import time
 import json
 import logging
 import os
@@ -190,7 +191,7 @@ class VoiceCloningEngine:
         Returns:
             クローン結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # セキュリティチェック
@@ -224,7 +225,7 @@ class VoiceCloningEngine:
             )
 
             # トレーニング時間を記録
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
             result.training_time = end_time - start_time
 
             # 監査ログ
@@ -234,7 +235,7 @@ class VoiceCloningEngine:
 
         except Exception as e:
             logger.error(f"Voice cloning failed: {e}")
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
 
             return VoiceCloneResult(
                 success=False,

@@ -5,6 +5,7 @@ Emotional Intelligence Module for Avatar System
 """
 
 import asyncio
+import time
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -259,7 +260,7 @@ class EmotionalIntelligence:
         Returns:
             分析結果と適応応答
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # セキュリティチェック
@@ -299,7 +300,7 @@ class EmotionalIntelligence:
             )
 
             # 処理時間を計算
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             result = EmotionAnalysisResult(
                 success=True,
@@ -333,7 +334,7 @@ class EmotionalIntelligence:
 
         except Exception as e:
             logger.error(f"Emotion analysis failed: {e}")
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             return EmotionAnalysisResult(
                 success=False,

@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -135,7 +136,7 @@ class AvatarVideoCreator:
         Returns:
             生成結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # セキュリティチェック
@@ -178,7 +179,7 @@ class AvatarVideoCreator:
             }
 
             # 生成時間を計算
-            generation_time = asyncio.get_event_loop().time() - start_time
+            generation_time = time.monotonic() - start_time
 
             result = VideoGenerationResult(
                 success=True,
@@ -204,7 +205,7 @@ class AvatarVideoCreator:
 
         except Exception as e:
             logger.error(f"Video generation failed: {e}")
-            generation_time = asyncio.get_event_loop().time() - start_time
+            generation_time = time.monotonic() - start_time
 
             return VideoGenerationResult(
                 success=False,

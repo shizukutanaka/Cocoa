@@ -5,6 +5,7 @@ VR/AR環境でのシームレスなアバター統合機能を提供
 """
 
 import asyncio
+import time
 import json
 import logging
 from dataclasses import dataclass
@@ -254,7 +255,7 @@ class MetaverseIntegration:
         Returns:
             統合結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # 2026年機能統合
@@ -297,7 +298,7 @@ class MetaverseIntegration:
             platform_files = await self._generate_platform_files_2026(globally_optimized_data, request)
 
             # 処理時間を計算
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             result = MetaverseAvatarResult(
                 success=True,
@@ -352,7 +353,7 @@ class MetaverseIntegration:
 
         except Exception as e:
             logger.error(f"Metaverse integration failed: {e}")
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             return MetaverseAvatarResult(
                 success=False,

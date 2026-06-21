@@ -5,6 +5,7 @@ Interactive AI Agent Module for Cocoa
 """
 
 import asyncio
+import time
 import json
 import logging
 import os
@@ -288,7 +289,7 @@ class InteractiveAIAgent:
         Returns:
             AIエージェントの応答
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # 会話コンテキストを取得
@@ -335,7 +336,7 @@ class InteractiveAIAgent:
                 context.conversation_history = context.conversation_history[-30:]
 
             # 応答時間を計算
-            response_time = asyncio.get_event_loop().time() - start_time
+            response_time = time.monotonic() - start_time
 
             final_response = AgentResponse(
                 response_text=processed_response.response_text,
@@ -369,7 +370,7 @@ class InteractiveAIAgent:
 
         except Exception as e:
             logger.error(f"Response generation failed: {e}")
-            response_time = asyncio.get_event_loop().time() - start_time
+            response_time = time.monotonic() - start_time
 
             return AgentResponse(
                 response_text="申し訳ありませんが、エラーが発生しました。もう一度お試しください。",

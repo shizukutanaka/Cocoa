@@ -5,6 +5,7 @@ AI Avatar Generator Module for Cocoa
 """
 
 import asyncio
+import time
 import logging
 import os
 from dataclasses import dataclass
@@ -184,7 +185,7 @@ class AIAvatarGenerator:
         Returns:
             生成結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # セキュリティチェック
@@ -205,7 +206,7 @@ class AIAvatarGenerator:
             processed_result = await self._post_process_result(result, request)
 
             # 生成時間を記録
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
             processed_result.generation_time = end_time - start_time
 
             # 監査ログ
@@ -215,7 +216,7 @@ class AIAvatarGenerator:
 
         except Exception as e:
             logger.error(f"Avatar generation failed: {e}")
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
 
             return AvatarGenerationResult(
                 success=False,

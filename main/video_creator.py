@@ -5,6 +5,7 @@ AIアバターを使用した動画自動生成システム
 """
 
 import asyncio
+import time
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -168,7 +169,7 @@ class VideoCreator:
         Returns:
             作成結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # 初期化チェック
@@ -211,7 +212,7 @@ class VideoCreator:
             )
 
             # 作成時間を記録
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
             processed_result.creation_time = end_time - start_time
 
             # 監査ログ
@@ -224,7 +225,7 @@ class VideoCreator:
 
         except Exception as e:
             logger.error(f"Video creation failed: {e}")
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
 
             # エラー時のクリーンアップ
             await self._cleanup_temp_files([])

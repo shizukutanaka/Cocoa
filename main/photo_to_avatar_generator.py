@@ -5,6 +5,7 @@ Photo-to-Avatar AI Generator Module for Cocoa
 """
 
 import asyncio
+import time
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -286,7 +287,7 @@ class PhotoToAvatarGenerator:
         Returns:
             生成結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # セキュリティチェック
@@ -308,7 +309,7 @@ class PhotoToAvatarGenerator:
             avatar_paths = await self._save_generated_avatars(generated_images, request)
 
             # 処理時間を計算
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             result = PhotoToAvatarResult(
                 success=True,
@@ -340,7 +341,7 @@ class PhotoToAvatarGenerator:
 
         except Exception as e:
             logger.error(f"Photo-to-avatar generation failed: {e}")
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             return PhotoToAvatarResult(
                 success=False,
