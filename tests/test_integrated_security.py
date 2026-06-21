@@ -194,5 +194,51 @@ class TestUpdateMlModelWithoutSklearn(unittest.TestCase):
             self.assertNotIn("u2", detector.ml_models)
 
 
+class TestSignatureComparisonConstantTime(unittest.TestCase):
+    """Signature verification must use hmac.compare_digest, not ==.
+
+    Qiita/Zenn anti-pattern: comparing secrets with `==` short-circuits on
+    the first differing byte, leaking information through timing. The
+    canonical fix is `hmac.compare_digest(a, b)` which always compares the
+    full length.
+
+    AST-based check so we don't need the heavy crypto deps at test time.
+    """
+
+    def test_no_bare_equality_on_signature_signature(self):
+        import ast, pathlib
+        src = pathlib.Path("main/integrated_security.py").read_text()
+        tree = ast.parse(src)
+        offenders = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Compare):
+                continue
+            if not (len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq)):
+                continue
+            left = node.left
+            # Look for signature.signature == ... or ... == signature.signature
+            for operand in (left, *node.comparators):
+                if (isinstance(operand, ast.Attribute)
+                        and operand.attr == "signature"
+                        and isinstance(operand.value, ast.Name)
+                        and operand.value.id == "signature"):
+                    offenders.append(node.lineno)
+        self.assertEqual(
+            offenders, [],
+            f"signature.signature must use hmac.compare_digest, not == "
+            f"(offending lines: {offenders})"
+        )
+
+    def test_hmac_compare_digest_used_for_signature_verification(self):
+        import pathlib
+        src = pathlib.Path("main/integrated_security.py").read_text()
+        # Both fallback verifiers must use compare_digest
+        self.assertGreaterEqual(
+            src.count("hmac.compare_digest(signature.signature"),
+            2,
+            "Both _dilithium_verify and _fallback_verify must use hmac.compare_digest",
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

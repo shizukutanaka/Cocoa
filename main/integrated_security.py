@@ -7,6 +7,7 @@ behavioral anomaly detection and zero-trust session management.
 
 import asyncio
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -1880,15 +1881,15 @@ class QuantumSafeManager:
             # PQ Crystals Dilithium検証
             pass
         else:
-            # フォールバック検証
+            # フォールバック検証 — タイミング攻撃を避けるため定数時間比較
             expected_signature = await self._fallback_sign(message, signer_key)
-            return signature.signature == expected_signature
+            return hmac.compare_digest(signature.signature, expected_signature)
         return None
 
     async def _fallback_verify(self, message: bytes, signature: QuantumSignature, signer_key: QuantumKeyPair) -> bool:
         """フォールバック検証"""
         expected_signature = await self._fallback_sign(message, signer_key)
-        return signature.signature == expected_signature
+        return hmac.compare_digest(signature.signature, expected_signature)
 
     async def _perform_threat_assessment(self) -> QuantumThreatAssessment:
         """量子脅威評価を実行"""
