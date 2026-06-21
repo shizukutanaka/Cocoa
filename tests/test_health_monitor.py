@@ -270,5 +270,50 @@ class TestMonotonicClock(unittest.TestCase):
         self.assertAlmostEqual(liveness["uptime_seconds"], 42.0, places=1)
 
 
+class TestGetHealthMonitorSingletonRaceSafe(unittest.TestCase):
+    """get_health_monitor() must return exactly ONE instance across threads.
+
+    Without double-checked locking, two threads both seeing _health_monitor
+    is None each construct an instance — one of which is then discarded.
+    For HealthMonitor that's tolerable (just wasted checks); for siblings
+    like get_enhanced_performance_monitor() the discarded instance leaks a
+    daemon thread. We use HealthMonitor here as the easiest singleton to
+    reset between tests.
+    """
+
+    def setUp(self):
+        import health_monitor as hm
+        # Snapshot and reset the singleton so concurrent first-callers race.
+        self._saved = hm._health_monitor
+        hm._health_monitor = None
+
+    def tearDown(self):
+        import health_monitor as hm
+        hm._health_monitor = self._saved
+
+    def test_concurrent_first_call_returns_single_instance(self):
+        import health_monitor as hm
+        import threading
+
+        results = []
+        barrier = threading.Barrier(8)
+
+        def worker():
+            barrier.wait()  # release all threads simultaneously
+            results.append(hm.get_health_monitor())
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(results), 8)
+        first = results[0]
+        for r in results[1:]:
+            self.assertIs(r, first,
+                "All threads must see the same singleton instance")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -1067,12 +1068,15 @@ class IntegratedSecurityManager:
 
 # グローバルインスタンス
 _security_manager: Optional[IntegratedSecurityManager] = None
+_security_manager_lock = threading.Lock()
 
 def get_security_manager() -> IntegratedSecurityManager:
     """セキュリティマネージャー取得"""
     global _security_manager
     if _security_manager is None:
-        _security_manager = IntegratedSecurityManager()
+        with _security_manager_lock:
+            if _security_manager is None:
+                _security_manager = IntegratedSecurityManager()
     return _security_manager
 
 def initialize_security():

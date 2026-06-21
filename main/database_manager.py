@@ -7,6 +7,7 @@ Production-gradeのデータベース統合機能を提供し、
 
 import logging
 import os
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
@@ -471,14 +472,18 @@ class DatabaseService:
 
 # グローバルデータベースマネージャー
 _db_manager: Optional[DatabaseManager] = None
+_db_manager_lock = threading.Lock()
 _db_service: Optional[DatabaseService] = None
+_db_service_lock = threading.Lock()
 
 
 def get_database_manager() -> DatabaseManager:
     """データベースマネージャーのシングルトンインスタンスを取得"""
     global _db_manager
     if _db_manager is None:
-        _db_manager = DatabaseManager()
+        with _db_manager_lock:
+            if _db_manager is None:
+                _db_manager = DatabaseManager()
     return _db_manager
 
 
@@ -486,8 +491,10 @@ def get_database_service() -> DatabaseService:
     """データベースサービスのシングルトンインスタンスを取得"""
     global _db_service
     if _db_service is None:
-        db_manager = get_database_manager()
-        _db_service = DatabaseService(db_manager)
+        with _db_service_lock:
+            if _db_service is None:
+                db_manager = get_database_manager()
+                _db_service = DatabaseService(db_manager)
     return _db_service
 
 

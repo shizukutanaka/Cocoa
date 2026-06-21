@@ -9,6 +9,7 @@ Production-Grade Health Monitoring System
 """
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -469,13 +470,16 @@ class HealthMonitor:
 
 # グローバルインスタンス
 _health_monitor: Optional[HealthMonitor] = None
+_health_monitor_lock = threading.Lock()
 
 
 def get_health_monitor() -> HealthMonitor:
     """ヘルスモニターインスタンス取得"""
     global _health_monitor
     if _health_monitor is None:
-        _health_monitor = HealthMonitor()
+        with _health_monitor_lock:
+            if _health_monitor is None:
+                _health_monitor = HealthMonitor()
     return _health_monitor
 
 

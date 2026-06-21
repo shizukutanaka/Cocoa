@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -506,13 +507,16 @@ class DisasterRecoveryManager:
 
 # グローバルインスタンス
 _recovery_manager: Optional[DisasterRecoveryManager] = None
+_recovery_manager_lock = threading.Lock()
 
 
 def get_recovery_manager(config: Optional[Dict[str, Any]] = None) -> DisasterRecoveryManager:
     """災害復旧マネージャーの取得"""
     global _recovery_manager
     if _recovery_manager is None:
-        _recovery_manager = DisasterRecoveryManager(config)
+        with _recovery_manager_lock:
+            if _recovery_manager is None:
+                _recovery_manager = DisasterRecoveryManager(config)
     return _recovery_manager
 
 

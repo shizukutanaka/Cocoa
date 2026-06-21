@@ -540,12 +540,15 @@ class AvatarVideoCreator:
 
 # グローバルインスタンス管理
 _video_creator_instance = None
+_video_creator_lock = asyncio.Lock()
 
 async def get_avatar_video_creator() -> AvatarVideoCreator:
     """アバター動画作成者のインスタンスを取得"""
     global _video_creator_instance
 
     if _video_creator_instance is None:
-        _video_creator_instance = AvatarVideoCreator()
+        async with _video_creator_lock:
+            if _video_creator_instance is None:
+                _video_creator_instance = AvatarVideoCreator()
 
     return _video_creator_instance

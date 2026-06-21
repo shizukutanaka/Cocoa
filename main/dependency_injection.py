@@ -127,13 +127,16 @@ class Container:
 
 # グローバルコンテナ
 _global_container: Optional[Container] = None
+_global_container_lock = threading.Lock()
 
 
 def get_container() -> Container:
     """グローバルコンテナを取得"""
     global _global_container
     if _global_container is None:
-        _global_container = Container()
+        with _global_container_lock:
+            if _global_container is None:
+                _global_container = Container()
     return _global_container
 
 

@@ -476,13 +476,16 @@ class EnhancedPerformanceMonitor:
 
 # グローバルサービスインスタンス
 _enhanced_monitor: Optional[EnhancedPerformanceMonitor] = None
+_enhanced_monitor_lock = threading.Lock()
 
 
 def get_enhanced_performance_monitor(config: Optional[Dict[str, Any]] = None) -> EnhancedPerformanceMonitor:
     """強化された性能監視システムのシングルトンインスタンスを取得"""
     global _enhanced_monitor
     if _enhanced_monitor is None:
-        _enhanced_monitor = EnhancedPerformanceMonitor(config)
+        with _enhanced_monitor_lock:
+            if _enhanced_monitor is None:
+                _enhanced_monitor = EnhancedPerformanceMonitor(config)
     return _enhanced_monitor
 
 

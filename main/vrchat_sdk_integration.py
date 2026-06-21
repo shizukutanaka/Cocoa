@@ -4,6 +4,7 @@ VRChat SDK Integration Module for Cocoa
 VRChat Avatars 3.0システムとの連携機能を提供
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -366,12 +367,15 @@ class VRChatSDKManager:
 
 # グローバルインスタンス管理
 _vrchat_manager_instance = None
+_vrchat_manager_lock = asyncio.Lock()
 
 async def get_vrchat_sdk_manager() -> VRChatSDKManager:
     """VRChat SDKマネージャーのインスタンスを取得"""
     global _vrchat_manager_instance
 
     if _vrchat_manager_instance is None:
-        _vrchat_manager_instance = VRChatSDKManager()
+        async with _vrchat_manager_lock:
+            if _vrchat_manager_instance is None:
+                _vrchat_manager_instance = VRChatSDKManager()
 
     return _vrchat_manager_instance

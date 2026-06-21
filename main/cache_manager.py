@@ -269,12 +269,15 @@ class CacheManager:
 
 # グローバルキャッシュインスタンス
 _cache_manager: Optional[CacheManager] = None
+_cache_manager_lock = threading.Lock()
 
 def get_cache_manager() -> CacheManager:
     """キャッシュマネージャーを取得"""
     global _cache_manager
     if _cache_manager is None:
-        _cache_manager = CacheManager()
+        with _cache_manager_lock:
+            if _cache_manager is None:
+                _cache_manager = CacheManager()
     return _cache_manager
 
 

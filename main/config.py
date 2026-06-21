@@ -12,6 +12,7 @@
 import json
 import logging
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -172,13 +173,16 @@ class Config:
 
 # グローバル設定インスタンス
 _config_instance: Optional[Config] = None
+_config_instance_lock = threading.Lock()
 
 
 def get_config() -> Config:
     """グローバル設定インスタンスを取得"""
     global _config_instance
     if _config_instance is None:
-        _config_instance = Config()
+        with _config_instance_lock:
+            if _config_instance is None:
+                _config_instance = Config()
     return _config_instance
 
 

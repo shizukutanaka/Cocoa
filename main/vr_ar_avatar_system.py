@@ -3,6 +3,7 @@ VR/AR Enhanced Avatar System for Cocoa
 WebXRとハプティック技術を活用した没入型アバター体験システム
 """
 
+import asyncio
 import json
 import logging
 from dataclasses import asdict, dataclass
@@ -520,6 +521,7 @@ class VRAvatarSystem:
 
 # グローバルインスタンス
 _vr_system = None
+_vr_system_lock = asyncio.Lock()
 
 async def get_vr_system() -> VRAvatarSystem:
     """VR/ARシステムのインスタンスを取得"""
@@ -527,6 +529,8 @@ async def get_vr_system() -> VRAvatarSystem:
     global _vr_system
 
     if _vr_system is None:
-        _vr_system = VRAvatarSystem()
+        async with _vr_system_lock:
+            if _vr_system is None:
+                _vr_system = VRAvatarSystem()
 
     return _vr_system

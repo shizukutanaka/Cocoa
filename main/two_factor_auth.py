@@ -17,6 +17,7 @@ import logging
 import os
 import secrets
 import struct
+import threading
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -475,13 +476,16 @@ class TwoFactorAuthService:
 
 # グローバルサービスインスタンス
 _two_factor_service: Optional[TwoFactorAuthService] = None
+_two_factor_service_lock = threading.Lock()
 
 
 def get_two_factor_service() -> TwoFactorAuthService:
     """2要素認証サービスのシングルトンインスタンスを取得"""
     global _two_factor_service
     if _two_factor_service is None:
-        _two_factor_service = TwoFactorAuthService()
+        with _two_factor_service_lock:
+            if _two_factor_service is None:
+                _two_factor_service = TwoFactorAuthService()
     return _two_factor_service
 
 

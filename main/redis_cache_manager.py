@@ -406,6 +406,7 @@ class FallbackCacheManager:
 
 # グローバルキャッシュマネージャーインスタンス
 _cache_manager: Optional[Union[RedisCacheManager, FallbackCacheManager]] = None
+_cache_manager_lock = threading.Lock()
 
 
 def get_cache_manager() -> Union[RedisCacheManager, FallbackCacheManager]:
@@ -413,22 +414,24 @@ def get_cache_manager() -> Union[RedisCacheManager, FallbackCacheManager]:
     global _cache_manager
 
     if _cache_manager is None:
-        try:
-            # 環境変数からRedis設定を取得
-            redis_host = os.getenv('REDIS_HOST', 'localhost')
-            redis_port = int(os.getenv('REDIS_PORT', '6379'))
-            redis_db = int(os.getenv('REDIS_DB', '0'))
-            redis_password = os.getenv('REDIS_PASSWORD')
+        with _cache_manager_lock:
+            if _cache_manager is None:
+                try:
+                    # 環境変数からRedis設定を取得
+                    redis_host = os.getenv('REDIS_HOST', 'localhost')
+                    redis_port = int(os.getenv('REDIS_PORT', '6379'))
+                    redis_db = int(os.getenv('REDIS_DB', '0'))
+                    redis_password = os.getenv('REDIS_PASSWORD')
 
-            _cache_manager = RedisCacheManager(
-                host=redis_host,
-                port=redis_port,
-                db=redis_db,
-                password=redis_password
-            )
-        except Exception as e:
-            logger.warning(f"Redis not available, falling back to memory cache: {e}")
-            _cache_manager = FallbackCacheManager()
+                    _cache_manager = RedisCacheManager(
+                        host=redis_host,
+                        port=redis_port,
+                        db=redis_db,
+                        password=redis_password
+                    )
+                except Exception as e:
+                    logger.warning(f"Redis not available, falling back to memory cache: {e}")
+                    _cache_manager = FallbackCacheManager()
 
     return _cache_manager
 
