@@ -370,7 +370,7 @@ class EnhancedPrometheusMonitor:
         """処理時間測定デコレーター"""
         def decorator(func):
             def wrapper(*args, **kwargs):
-                start = time.time()
+                start = time.monotonic()
                 try:
                     result = func(*args, **kwargs)
                     self.record_operation(operation_type, 'success')
@@ -380,7 +380,7 @@ class EnhancedPrometheusMonitor:
                     self.record_error(type(e).__name__, 'error')
                     raise
                 finally:
-                    duration = time.time() - start
+                    duration = time.monotonic() - start
                     self.observe_request_duration(operation_type, duration)
             return wrapper
         return decorator
@@ -389,11 +389,11 @@ class EnhancedPrometheusMonitor:
         """暗号化処理時間測定デコレーター"""
         def decorator(func):
             def wrapper(*args, **kwargs):
-                start = time.time()
+                start = time.monotonic()
                 try:
                     return func(*args, **kwargs)
                 finally:
-                    duration = time.time() - start
+                    duration = time.monotonic() - start
                     self.encryption_duration_seconds.labels(
                         env=self.environment.value
                     ).observe(duration)

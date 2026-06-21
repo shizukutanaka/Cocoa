@@ -233,5 +233,42 @@ class TestStatusPropagation(unittest.TestCase):
         self.assertEqual(HealthStatus.CRITICAL, HealthStatus.CRITICAL)
 
 
+class TestMonotonicClock(unittest.TestCase):
+    """Health monitor durations must use time.monotonic(), not time.time().
+
+    Qiita/Zenn anti-pattern: time.time() is wall-clock — NTP, manual time
+    adjustment, or DST transitions can move it backward mid-measurement,
+    producing negative durations (or wildly wrong uptime). time.monotonic()
+    only ever moves forward and is the canonical Python choice for elapsed
+    time and uptime.
+
+    These tests prove the source uses monotonic by patching it.
+    """
+
+    def test_response_time_uses_monotonic(self):
+        from unittest.mock import patch
+        monitor = HealthMonitor()
+        # Provide a check that completes "instantly"; monotonic supplies
+        # the start/end timestamps. If the source still used time.time(),
+        # patching monotonic would have no effect → response_time_ms ≈ 0.
+        monitor.register_check("dummy", lambda: HealthCheckResult(
+            component="dummy", status=HealthStatus.HEALTHY, message="ok",
+        ))
+        # First call -> start, second -> end ⇒ duration = 0.5 s ⇒ 500 ms.
+        with patch("health_monitor.time.monotonic", side_effect=[100.0, 100.5]):
+            result = monitor.run_check("dummy")
+        self.assertEqual(result.response_time_ms, 500.0)
+
+    def test_uptime_uses_monotonic(self):
+        from unittest.mock import patch
+        # get_liveness() reads uptime; if both startup_time and uptime use
+        # monotonic, patching monotonic gives a deterministic uptime
+        # regardless of wall-clock state.
+        with patch("health_monitor.time.monotonic", side_effect=[1000.0, 1042.0]):
+            monitor = HealthMonitor()  # consumes 1000.0 for startup
+            liveness = monitor.get_liveness()  # consumes 1042.0 for uptime
+        self.assertAlmostEqual(liveness["uptime_seconds"], 42.0, places=1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
