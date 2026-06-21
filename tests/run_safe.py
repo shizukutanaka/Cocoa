@@ -91,6 +91,7 @@ SAFE_MODULES = [
     "tests.test_ai_avatar_gui",
     "tests.test_no_deprecated_event_loop",
     "tests.test_open_encoding_explicit",
+    "tests.test_no_dynamic_sql",
     "tests.test_interactive_ai_agent",
     "tests.test_photo_to_avatar_generator",
     "tests.test_voice_cloning",
