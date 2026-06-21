@@ -109,6 +109,22 @@ class TestJSONFormatterTimestamp(unittest.TestCase):
         self.assertEqual(data["correlation_id"], "test-corr-001")
         lc.set_correlation_id(None)
 
+    def test_non_serializable_message_arg_does_not_raise(self):
+        """JSON formatter must stay crash-proof against odd record contents.
+
+        A %-style arg that isn't JSON-serializable still resolves to a string
+        via getMessage(), but the formatter must never be able to raise inside
+        the handler (which would drop the log line). default=str guarantees it.
+        """
+        from datetime import datetime, timezone
+        # Attach a datetime as a custom record attribute that format() reads via
+        # getMessage(); the result is always a str, but we assert no raise.
+        record = self._make_record("event at %s")
+        record.args = (datetime(2024, 1, 1, tzinfo=timezone.utc),)
+        output = self.formatter.format(record)
+        data = json.loads(output)
+        self.assertIn("2024-01-01", data["message"])
+
 
 class TestConfigureLogging(unittest.TestCase):
     def test_invalid_level_raises(self):

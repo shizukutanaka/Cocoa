@@ -107,7 +107,11 @@ class JsonLogFormatter(logging.Formatter):
         if extra:
             payload["extra"] = extra
 
-        return json.dumps(payload, ensure_ascii=False)
+        # default=str so a non-JSON-serializable value in `extra` (datetime,
+        # Decimal, set, custom object, …) degrades to its string form instead
+        # of raising TypeError *inside* the logging handler — which Python's
+        # logging swallows via handleError(), silently dropping the log line.
+        return json.dumps(payload, ensure_ascii=False, default=str)
 
 class LoggingManager:
     """軽量で実用的なログ管理システム"""

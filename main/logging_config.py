@@ -74,7 +74,9 @@ class JSONFormatter(logging.Formatter):
         if record.exc_info:
             log_data["exception"] = self.formatException(record.exc_info)
 
-        return json.dumps(log_data, ensure_ascii=False)
+        # default=str keeps the JSON formatter crash-proof: a non-serializable
+        # field can never raise inside the handler and drop the log line.
+        return json.dumps(log_data, ensure_ascii=False, default=str)
 
 
 def configure_logging(

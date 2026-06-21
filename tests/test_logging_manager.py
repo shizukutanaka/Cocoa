@@ -55,6 +55,36 @@ class TestJsonLogFormatter(unittest.TestCase):
         data = json.loads(self.formatter.format(record))
         self.assertEqual(data["level"], "ERROR")
 
+    def test_non_serializable_extra_does_not_drop_line(self):
+        """A non-JSON-serializable value in extra_data must not raise.
+
+        Without default=str, json.dumps raises TypeError *inside* the handler;
+        Python's logging then drops the record via handleError(). The formatter
+        must degrade such values to their string form instead.
+        """
+        from datetime import datetime, timezone
+        record = self._make_record("with extra")
+        # datetime is the classic non-serializable type; also throw in a set.
+        record.extra_data = {
+            "when": datetime(2024, 6, 1, tzinfo=timezone.utc),
+            "tags": {"a", "b"},
+        }
+        # Must not raise, and must still be valid JSON.
+        output = self.formatter.format(record)
+        data = json.loads(output)
+        self.assertIn("extra", data)
+        # datetime degraded to its str() form
+        self.assertIn("2024-06-01", data["extra"]["when"])
+
+    def test_custom_object_extra_is_stringified(self):
+        class Widget:
+            def __str__(self):
+                return "WIDGET-42"
+        record = self._make_record("obj extra")
+        record.extra_data = {"widget": Widget()}
+        data = json.loads(self.formatter.format(record))
+        self.assertEqual(data["extra"]["widget"], "WIDGET-42")
+
 
 class TestLoggingManager(unittest.TestCase):
 
