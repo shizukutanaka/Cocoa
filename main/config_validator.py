@@ -553,7 +553,11 @@ class ConfigValidator:
     def _match_pattern(self, value: str, pattern: str) -> bool:
         """パターンマッチング"""
         try:
-            return bool(re.match(pattern, value))
+            # fullmatch（match ではなく）を使う。re.match は文字列の先頭しか
+            # 固定しないため、末尾のゴミ（例: "[0-9]+" が "123abc" を通す）や、
+            # `$` の「末尾改行の手前にもマッチする」仕様による
+            # "1.2.3\n" のようなインジェクションを許してしまう。
+            return bool(re.fullmatch(pattern, value))
         except re.error:
             return False
 
@@ -1285,8 +1289,10 @@ class ConfigValidator:
         _, address = parseaddr(value)
         if not address:
             return False
-        pattern = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
-        return re.match(pattern, address) is not None
+        pattern = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+        # fullmatch so a trailing newline ("a@b.com\n", which re.match + `$`
+        # would accept because `$` matches before a final newline) is rejected.
+        return re.fullmatch(pattern, address) is not None
 
     def _is_valid_url(self, value: str) -> bool:
         """URL形式の簡易検証"""

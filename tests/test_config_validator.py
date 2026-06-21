@@ -227,5 +227,39 @@ class TestCustomRules(unittest.TestCase):
         self.assertFalse(self.v.remove_rule("nonexistent_field"))
 
 
+class TestPatternUsesFullmatch(unittest.TestCase):
+    """_match_pattern must use re.fullmatch, not re.match.
+
+    re.match only anchors at the START of the string, and `$` matches before a
+    trailing newline — so a validator pattern like `[0-9]+` would accept
+    "123abc" and an `^...$` pattern would accept "1.2.3\\n". fullmatch closes
+    both. (_is_valid_email is also switched to fullmatch defensively, though
+    email.utils.parseaddr already strips such injection before the regex.)
+    """
+
+    def setUp(self):
+        self.v = ConfigValidator()
+
+    def test_match_pattern_rejects_trailing_garbage(self):
+        self.assertTrue(self.v._match_pattern("123", r"[0-9]+"))
+        self.assertFalse(self.v._match_pattern("123abc", r"[0-9]+"),
+                          "trailing non-matching chars must be rejected")
+
+    def test_match_pattern_rejects_trailing_newline(self):
+        # `$` in re.match would match before the final newline; fullmatch must not.
+        self.assertFalse(self.v._match_pattern("1.2.3\n", r"^\d+\.\d+\.\d+$"))
+        self.assertTrue(self.v._match_pattern("1.2.3", r"^\d+\.\d+\.\d+$"))
+
+    def test_match_pattern_currency_rule(self):
+        # The real currency rule pattern from the schema.
+        self.assertTrue(self.v._match_pattern("USD", r"^[A-Za-z]{3}$"))
+        self.assertFalse(self.v._match_pattern("USDX", r"^[A-Za-z]{3}$"))
+
+    def test_email_basic_validation_still_works(self):
+        self.assertTrue(self.v._is_valid_email("user@example.com"))
+        self.assertFalse(self.v._is_valid_email("not-an-email"))
+        self.assertFalse(self.v._is_valid_email("missing@tld"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
