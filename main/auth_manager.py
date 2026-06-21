@@ -50,7 +50,23 @@ except BaseException:
 # ---------------------------------------------------------------------------
 # Config (override via env)
 # ---------------------------------------------------------------------------
-_SECRET_KEY = os.getenv("COCOA_JWT_SECRET", secrets.token_hex(32))
+_SECRET_KEY = os.getenv("COCOA_JWT_SECRET")
+if not _SECRET_KEY:
+    # No stable secret configured: fall back to an ephemeral random key so
+    # local/dev/test still work. This is cryptographically strong (not a
+    # weak shared default) but UNSTABLE — it is regenerated on every process
+    # start, so issued tokens do not survive a restart and, critically, each
+    # worker in a multi-process deployment gets a DIFFERENT key, causing
+    # tokens minted by one worker to be rejected by another (intermittent,
+    # very hard-to-diagnose 401s). Warn loudly so this is never a silent
+    # production footgun. Set COCOA_JWT_SECRET to a stable value in prod.
+    _SECRET_KEY = secrets.token_hex(32)
+    logger.warning(
+        "COCOA_JWT_SECRET is not set; using an ephemeral random JWT signing "
+        "key. Tokens will be invalidated on restart and will NOT validate "
+        "across multiple workers/instances. Set COCOA_JWT_SECRET to a stable "
+        "secret in any multi-process or production deployment."
+    )
 _ALGORITHM = "HS256"
 _ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 _REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30"))

@@ -1390,5 +1390,47 @@ class TestUserStoreRegistrationRace(unittest.TestCase):
         self.assertEqual(len(store.list_users()), 1)
 
 
+class TestJwtSecretEphemeralWarning(unittest.TestCase):
+    """When COCOA_JWT_SECRET is unset, auth_manager must warn (not silently use
+    an ephemeral random key that breaks multi-worker token validation).
+
+    Uses subprocess isolation so importing/reloading auth_manager can never
+    pollute the shared module state of the rest of the test suite.
+    """
+
+    def _import_in_subprocess(self, secret_value):
+        import os
+        import subprocess
+        import sys
+        env = dict(os.environ)
+        if secret_value is None:
+            env.pop("COCOA_JWT_SECRET", None)
+        else:
+            env["COCOA_JWT_SECRET"] = secret_value
+        code = (
+            "import logging, sys\n"
+            "logging.basicConfig(level=logging.WARNING, stream=sys.stderr)\n"
+            "import auth_manager\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=str(ROOT / "main"),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        return proc
+
+    def test_warns_when_secret_unset(self):
+        proc = self._import_in_subprocess(None)
+        self.assertIn("COCOA_JWT_SECRET", proc.stderr)
+        self.assertIn("ephemeral", proc.stderr.lower())
+
+    def test_no_warning_when_secret_set(self):
+        proc = self._import_in_subprocess("a-stable-test-secret-value")
+        self.assertNotIn("ephemeral random JWT", proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
