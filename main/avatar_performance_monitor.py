@@ -727,14 +727,19 @@ class AvatarPerformanceMonitor:
         """CSV形式でエクスポート"""
         import csv
 
+        from csv_safety import sanitize_csv_cell
+
         with open(export_path, 'w', newline='', encoding='utf-8') as f:  # noqa: ASYNC230
             writer = csv.writer(f)
 
-            # 統計情報
+            # 統計情報。user_id 等のユーザー由来フィールドが CSV 数式として
+            # 評価されないよう各セルをサニタイズ（CSV インジェクション対策）。
             writer.writerow(['Section', 'Key', 'Value'])
             for section, stats in data.get('statistics', {}).items():
                 for key, value in stats.items():
-                    writer.writerow([section, key, value])
+                    writer.writerow([sanitize_csv_cell(section),
+                                     sanitize_csv_cell(key),
+                                     sanitize_csv_cell(value)])
 
             writer.writerow([])
             writer.writerow(['Operations'])
@@ -742,12 +747,12 @@ class AvatarPerformanceMonitor:
 
             for op in data.get('operations', []):
                 writer.writerow([
-                    op['operation_id'],
-                    op['operation_type'],
-                    op['user_id'],
-                    op['start_time'],
-                    op['duration'],
-                    op['success']
+                    sanitize_csv_cell(op['operation_id']),
+                    sanitize_csv_cell(op['operation_type']),
+                    sanitize_csv_cell(op['user_id']),
+                    sanitize_csv_cell(op['start_time']),
+                    sanitize_csv_cell(op['duration']),
+                    sanitize_csv_cell(op['success']),
                 ])
 
     async def close(self):

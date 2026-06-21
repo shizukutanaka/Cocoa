@@ -722,24 +722,27 @@ class VideoAnalyticsService:
         """CSV形式でエクスポート"""
         import csv
 
+        from csv_safety import sanitize_csv_cell
+
         with open(export_path, 'w', newline='', encoding='utf-8') as f:  # noqa: ASYNC230
             writer = csv.writer(f)
 
             # ヘッダー
             writer.writerow(['Metric', 'Value'])
 
-            # 現在のメトリクス
+            # 現在のメトリクス（CSV インジェクション対策で各セルをサニタイズ）
             current_metrics = data['current_metrics']
             for key, value in current_metrics.items():
                 if isinstance(value, list):
                     value = str(value)
-                writer.writerow([key, value])
+                writer.writerow([sanitize_csv_cell(key), sanitize_csv_cell(value)])
 
             # レポート情報
             writer.writerow([])
             writer.writerow(['Reports'])
             for report in data['reports']:
-                writer.writerow([f"Report {report['report_id']}", report['type']])
+                writer.writerow([sanitize_csv_cell(f"Report {report['report_id']}"),
+                                 sanitize_csv_cell(report['type'])])
 
     async def _update_metrics_cache(self):
         """メトリクスキャッシュを定期的に更新"""

@@ -2921,11 +2921,18 @@ async def export_audit_log(
         ]
 
     if fmt == "csv":
+        from csv_safety import sanitize_csv_cell
         fieldnames = list(events[0].keys()) if events else ["timestamp", "event_type", "actor", "details"]
         buf = io.StringIO()
         writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(events)
+        # Audit events carry user-controlled fields (actor/details); sanitize
+        # each cell so a value like "=cmd|'/C calc'!A0" can't execute as a
+        # formula when an admin opens the export (CSV injection / CEMI).
+        writer.writerows(
+            {k: sanitize_csv_cell(v) for k, v in event.items()}
+            for event in events
+        )
         buf.seek(0)
         filename = f"audit_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
         return StreamingResponse(
