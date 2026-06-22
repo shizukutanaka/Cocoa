@@ -482,6 +482,24 @@ class TestUserProfile(unittest.TestCase):
         for key in ("user_id", "username", "display_name", "bio", "avatar_url", "role", "created_at"):
             self.assertIn(key, profile)
 
+    def test_public_profile_never_leaks_secrets_or_pii(self):
+        """public_profile() is the ONLY serialization of UserRecord used in API
+        responses; it must never expose the password hash, email, or account
+        security internals. Guards against a future edit accidentally adding a
+        sensitive field to the public dict."""
+        user = self.auth.store.get_by_username("profileuser")
+        profile = user.public_profile()
+        forbidden_keys = {
+            "password_hash", "email", "failed_attempts", "locked_until",
+            "ban_reason", "banned_by", "pw_version",
+        }
+        leaked = forbidden_keys & set(profile.keys())
+        self.assertEqual(leaked, set(), f"public_profile leaked sensitive keys: {leaked}")
+        # Also assert no VALUE in the dict equals the real password hash.
+        self.assertNotIn(user.password_hash, [str(v) for v in profile.values()])
+        # And the user's email must not appear anywhere in the values.
+        self.assertNotIn(user.email, [str(v) for v in profile.values()])
+
     def test_public_profile_display_name_falls_back_to_username(self):
         user = self.auth.store.get_by_username("profileuser")
         profile = user.public_profile()
