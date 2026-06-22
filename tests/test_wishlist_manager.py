@@ -20,11 +20,12 @@ from wishlist_manager import (
 # ---------------------------------------------------------------------------
 
 class _FakeListing:
-    def __init__(self, listing_id, price=200, active=True):
+    def __init__(self, listing_id, price=200, active=True, stock_remaining=None):
         self.listing_id = listing_id
         self.name = f"Avatar {listing_id}"
         self.price_credits = price
         self.is_active = active
+        self.stock_remaining = stock_remaining  # None = unlimited
 
 
 class _FakeMP:
@@ -247,6 +248,66 @@ class TestWishlistSingleton(unittest.TestCase):
         a = get_wishlist_manager()
         b = get_wishlist_manager()
         self.assertIs(a, b)
+
+
+class TestWishlistWithStatus(unittest.TestCase):
+    """get_wishlist_with_status annotates each item with live availability."""
+
+    def setUp(self):
+        self.mgr, self.mp = _make_manager()  # lst1 price 200, lst2 price 0
+
+    def _item(self, page, listing_id):
+        return next(i for i in page["items"] if i["listing_id"] == listing_id)
+
+    def test_in_stock_unchanged_price(self):
+        self.mgr.add_item("u1", "lst1", self.mp)
+        page = self.mgr.get_wishlist_with_status("u1", self.mp)
+        it = self._item(page, "lst1")
+        self.assertTrue(it["is_active"])
+        self.assertTrue(it["is_available"])
+        self.assertFalse(it["is_sold_out"])
+        self.assertEqual(it["current_price"], 200)
+        self.assertFalse(it["price_changed"])
+        self.assertFalse(it["price_dropped"])
+        self.assertFalse(it["delisted"])
+
+    def test_price_drop_reflected(self):
+        self.mgr.add_item("u1", "lst1", self.mp)  # snapshot 200
+        self.mp._listings["lst1"].price_credits = 120
+        it = self._item(self.mgr.get_wishlist_with_status("u1", self.mp), "lst1")
+        self.assertEqual(it["current_price"], 120)
+        self.assertTrue(it["price_changed"])
+        self.assertTrue(it["price_dropped"])
+
+    def test_sold_out_reflected(self):
+        self.mgr.add_item("u1", "lst1", self.mp)
+        self.mp._listings["lst1"].stock_remaining = 0
+        it = self._item(self.mgr.get_wishlist_with_status("u1", self.mp), "lst1")
+        self.assertTrue(it["is_sold_out"])
+        self.assertFalse(it["is_available"])
+
+    def test_delisted_when_inactive(self):
+        self.mgr.add_item("u1", "lst1", self.mp)
+        self.mp._listings["lst1"].is_active = False
+        it = self._item(self.mgr.get_wishlist_with_status("u1", self.mp), "lst1")
+        self.assertTrue(it["delisted"])
+        self.assertFalse(it["is_active"])
+        self.assertFalse(it["is_available"])
+        self.assertIsNone(it["current_price"])
+
+    def test_delisted_when_removed_from_marketplace(self):
+        self.mgr.add_item("u1", "lst1", self.mp)
+        del self.mp._listings["lst1"]
+        it = self._item(self.mgr.get_wishlist_with_status("u1", self.mp), "lst1")
+        self.assertTrue(it["delisted"])
+        self.assertIsNone(it["current_price"])
+
+    def test_shape_matches_plain_wishlist(self):
+        self.mgr.add_item("u1", "lst1", self.mp)
+        plain = self.mgr.get_wishlist("u1")
+        enriched = self.mgr.get_wishlist_with_status("u1", self.mp)
+        for key in ("total", "offset", "limit", "has_more", "next_offset"):
+            self.assertEqual(plain[key], enriched[key])
 
 
 class TestRestockNotification(unittest.TestCase):

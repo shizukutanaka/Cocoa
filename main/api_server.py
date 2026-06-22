@@ -4110,13 +4110,23 @@ async def admin_revoke_license(
 async def get_my_wishlist(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    with_status: bool = Query(False),
     current_user: dict = Depends(get_current_user),
 ):
-    """自分のウィッシュリストを取得する"""
+    """自分のウィッシュリストを取得する。
+
+    with_status=true で各アイテムに現在の価格・在庫状況（値下がり/再入荷/売り切れ）
+    を付与する（値下がり・再入荷通知から遷移した一覧をそのまま actionable にする）。
+    """
     if not get_wishlist_manager:
         return {"total": 0, "offset": offset, "limit": limit,
                 "has_more": False, "next_offset": None, "items": []}
-    return get_wishlist_manager().get_wishlist(current_user["user_id"], limit=limit, offset=offset)
+    wm = get_wishlist_manager()
+    if with_status and get_marketplace:
+        return wm.get_wishlist_with_status(
+            current_user["user_id"], get_marketplace(), limit=limit, offset=offset
+        )
+    return wm.get_wishlist(current_user["user_id"], limit=limit, offset=offset)
 
 
 @app.put("/api/wishlist/{listing_id}", tags=["wishlist"], status_code=201)

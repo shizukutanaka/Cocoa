@@ -167,6 +167,53 @@ class WishlistManager:
     def get_wishlist(self, user_id: str, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
         return self.store.get_wishlist(user_id, limit=limit, offset=offset)
 
+    def get_wishlist_with_status(
+        self,
+        user_id: str,
+        marketplace_store: Any,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Like get_wishlist, but annotates each item with its LIVE marketplace
+        status so the list is actionable — the page a user lands on after a
+        price-drop or back-in-stock notification can show, per item:
+
+          current_price : live price (None if delisted)
+          price_changed / price_dropped : vs the snapshot taken at add time
+          is_active     : listing still published
+          is_sold_out   : stock_remaining <= 0 (waiting for restock)
+          is_available  : active and not sold out (can be bought now)
+          delisted      : listing removed or deactivated
+
+        Read under the marketplace lock so the snapshot is internally
+        consistent. Pagination / shape are identical to get_wishlist().
+        """
+        page = self.store.get_wishlist(user_id, limit=limit, offset=offset)
+        ids = [it["listing_id"] for it in page["items"]]
+        with marketplace_store._lock:
+            live = {lid: marketplace_store._listings.get(lid) for lid in ids}
+        for item in page["items"]:
+            lst = live.get(item["listing_id"])
+            if lst is None or not lst.is_active:
+                item.update(
+                    is_active=False, delisted=True, is_sold_out=False,
+                    is_available=False, current_price=None,
+                    price_changed=False, price_dropped=False,
+                )
+                continue
+            sold_out = lst.stock_remaining is not None and lst.stock_remaining <= 0
+            snap = item["snapshot_price"]
+            item.update(
+                is_active=True,
+                delisted=False,
+                current_price=lst.price_credits,
+                is_sold_out=sold_out,
+                is_available=not sold_out,
+                price_changed=lst.price_credits != snap,
+                price_dropped=lst.price_credits < snap,
+            )
+        return page
+
     def get_wishlisters_count(self, listing_id: str) -> int:
         return len(self.store.get_wishlisters(listing_id))
 
