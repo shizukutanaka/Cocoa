@@ -3182,6 +3182,51 @@ class TestStockLimit(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.set_stock_limit("no-such-id", "creator", 5)
 
+    # --- restock transition (drives back-in-stock notifications) ---
+
+    def test_transition_restock_from_sold_out(self):
+        # Sell out (limit 1, one download), then restock -> rising edge True.
+        self.store.set_stock_limit(self.listing_id, "creator", 1)
+        self.store.download(self.listing_id, "buyer")
+        _, restocked = self.store.set_stock_limit_with_transition(
+            self.listing_id, "creator", 5)
+        self.assertTrue(restocked)
+
+    def test_transition_raise_stock_not_sold_out_is_false(self):
+        # Not sold out (5 -> 10): no rising edge, must NOT signal restock.
+        self.store.set_stock_limit(self.listing_id, "creator", 5)
+        _, restocked = self.store.set_stock_limit_with_transition(
+            self.listing_id, "creator", 10)
+        self.assertFalse(restocked)
+
+    def test_transition_unlimited_from_sold_out_is_restock(self):
+        # Sold out -> unlimited (None) is also a restock (now always available).
+        self.store.set_stock_limit(self.listing_id, "creator", 1)
+        self.store.download(self.listing_id, "buyer")
+        _, restocked = self.store.set_stock_limit_with_transition(
+            self.listing_id, "creator", None)
+        self.assertTrue(restocked)
+
+    def test_transition_still_sold_out_is_false(self):
+        # Sold out, then set limit equal to already-sold count -> remaining 0,
+        # still sold out -> no rising edge.
+        self.store.set_stock_limit(self.listing_id, "creator", 1)
+        self.store.download(self.listing_id, "buyer")  # 1 sold, remaining 0
+        _, restocked = self.store.set_stock_limit_with_transition(
+            self.listing_id, "creator", 1)  # limit 1, sold 1 -> remaining 0
+        self.assertFalse(restocked)
+
+    def test_transition_first_limit_on_unlimited_is_not_restock(self):
+        # Unlimited (in stock) -> a finite positive limit: was never sold out.
+        _, restocked = self.store.set_stock_limit_with_transition(
+            self.listing_id, "creator", 5)
+        self.assertFalse(restocked)
+
+    def test_set_stock_limit_still_returns_listing(self):
+        # Backward-compat: the original API returns just the listing.
+        listing = self.store.set_stock_limit(self.listing_id, "creator", 4)
+        self.assertEqual(listing.stock_remaining, 4)
+
 
 class TestEarningsSummary(unittest.TestCase):
     def setUp(self):

@@ -1896,6 +1896,22 @@ class MarketplaceStore:
         Pass a positive integer to cap the number of copies sold.
         Only the listing owner may call this.
         """
+        listing, _ = self.set_stock_limit_with_transition(listing_id, owner_id, stock_limit)
+        return listing
+
+    def set_stock_limit_with_transition(
+        self, listing_id: str, owner_id: str, stock_limit: Optional[int]
+    ):
+        """Same as set_stock_limit, but also reports whether this call RESTOCKED
+        a sold-out listing — i.e. crossed the sold-out (remaining<=0) -> in-stock
+        rising edge. The before/after stock is read and mutated within a single
+        lock acquisition, so the transition flag can't race a concurrent
+        download or another restock (no TOCTOU). Returns (listing, was_restocked).
+
+        Callers use was_restocked to fire back-in-stock notifications exactly
+        once per restock — raising stock 5->10 returns False (no spam); a later
+        sell-out + restock returns True again.
+        """
         if stock_limit is not None and stock_limit < 0:
             raise ValueError("在庫数は0以上の値を指定してください")
         with self._lock:
@@ -1904,6 +1920,7 @@ class MarketplaceStore:
                 raise ValueError("リスティングが見つかりません")
             if listing.owner_id != owner_id:
                 raise PermissionError("このリスティングの所有者のみが在庫を設定できます")
+            was_sold_out = listing.stock_remaining is not None and listing.stock_remaining <= 0
             if stock_limit is None:
                 listing.stock_limit = None
                 listing.stock_remaining = None
@@ -1912,9 +1929,12 @@ class MarketplaceStore:
                 remaining = max(0, stock_limit - already_sold)
                 listing.stock_limit = stock_limit
                 listing.stock_remaining = remaining
+            now_in_stock = listing.stock_remaining is None or listing.stock_remaining > 0
+            was_restocked = was_sold_out and now_in_stock
             listing.updated_at = datetime.now(timezone.utc)
-        logger.info("Stock limit set for listing %s: %s", listing_id, stock_limit)
-        return listing
+        logger.info("Stock limit set for listing %s: %s (restocked=%s)",
+                    listing_id, stock_limit, was_restocked)
+        return listing, was_restocked
 
     def get_stats(self) -> Dict[str, Any]:
         with self._lock:

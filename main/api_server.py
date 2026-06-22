@@ -3216,16 +3216,13 @@ async def set_stock_limit(
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     try:
-        mp = get_marketplace()
-        # Capture the pre-change stock so we can detect a sold-out -> in-stock
-        # transition (a restock) and alert wishlisters, mirroring price drops.
-        prev = mp.get_listing(listing_id)
-        was_sold_out = bool(
-            prev and prev.stock_remaining is not None and prev.stock_remaining <= 0
+        # The store computes the sold-out -> in-stock transition atomically under
+        # its own lock (no read-then-set race), so we notify wishlisters exactly
+        # once per restock — mirroring the price-drop alert path.
+        listing, was_restocked = get_marketplace().set_stock_limit_with_transition(
+            listing_id, current_user["user_id"], body.stock_limit
         )
-        listing = mp.set_stock_limit(listing_id, current_user["user_id"], body.stock_limit)
-        now_in_stock = listing.stock_remaining is None or listing.stock_remaining > 0
-        if was_sold_out and now_in_stock and get_wishlist_manager and get_notification_queue:
+        if was_restocked and get_wishlist_manager and get_notification_queue:
             try:
                 get_wishlist_manager().check_and_notify_restock(
                     listing_id, listing.name, get_notification_queue()
