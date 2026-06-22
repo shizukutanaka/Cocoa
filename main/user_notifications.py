@@ -59,6 +59,7 @@ NOTIFICATION_TEMPLATES: Dict[str, Dict[str, str]] = {
 # must be mutable just like templated ones.
 _DIRECT_PUSH_KINDS = frozenset({
     "price_drop",            # wishlist_manager: wishlisted item dropped in price
+    "back_in_stock",         # wishlist_manager: sold-out wishlisted item restocked
     "saved_search_match",    # api_server: a new listing matches a saved search
     "system",                # admin/moderation actions affecting the user
     "commission_received",   # creator: a new commission request arrived

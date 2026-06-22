@@ -203,6 +203,42 @@ class WishlistManager:
             logger.info("Price drop notifications sent for %s: %d users", listing_id, count)
         return count
 
+    def check_and_notify_restock(
+        self,
+        listing_id: str,
+        listing_name: str,
+        notification_queue: Any,
+    ) -> int:
+        """Notify everyone who wishlisted this listing that it is back in stock.
+
+        Returns the number of notifications sent. This is the sibling of
+        check_and_notify_price_drops: where a price drop is a per-user threshold
+        (only notify users whose snapshot price was higher), a restock is a
+        single store-wide event, so EVERY wishlister is notified.
+
+        The caller owns the sold-out -> in-stock edge detection and must invoke
+        this only on that rising edge, so a creator who merely raises stock from
+        5 to 10 does not spam wishlisters. A later sell-out + restock is a new
+        edge and correctly re-notifies.
+        """
+        user_ids = self.store.get_wishlisters(listing_id)
+        count = 0
+        for uid in user_ids:
+            try:
+                notification_queue.push(
+                    uid,
+                    "back_in_stock",
+                    "ウィッシュリストのアイテムが再入荷しました",
+                    f"「{listing_name}」が再入荷しました。売り切れる前にチェックしましょう",
+                    payload={"listing_id": listing_id},
+                )
+                count += 1
+            except Exception as exc:
+                logger.warning("Failed to push back-in-stock notification: %s", exc)
+        if count:
+            logger.info("Back-in-stock notifications sent for %s: %d users", listing_id, count)
+        return count
+
     def clear_wishlist(self, user_id: str) -> int:
         return self.store.clear(user_id)
 

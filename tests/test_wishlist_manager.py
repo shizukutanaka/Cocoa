@@ -249,5 +249,56 @@ class TestWishlistSingleton(unittest.TestCase):
         self.assertIs(a, b)
 
 
+class TestRestockNotification(unittest.TestCase):
+    """Back-in-stock alerts: when a sold-out wishlisted listing is restocked,
+    every wishlister is notified (the sibling of price-drop alerts)."""
+
+    def setUp(self):
+        self.mgr, self.mp = _make_manager()
+
+    def test_restock_notifies_all_wishlisters(self):
+        self.mgr.add_item("u1", "lst1", self.mp)
+        self.mgr.add_item("u2", "lst1", self.mp)
+        queue = _FakeNotifQueue()
+        count = self.mgr.check_and_notify_restock("lst1", "Cool Avatar", queue)
+        self.assertEqual(count, 2)
+        self.assertEqual({s["kind"] for s in queue.sent}, {"back_in_stock"})
+        self.assertEqual({s["user_id"] for s in queue.sent}, {"u1", "u2"})
+        self.assertEqual(queue.sent[0]["data"]["listing_id"], "lst1")
+        self.assertIn("Cool Avatar", queue.sent[0]["body"])
+
+    def test_no_wishlisters_sends_nothing(self):
+        queue = _FakeNotifQueue()
+        count = self.mgr.check_and_notify_restock("lst1", "Cool Avatar", queue)
+        self.assertEqual(count, 0)
+        self.assertEqual(queue.sent, [])
+
+    def test_only_wishlisters_of_that_listing_notified(self):
+        self.mgr.add_item("u1", "lst1", self.mp)
+        self.mgr.add_item("u2", "lst2", self.mp)  # different listing
+        queue = _FakeNotifQueue()
+        count = self.mgr.check_and_notify_restock("lst1", "Cool Avatar", queue)
+        self.assertEqual(count, 1)
+        self.assertEqual(queue.sent[0]["user_id"], "u1")
+
+    def test_push_failure_is_tolerated(self):
+        self.mgr.add_item("u1", "lst1", self.mp)
+        self.mgr.add_item("u2", "lst1", self.mp)
+
+        class _FlakyQueue:
+            def __init__(self):
+                self.calls = 0
+
+            def push(self, *a, **k):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("queue down")
+
+        q = _FlakyQueue()
+        count = self.mgr.check_and_notify_restock("lst1", "Cool Avatar", q)
+        self.assertEqual(count, 1)
+        self.assertEqual(q.calls, 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
