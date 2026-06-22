@@ -35,7 +35,13 @@ try:
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     CRYPTO_AVAILABLE = True
-except (ImportError, BaseException):
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
+    # BaseException (not just Exception) because a broken native crypto
+    # binding can raise pyo3 PanicException, which is not an Exception.
+    # KeyboardInterrupt / SystemExit are re-raised above so import-time
+    # Ctrl+C / sys.exit() still work.
     CRYPTO_AVAILABLE = False
     Fernet = None
     hashes = None

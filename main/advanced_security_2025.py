@@ -22,14 +22,18 @@ try:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from cryptography.hazmat.primitives.kdf.hkdf import HKDF
     _AEAD_AVAILABLE = True
-except (ImportError, BaseException):
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     _AEAD_AVAILABLE = False
 
 # 耐量子暗号 (NIST PQC: ML-KEM/ML-DSA) — liboqs (oqs-python) を使用
 try:
     import oqs  # https://github.com/open-quantum-safe/liboqs-python
     POST_QUANTUM_AVAILABLE = True
-except (ImportError, BaseException):
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     oqs = None
     POST_QUANTUM_AVAILABLE = False
     logger.info(

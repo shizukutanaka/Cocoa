@@ -96,6 +96,7 @@ SAFE_MODULES = [
     "tests.test_http_timeout_required",
     "tests.test_csv_safety",
     "tests.test_security_codes_use_secrets",
+    "tests.test_no_baseexception_swallow",
     "tests.test_interactive_ai_agent",
     "tests.test_photo_to_avatar_generator",
     "tests.test_voice_cloning",

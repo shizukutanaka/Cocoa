@@ -44,6 +44,8 @@ except ImportError:
 try:
     import jwt as _jwt
     _JWT_AVAILABLE = True
+except (KeyboardInterrupt, SystemExit):
+    raise
 except BaseException:
     _jwt = None
     _JWT_AVAILABLE = False

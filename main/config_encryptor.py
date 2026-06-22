@@ -17,7 +17,9 @@ try:
     from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     CRYPTO_AVAILABLE = True
-except (ImportError, BaseException):
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     CRYPTO_AVAILABLE = False
 import logging
 

@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 try:
     from cryptography.fernet import Fernet
     CRYPTOGRAPHY_AVAILABLE = True
+except (KeyboardInterrupt, SystemExit):
+    raise
 except BaseException:
     CRYPTOGRAPHY_AVAILABLE = False
 

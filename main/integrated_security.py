@@ -29,27 +29,35 @@ logger = logging.getLogger(__name__)
 try:
     import numpy as np
     NUMPY_AVAILABLE = True
-except (ImportError, BaseException):
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     NUMPY_AVAILABLE = False
 
 try:
     from sklearn.ensemble import IsolationForest
     from sklearn.preprocessing import StandardScaler
     SKLEARN_AVAILABLE = True
-except (ImportError, BaseException):
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     SKLEARN_AVAILABLE = False
 
 try:
     import oqs
     OQS_AVAILABLE = True
-except (ImportError, BaseException):
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     OQS_AVAILABLE = False
     logger.warning("Open Quantum Safe library not available. Quantum-safe features will be limited.")
 
 try:
     import pqcrystals  # noqa: F401
     PQCRYSTALS_AVAILABLE = True
-except (ImportError, BaseException):
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     PQCRYSTALS_AVAILABLE = False
     logger.warning("PQ Crystals library not available. Using fallback quantum-safe implementation.")
 
@@ -105,7 +113,9 @@ try:
     from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     CRYPTO_AVAILABLE = True
-except (ImportError, BaseException):
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     CRYPTO_AVAILABLE = False
 
 logger = logging.getLogger(__name__)

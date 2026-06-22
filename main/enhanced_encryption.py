@@ -12,7 +12,9 @@ try:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
     CRYPTO_AVAILABLE = True
-except (ImportError, BaseException):
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     CRYPTO_AVAILABLE = False
 
 import logging
