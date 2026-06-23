@@ -599,6 +599,52 @@ class TestMoneyPrimitiveInvariant(unittest.TestCase):
             with self.assertRaises(ValueError):
                 _store().load_credit_state(path)
 
+    def test_snapshot_roundtrips_purchase_sellers(self):
+        """_purchase_seller must survive export→import so post-restart disputes
+        still claw back from the original seller, not the transferred-to owner."""
+        import json
+        listing = _listing(
+            self.store, avatar_id="av_ps", owner_id="u_ps_seller",
+            owner_username="ps_seller", name="PS Avatar", description="",
+            tags=[], category="vrc", parameters={}, is_free=False,
+            price_credits=50,
+        )
+        self.store.add_credits("u_ps_buyer", 200)
+        self.store.download(listing.listing_id, "u_ps_buyer")
+        # Transfer to new owner
+        self.store.transfer_listing(
+            listing.listing_id, "u_ps_seller", "u_ps_new_owner", "new_owner"
+        )
+        snap = self.store.export_credit_state()
+        self.assertIn("purchase_sellers", snap)
+        json.dumps(snap)  # JSON-serializable
+
+        restored = _store()
+        # Import the listing state so get_listing works
+        restored._listings[listing.listing_id] = self.store._listings[listing.listing_id]
+        restored._downloads_by_user["u_ps_buyer"] = {"u_ps_buyer"}  # needed for has_downloaded
+        restored.import_credit_state(snap)
+        # Seller map must survive: dispute still targets the original seller
+        self.assertEqual(
+            restored._purchase_seller.get(("u_ps_buyer", listing.listing_id)),
+            "u_ps_seller",
+        )
+
+    def test_import_v2_snapshot_without_purchase_sellers_leaves_existing_intact(self):
+        """A v2 snapshot without 'purchase_sellers' must not clobber an existing
+        in-memory seller map (same pattern as v1→v2 for refunded_purchases)."""
+        listing_id = "lst_v2"
+        self.store._purchase_seller[("buyer", listing_id)] = "original_seller"
+        source = _store()
+        source.add_credits("a", 10)
+        legacy = source.export_credit_state()
+        legacy.pop("purchase_sellers", None)  # simulate a v2 snapshot
+        self.store.import_credit_state(legacy)
+        # The existing in-memory map is NOT cleared
+        self.assertEqual(
+            self.store._purchase_seller.get(("buyer", listing_id)), "original_seller"
+        )
+
 
 class TestPaginationClamping(unittest.TestCase):
     """Hostile/malformed pagination inputs must be clamped, not slice wrongly."""

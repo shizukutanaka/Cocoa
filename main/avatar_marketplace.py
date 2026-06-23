@@ -569,7 +569,7 @@ class MarketplaceStore:
         """
         with self._lock:
             return {
-                "version": 2,
+                "version": 3,
                 "credits": dict(self._credits),
                 "ledger": {
                     uid: [dict(e) for e in entries]
@@ -580,6 +580,12 @@ class MarketplaceStore:
                 # purchase order-refunded before restart could be dispute-refunded
                 # after it, minting credits).
                 "refunded_purchases": [[b, l] for (b, l) in self._refunded_purchases],
+                # Dispute clawback guard: persist so a post-transfer dispute
+                # always targets the seller who actually received the proceeds,
+                # not the current listing owner who may have received it by transfer.
+                "purchase_sellers": [
+                    [b, l, s] for (b, l), s in self._purchase_seller.items()
+                ],
             }
 
     def import_credit_state(self, state: Dict[str, Any], *, verify: bool = True) -> Dict[str, Any]:
@@ -606,12 +612,19 @@ class MarketplaceStore:
         # Restore the cross-channel refund guard if the snapshot carries it
         # (absent in v1 snapshots — left unchanged for backward compatibility).
         refunded = state.get("refunded_purchases")
+        # Restore sale-seller mapping for dispute clawback (added in v3).
+        purchase_sellers = state.get("purchase_sellers")
         with self._lock:
             self._credits = credits
             self._credit_ledger = ledger
             if refunded is not None:
                 self._refunded_purchases = {
                     (str(pair[0]), str(pair[1])) for pair in refunded if len(pair) == 2
+                }
+            if purchase_sellers is not None:
+                self._purchase_seller = {
+                    (str(row[0]), str(row[1])): str(row[2])
+                    for row in purchase_sellers if len(row) == 3
                 }
         return {"users_loaded": len(set(credits) | set(ledger))}
 
