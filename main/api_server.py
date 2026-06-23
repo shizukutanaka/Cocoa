@@ -1940,11 +1940,28 @@ async def download_avatar(
         # authoritative amount actually debited on this download — never the
         # list price — so free re-downloads and owner self-downloads don't
         # inflate lifetime spend (tier-farming).
+        amount_paid = data.get("amount_paid", 0)
         if get_membership_manager:
             try:
-                amount_paid = data.get("amount_paid", 0)
                 if amount_paid > 0:
                     get_membership_manager().record_purchase(current_user["user_id"], amount_paid)
+            except Exception:
+                pass
+        # Referral bonus on first paid purchase via direct download (same gate
+        # as checkout_cart / purchase_bundle: gated on amount_paid > 0 so that
+        # free/re-downloads can't be used to farm the bonus).
+        if get_referral_manager and amount_paid > 0:
+            try:
+                ref_record = get_referral_manager().on_first_purchase(
+                    current_user["user_id"], get_marketplace()
+                )
+                if ref_record and get_notification_queue:
+                    get_notification_queue().push(
+                        ref_record.referrer_id, "referral_bonus",
+                        title="紹介ボーナスが付与されました",
+                        body=f"紹介したユーザーが初めての購入を行い、{ref_record.bonus_awarded} クレジットが付与されました",
+                        payload={"referred_id": current_user["user_id"], "bonus": ref_record.bonus_awarded},
+                    )
             except Exception:
                 pass
         if get_notification_queue and listing.owner_id != current_user["user_id"]:
