@@ -227,7 +227,7 @@ class TestNotificationPreferences(unittest.TestCase):
         # these are the ones users most want to control.
         direct = ["price_drop", "tip_received", "commission_received",
                   "commission_response", "commission_delivered", "commission_closed",
-                  "refund_approved", "refund_rejected",
+                  "refund_approved", "refund_rejected", "dispute_resolved",
                   "saved_search_match", "system"]
         self.q.set_muted_kinds("u1", direct)
         muted = self.q.get_muted_kinds("u1")
@@ -272,6 +272,15 @@ class TestNotificationPreferences(unittest.TestCase):
     def test_muting_refund_rejected_suppresses(self):
         self.q.set_muted_kinds("u1", ["refund_rejected"])
         self.assertIsNone(self.q.push("u1", "refund_rejected", "T", "B"))
+
+    def test_dispute_resolved_is_pushable(self):
+        result = self.q.push("u1", "dispute_resolved", "争議解決", "返金されました")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.kind, "dispute_resolved")
+
+    def test_muting_dispute_resolved_suppresses(self):
+        self.q.set_muted_kinds("u1", ["dispute_resolved"])
+        self.assertIsNone(self.q.push("u1", "dispute_resolved", "T", "B"))
 
 
 class TestNotificationTemplates(unittest.TestCase):

@@ -3114,6 +3114,31 @@ async def admin_resolve_dispute(
                 get_membership_manager().record_refund(dispute.buyer_id, dispute.amount_credits)
             except Exception:
                 pass
+        # Notify both parties of the outcome (non-critical).
+        if get_notification_queue:
+            if body.decision == "refund":
+                buyer_title = "争議が解決されました（返金）"
+                buyer_body = f"{dispute.amount_credits} クレジットが返還されました"
+                seller_title = "争議が解決されました"
+                seller_body = f"「{dispute.listing_id}」の争議について、返金が決定されました"
+            else:
+                buyer_title = "争議が解決されました"
+                buyer_body = "争議の審査結果、返金は行われないこととなりました"
+                seller_title = "争議が解決されました（リリース）"
+                seller_body = f"「{dispute.listing_id}」の争議について、返金なしで解決されました"
+            for uid, title, body_text in (
+                (dispute.buyer_id, buyer_title, buyer_body),
+                (dispute.seller_id, seller_title, seller_body),
+            ):
+                try:
+                    get_notification_queue().push(
+                        uid, "dispute_resolved",
+                        title=title,
+                        body=body_text,
+                        payload={"dispute_id": dispute_id, "decision": body.decision},
+                    )
+                except Exception:
+                    pass
         return {"status": "resolved", "dispute": dispute.to_dict()}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
