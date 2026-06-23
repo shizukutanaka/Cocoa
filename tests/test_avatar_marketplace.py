@@ -3426,6 +3426,34 @@ class TestStockLimit(unittest.TestCase):
         listing = self.store.set_stock_limit(self.listing_id, "creator", 4)
         self.assertEqual(listing.stock_remaining, 4)
 
+    def test_redownload_allowed_when_sold_out(self):
+        # Buyer purchases the last copy (stock 1 -> 0); they must still be able
+        # to re-download without hitting the sold-out error.
+        self.store.set_stock_limit(self.listing_id, "creator", 1)
+        self.store.download(self.listing_id, "buyer")
+        listing = self.store._listings[self.listing_id]
+        self.assertEqual(listing.stock_remaining, 0)
+        # Original buyer re-downloads — must NOT raise sold-out.
+        result = self.store.download(self.listing_id, "buyer")
+        self.assertIsNotNone(result)
+
+    def test_redownload_does_not_decrement_stock(self):
+        # Re-downloading an already-owned listing must not consume stock, which
+        # would incorrectly reduce the copies available for new buyers.
+        self.store.set_stock_limit(self.listing_id, "creator", 3)
+        self.store.download(self.listing_id, "buyer")        # stock 3 -> 2
+        self.store.download(self.listing_id, "buyer")        # re-download; stock stays 2
+        listing = self.store._listings[self.listing_id]
+        self.assertEqual(listing.stock_remaining, 2)
+
+    def test_new_buyer_still_blocked_when_sold_out(self):
+        # The sold-out guard must still block DIFFERENT buyers, not just
+        # returning buyers (regression guard for the re-download fix).
+        self.store.set_stock_limit(self.listing_id, "creator", 1)
+        self.store.download(self.listing_id, "buyer")        # consumes last copy
+        with self.assertRaises(ValueError):
+            self.store.download(self.listing_id, "buyer2")  # different user, blocked
+
 
 class TestEarningsSummary(unittest.TestCase):
     def setUp(self):

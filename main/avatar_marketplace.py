@@ -954,15 +954,26 @@ class MarketplaceStore:
             listing = self._listings.get(listing_id)
             if not listing or not listing.is_active:
                 return None
-            # Stock enforcement: owner can always re-download their own listing
-            if listing.stock_remaining is not None and listing.stock_remaining <= 0 and listing.owner_id != downloader_id:
-                raise ValueError("在庫がありません (sold out)")
             paid = not listing.is_free and listing.owner_id != downloader_id
 
             # Re-download: buyer already owns this listing — let them re-download
             # for free rather than charging a second time.
-            if paid and self._has_downloaded_locked(downloader_id, listing_id):
+            # Must be computed BEFORE the sold-out check so prior buyers are not
+            # blocked by a stock count that was already decremented when they first
+            # purchased (stock tracks NEW sales, not re-accesses by existing owners).
+            is_redownload = (
+                listing.owner_id != downloader_id
+                and self._has_downloaded_locked(downloader_id, listing_id)
+            )
+            if paid and is_redownload:
                 paid = False
+
+            # Stock enforcement: owners and prior buyers (who already consumed one
+            # of the limited copies at purchase time) may re-download freely;
+            # only brand-new buyers are blocked when stock is exhausted.
+            if (listing.stock_remaining is not None and listing.stock_remaining <= 0
+                    and listing.owner_id != downloader_id and not is_redownload):
+                raise ValueError("在庫がありません (sold out)")
 
             actual_price = listing.price_credits
             applied_promo: Optional[PromoCode] = None
@@ -997,7 +1008,7 @@ class MarketplaceStore:
             if not is_self:
                 listing.download_count += 1
             listing.updated_at = now
-            if listing.stock_remaining is not None and not is_self:
+            if listing.stock_remaining is not None and not is_self and not is_redownload:
                 listing.stock_remaining -= 1
                 if listing.stock_remaining <= 0:
                     logger.info("Listing sold out: %s", listing_id)
