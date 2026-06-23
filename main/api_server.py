@@ -2263,7 +2263,8 @@ async def publish_listing_version(
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     try:
-        version = get_marketplace().publish_version(
+        mp = get_marketplace()
+        version = mp.publish_version(
             listing_id,
             current_user["user_id"],
             body.changelog,
@@ -2271,6 +2272,22 @@ async def publish_listing_version(
             description=body.description,
             parameters=body.parameters,
         )
+        # Re-index if name or description changed — publish_version updates the live
+        # listing fields in place, so the SearchIndex would otherwise serve stale text.
+        if get_search_index and any(v is not None for v in [body.name, body.description]):
+            listing = mp.get_listing(listing_id)
+            if listing:
+                get_search_index().index_from_dict({
+                    "doc_id": listing.listing_id,
+                    "owner_id": listing.owner_id,
+                    "name": listing.name,
+                    "description": listing.description,
+                    "tags": listing.tags,
+                    "category": listing.category,
+                    "platform": listing.platform,
+                    "parameters": listing.parameters,
+                    "is_public": listing.is_active,
+                })
         return version.to_dict()
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e

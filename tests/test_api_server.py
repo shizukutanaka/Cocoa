@@ -362,5 +362,96 @@ class TestCloneListingSearchAndNotify(unittest.TestCase):
         self.assertEqual(mock_queue.push.call_count, 1)
 
 
+class TestPublishVersionSearchIndex(unittest.TestCase):
+    """publish_listing_version must re-index the SearchIndex when name or
+    description change, because publish_version() updates those fields on the
+    live listing object in place — leaving the index stale otherwise."""
+
+    def _fake_listing(self):
+        lst = MagicMock()
+        lst.listing_id = "lst-1"
+        lst.owner_id = "u1"
+        lst.name = "Updated Name"
+        lst.description = "new desc"
+        lst.tags = ["vrc"]
+        lst.category = "vrc"
+        lst.platform = "vrchat"
+        lst.parameters = {}
+        lst.is_active = True
+        return lst
+
+    def test_version_with_new_name_reindexes(self):
+        fake_listing = self._fake_listing()
+        fake_version = MagicMock()
+        fake_version.to_dict.return_value = {"version_id": "v1"}
+        mock_mp = MagicMock()
+        mock_mp.publish_version.return_value = fake_version
+        mock_mp.get_listing.return_value = fake_listing
+        mock_idx = MagicMock()
+
+        body = MagicMock()
+        body.changelog = "new version"
+        body.name = "Updated Name"
+        body.description = None
+        body.parameters = None
+
+        with patch.object(api_server, "get_marketplace", lambda: mock_mp), \
+             patch.object(api_server, "get_search_index", lambda: mock_idx):
+            asyncio.run(api_server.publish_listing_version(
+                "lst-1", body, {"user_id": "u1"}
+            ))
+
+        mock_idx.index_from_dict.assert_called_once()
+        doc = mock_idx.index_from_dict.call_args[0][0]
+        self.assertEqual(doc["doc_id"], "lst-1")
+        self.assertEqual(doc["name"], "Updated Name")
+
+    def test_version_with_new_description_reindexes(self):
+        fake_listing = self._fake_listing()
+        fake_version = MagicMock()
+        fake_version.to_dict.return_value = {}
+        mock_mp = MagicMock()
+        mock_mp.publish_version.return_value = fake_version
+        mock_mp.get_listing.return_value = fake_listing
+        mock_idx = MagicMock()
+
+        body = MagicMock()
+        body.changelog = "desc update"
+        body.name = None
+        body.description = "new desc"
+        body.parameters = None
+
+        with patch.object(api_server, "get_marketplace", lambda: mock_mp), \
+             patch.object(api_server, "get_search_index", lambda: mock_idx):
+            asyncio.run(api_server.publish_listing_version(
+                "lst-1", body, {"user_id": "u1"}
+            ))
+
+        mock_idx.index_from_dict.assert_called_once()
+
+    def test_version_changelog_only_skips_reindex(self):
+        """When only changelog is provided (name and description both None),
+        no re-index is needed — the indexed text hasn't changed."""
+        fake_version = MagicMock()
+        fake_version.to_dict.return_value = {}
+        mock_mp = MagicMock()
+        mock_mp.publish_version.return_value = fake_version
+        mock_idx = MagicMock()
+
+        body = MagicMock()
+        body.changelog = "bug fix"
+        body.name = None
+        body.description = None
+        body.parameters = None
+
+        with patch.object(api_server, "get_marketplace", lambda: mock_mp), \
+             patch.object(api_server, "get_search_index", lambda: mock_idx):
+            asyncio.run(api_server.publish_listing_version(
+                "lst-1", body, {"user_id": "u1"}
+            ))
+
+        mock_idx.index_from_dict.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
