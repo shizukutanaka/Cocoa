@@ -338,6 +338,17 @@ class TestBundlePurchase(unittest.TestCase):
         # Each order item carries its seller so a refund can claw back.
         self.assertTrue(all(i.owner_id == "creator" for i in order.items))
 
+    def test_purchase_result_exposes_notification_fields(self):
+        """Each purchased item must carry owner_id, listing_id, and name so the
+        API layer can dispatch per-creator new_download notifications and issue
+        license keys — mirrors the same contract checked for cart checkout."""
+        result = self.mgr.purchase_bundle(self.bundle_id, "buyer", self.mp)
+        for item in result["purchased"]:
+            for field in ("listing_id", "owner_id", "name"):
+                self.assertIn(field, item, f"bundle purchase item missing '{field}'")
+        owner_ids = {i["owner_id"] for i in result["purchased"]}
+        self.assertIn("creator", owner_ids)
+
     def test_bundle_purchase_is_refundable_end_to_end(self):
         cart = CartManager()
         refunds = RefundManager()

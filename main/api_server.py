@@ -4023,18 +4023,42 @@ async def purchase_bundle(
         )
         if result.get("purchased"):
             total = result.get("total_charged", 0)
+            user_id = current_user["user_id"]
+            downloader_username = current_user.get("username", "ユーザー")
             if get_membership_manager and total > 0:
                 try:
-                    get_membership_manager().record_purchase(current_user["user_id"], total)
+                    get_membership_manager().record_purchase(user_id, total)
                 except Exception:
                     pass
             # Referral bonus only on a genuine paid purchase (see checkout_cart):
             # a free/already-owned bundle (total_charged=0) must not convert a
             # referral, or the bonus could be farmed without spending credits.
             if get_referral_manager and total > 0:
-                get_referral_manager().on_first_purchase(
-                    current_user["user_id"], get_marketplace()
-                )
+                get_referral_manager().on_first_purchase(user_id, get_marketplace())
+            # Issue license keys and notify each creator — mirrors checkout_cart.
+            for item in result["purchased"]:
+                listing_id = item.get("listing_id", "")
+                owner_id = item.get("owner_id", "")
+                listing_name = item.get("name", "")
+                if not owner_id or owner_id == user_id:
+                    continue
+                if get_license_manager:
+                    try:
+                        get_license_manager().issue_on_download(
+                            listing_id, owner_id, user_id
+                        )
+                    except Exception:
+                        pass
+                if get_notification_queue:
+                    try:
+                        get_notification_queue().push_from_template(
+                            owner_id, "new_download",
+                            payload={"listing_id": listing_id, "downloader_id": user_id},
+                            downloader_username=downloader_username,
+                            listing_name=listing_name,
+                        )
+                    except Exception:
+                        pass
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
