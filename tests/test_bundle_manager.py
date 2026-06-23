@@ -35,6 +35,7 @@ class _FakeMP:
         self._credits: dict = {}
         self._download_log: list = []
         self._ledger: list = []
+        self._purchase_seller: dict = {}
         self._lock = __import__("threading").Lock()
 
     def add(self, listing: _FakeListing) -> None:
@@ -368,6 +369,33 @@ class TestBundlePurchase(unittest.TestCase):
         self.assertEqual(self.mp._credits["buyer"], buyer_before)
         self.assertEqual(self.mp._credits["creator"], creator_before)
         self.assertEqual(cart.store.get_order(order_id).status, "refunded")
+
+    def test_purchase_records_purchase_seller_for_dispute(self):
+        """purchase_bundle must record the seller in _purchase_seller so a
+        post-transfer dispute targets the original seller, not the new owner."""
+        self.mgr.purchase_bundle(self.bundle_id, "buyer", self.mp)
+        # Each paid listing should have an entry: (buyer, listing) → creator
+        for lid in ["lst1", "lst2", "lst3"]:
+            seller = self.mp._purchase_seller.get(("buyer", lid))
+            self.assertEqual(
+                seller, "creator",
+                f"_purchase_seller missing or wrong for {lid}: {seller!r}",
+            )
+
+    def test_free_listing_in_bundle_not_recorded_in_purchase_seller(self):
+        """Free listings charge nothing; their (buyer, listing) key must not
+        appear in _purchase_seller so open_dispute correctly rejects them."""
+        mgr, mp = _make_mgr()
+        # lst3 is free
+        mp._listings["lst3"].is_free = True
+        mp._listings["lst3"].price_credits = 0
+        bundle_id = mgr.create_bundle(
+            "creator", "cr", "FreePack", "", ["lst1", "lst2", "lst3"], 0, mp
+        )["bundle_id"]
+        mgr.purchase_bundle(bundle_id, "buyer", mp)
+        self.assertNotIn(("buyer", "lst3"), mp._purchase_seller)
+        # Paid listings ARE recorded
+        self.assertIn(("buyer", "lst1"), mp._purchase_seller)
 
 
 # ---------------------------------------------------------------------------

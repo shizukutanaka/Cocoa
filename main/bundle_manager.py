@@ -359,6 +359,10 @@ class BundleManager:
                     # single money primitive (symmetric, ledger-recorded).
                     marketplace_store._debit_locked(buyer_id, final_price, "purchase", ref_id=listing_id)
                     marketplace_store._credit_locked(lst.owner_id, final_price, "sale", ref_id=listing_id)
+                    # Record seller so a later dispute (after a possible transfer)
+                    # claws back from the seller who actually received the proceeds,
+                    # not from whoever currently owns the listing.
+                    marketplace_store._purchase_seller[(buyer_id, listing_id)] = lst.owner_id
 
                 now = datetime.now(timezone.utc)
                 is_owner = lst.owner_id == buyer_id
