@@ -227,6 +227,7 @@ class TestNotificationPreferences(unittest.TestCase):
         # these are the ones users most want to control.
         direct = ["price_drop", "tip_received", "commission_received",
                   "commission_response", "commission_delivered", "commission_closed",
+                  "refund_approved", "refund_rejected",
                   "saved_search_match", "system"]
         self.q.set_muted_kinds("u1", direct)
         muted = self.q.get_muted_kinds("u1")
@@ -253,6 +254,24 @@ class TestNotificationPreferences(unittest.TestCase):
         self.q.set_muted_kinds("creator1", ["commission_closed"])
         result = self.q.push("creator1", "commission_closed", "クローズ", "依頼がクローズされました")
         self.assertIsNone(result)
+
+    def test_refund_approved_is_pushable(self):
+        result = self.q.push("u1", "refund_approved", "払い戻し承認", "100 クレジットが返還されました")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.kind, "refund_approved")
+
+    def test_refund_rejected_is_pushable(self):
+        result = self.q.push("u1", "refund_rejected", "払い戻し却下", "却下されました")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.kind, "refund_rejected")
+
+    def test_muting_refund_approved_suppresses(self):
+        self.q.set_muted_kinds("u1", ["refund_approved"])
+        self.assertIsNone(self.q.push("u1", "refund_approved", "T", "B"))
+
+    def test_muting_refund_rejected_suppresses(self):
+        self.q.set_muted_kinds("u1", ["refund_rejected"])
+        self.assertIsNone(self.q.push("u1", "refund_rejected", "T", "B"))
 
 
 class TestNotificationTemplates(unittest.TestCase):

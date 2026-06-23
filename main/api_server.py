@@ -4594,14 +4594,24 @@ async def admin_approve_refund(
         result = get_refund_manager().approve_refund(
             payload, request_id, get_marketplace(), get_cart_manager()
         )
+        refunded = result.get("credits_returned", 0)
+        buyer_id = result.get("request", {}).get("user_id")
         # Reverse the refunded amount's contribution to membership tier so a
         # buy-then-refund cycle can't permanently farm a tier (non-critical).
         if get_membership_manager:
             try:
-                refunded = result.get("credits_returned", 0)
-                buyer_id = result.get("request", {}).get("user_id")
                 if refunded > 0 and buyer_id:
                     get_membership_manager().record_refund(buyer_id, refunded)
+            except Exception:
+                pass
+        if get_notification_queue and buyer_id:
+            try:
+                get_notification_queue().push(
+                    buyer_id, "refund_approved",
+                    title="払い戻しが承認されました",
+                    body=f"{refunded} クレジットがアカウントに返還されました",
+                    payload={"request_id": request_id, "credits_returned": refunded},
+                )
             except Exception:
                 pass
         return result
@@ -4622,7 +4632,19 @@ async def admin_reject_refund(
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     payload = _verify_token(credentials.credentials)
     try:
-        return get_refund_manager().reject_refund(payload, request_id, body.notes)
+        result = get_refund_manager().reject_refund(payload, request_id, body.notes)
+        buyer_id = result.get("user_id")
+        if get_notification_queue and buyer_id:
+            try:
+                get_notification_queue().push(
+                    buyer_id, "refund_rejected",
+                    title="払い戻し申請が却下されました",
+                    body="払い戻し申請が却下されました。詳細はサポートまでお問い合わせください",
+                    payload={"request_id": request_id},
+                )
+            except Exception:
+                pass
+        return result
     except (ValueError, PermissionError) as e:
         msg = str(e)
         code = 403 if "権限" in msg else 400

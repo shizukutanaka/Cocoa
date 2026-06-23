@@ -67,6 +67,8 @@ _DIRECT_PUSH_KINDS = frozenset({
     "commission_delivered",  # requester: commission delivered
     "commission_closed",     # creator: requester closed/accepted the commission
     "tip_received",          # a tip was received
+    "refund_approved",       # buyer: refund request approved, credits returned
+    "refund_rejected",       # buyer: refund request rejected
 })
 
 # The full set of kinds the system can emit. set_muted_kinds() validates against
