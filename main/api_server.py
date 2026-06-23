@@ -3937,17 +3937,17 @@ async def checkout_cart(current_user: dict = Depends(get_current_user)):
             # check out a free listing (total=0, success=True) to trigger the
             # referrer's bonus without ever spending credits.
             if get_referral_manager and total > 0:
-                ref_record = get_referral_manager().on_first_purchase(user_id, get_marketplace())
-                if ref_record and get_notification_queue:
-                    try:
+                try:
+                    ref_record = get_referral_manager().on_first_purchase(user_id, get_marketplace())
+                    if ref_record and get_notification_queue:
                         get_notification_queue().push(
                             ref_record.referrer_id, "referral_bonus",
                             title="紹介ボーナスが付与されました",
                             body=f"紹介したユーザーが初めての購入を行い、{ref_record.bonus_awarded} クレジットが付与されました",
                             payload={"referred_id": user_id, "bonus": ref_record.bonus_awarded},
                         )
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
             # Issue license keys and notify each creator — mirrors what
             # download_avatar() does for single-item purchases.
             for item in order_items:
@@ -4147,17 +4147,17 @@ async def purchase_bundle(
             # a free/already-owned bundle (total_charged=0) must not convert a
             # referral, or the bonus could be farmed without spending credits.
             if get_referral_manager and total > 0:
-                ref_record = get_referral_manager().on_first_purchase(user_id, get_marketplace())
-                if ref_record and get_notification_queue:
-                    try:
+                try:
+                    ref_record = get_referral_manager().on_first_purchase(user_id, get_marketplace())
+                    if ref_record and get_notification_queue:
                         get_notification_queue().push(
                             ref_record.referrer_id, "referral_bonus",
                             title="紹介ボーナスが付与されました",
                             body=f"紹介したユーザーが初めての購入を行い、{ref_record.bonus_awarded} クレジットが付与されました",
                             payload={"referred_id": user_id, "bonus": ref_record.bonus_awarded},
                         )
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
             # Issue license keys and notify each creator — mirrors checkout_cart.
             for item in result["purchased"]:
                 listing_id = item.get("listing_id", "")

@@ -453,5 +453,63 @@ class TestPublishVersionSearchIndex(unittest.TestCase):
         mock_idx.index_from_dict.assert_not_called()
 
 
+class TestCheckoutReferralExceptionIsolation(unittest.TestCase):
+    """on_first_purchase() in checkout_cart / purchase_bundle must be wrapped
+    in try/except so an unexpected exception from the referral layer cannot
+    crash a checkout that already debited the buyer's credits (post-payment 500
+    would require support intervention to determine whether the order went through)."""
+
+    def _make_checkout_result(self, total: int = 100):
+        return {
+            "success": True,
+            "order": {
+                "order_id": "ord-1",
+                "total_credits": total,
+                "items": [],
+            },
+            "failed_items": [],
+        }
+
+    def test_checkout_cart_survives_referral_exception(self):
+        mock_cm = MagicMock()
+        mock_cm.checkout.return_value = self._make_checkout_result(total=100)
+
+        exploding_rm = MagicMock()
+        exploding_rm.on_first_purchase.side_effect = RuntimeError("referral db exploded")
+
+        with patch.object(api_server, "get_cart_manager", lambda: mock_cm), \
+             patch.object(api_server, "get_marketplace", MagicMock()), \
+             patch.object(api_server, "get_referral_manager", lambda: exploding_rm), \
+             patch.object(api_server, "get_membership_manager", None), \
+             patch.object(api_server, "get_notification_queue", None):
+            result = asyncio.run(api_server.checkout_cart({"user_id": "u1", "username": "alice"}))
+
+        # checkout must succeed despite the referral exception
+        self.assertTrue(result.get("success"))
+
+    def test_purchase_bundle_survives_referral_exception(self):
+        mock_bm = MagicMock()
+        mock_bm.purchase_bundle.return_value = {
+            "purchased": [{"listing_id": "lid1", "owner_id": "creator1"}],
+            "total_charged": 200,
+            "failed": [],
+        }
+
+        exploding_rm = MagicMock()
+        exploding_rm.on_first_purchase.side_effect = RuntimeError("referral db exploded")
+
+        with patch.object(api_server, "get_bundle_manager", lambda: mock_bm), \
+             patch.object(api_server, "get_marketplace", MagicMock()), \
+             patch.object(api_server, "get_referral_manager", lambda: exploding_rm), \
+             patch.object(api_server, "get_membership_manager", None), \
+             patch.object(api_server, "get_notification_queue", None):
+            result = asyncio.run(api_server.purchase_bundle(
+                "bundle-1", {"user_id": "u1", "username": "alice"}
+            ))
+
+        # purchase must succeed despite the referral exception
+        self.assertIn("purchased", result)
+
+
 if __name__ == "__main__":
     unittest.main()
