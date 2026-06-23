@@ -396,6 +396,19 @@ class TestCartManagerCheckout(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(self.mgr.get_cart("buyer")["items"], [])
 
+    def test_checkout_order_items_expose_notification_fields(self):
+        """Each order item must carry owner_id, listing_id, and name so the
+        API layer can dispatch per-creator new_download notifications and
+        issue license keys — the same fields download_avatar() has access to."""
+        self._add("lst1", 100, "owner1")
+        self._add("lst2", 200, "owner2")
+        result = self.mgr.checkout("buyer", self.mp)
+        for item in result["order"]["items"]:
+            for field in ("listing_id", "owner_id", "name"):
+                self.assertIn(field, item, f"order item missing '{field}' needed for notification dispatch")
+        owner_ids = {i["owner_id"] for i in result["order"]["items"]}
+        self.assertEqual(owner_ids, {"owner1", "owner2"})
+
     def test_get_order_by_id(self):
         self._add("lst1")
         result = self.mgr.checkout("buyer", self.mp)
