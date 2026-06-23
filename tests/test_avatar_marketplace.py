@@ -2193,6 +2193,19 @@ class TestSearchFacets(unittest.TestCase):
         r = self.store.search(category="vrc", include_facets=True)
         self.assertEqual(r["facets"]["categories"].get("vrchat", 0), 0)
 
+    def test_facets_include_platforms(self):
+        store = _store()
+        store.publish("av_vrc", "u1", "alice", "VRC", "d", [], "vrc", {}, platform="vrchat")
+        store.publish("av_neos", "u1", "alice", "Neos", "d", [], "neos", {}, platform="neos")
+        store.publish("av_noplatform", "u1", "alice", "None", "d", [], "other", {})
+        r = store.search(include_facets=True)
+        plats = r["facets"]["platforms"]
+        self.assertIn("platforms", r["facets"])
+        self.assertEqual(plats.get("vrchat"), 1)
+        self.assertEqual(plats.get("neos"), 1)
+        # Listings with no platform should not appear in the facet
+        self.assertNotIn("", plats)
+
 
 class TestSearchLicenseAndOwner(unittest.TestCase):
     def setUp(self):

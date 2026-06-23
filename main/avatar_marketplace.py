@@ -1432,10 +1432,14 @@ class MarketplaceStore:
                 tag_counts: Counter = Counter(
                     tag for lst in results for tag in lst.tags
                 )
+                plat_counts: Counter = Counter(
+                    lst.platform for lst in results if lst.platform
+                )
                 facets = {
                     "categories": dict(cat_counts.most_common()),
                     "license_types": dict(lic_counts.most_common()),
                     "top_tags": dict(tag_counts.most_common(20)),
+                    "platforms": dict(plat_counts.most_common()),
                 }
 
         has_more = offset + limit < total
