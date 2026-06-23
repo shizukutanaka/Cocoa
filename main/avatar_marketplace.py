@@ -845,6 +845,7 @@ class MarketplaceStore:
         price_credits: Optional[int] = None,
         license_type: Optional[str] = None,
         license_details: Optional[str] = None,
+        platform: Optional[str] = None,
     ) -> "MarketplaceListing":
         """Update a published listing. Only the owner may update it."""
         with self._lock:
@@ -883,6 +884,8 @@ class MarketplaceStore:
                 listing.license_type = license_type
             if license_details is not None:
                 listing.license_details = license_details.strip()[:500]
+            if platform is not None:
+                listing.platform = platform.strip().lower()[:50]
             listing.updated_at = datetime.now(timezone.utc)
             if price_changed:
                 self._price_history.setdefault(listing.listing_id, []).append({

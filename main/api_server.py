@@ -1670,6 +1670,7 @@ class UpdateListingRequest(BaseModel):
     price_credits: Optional[int] = None
     license_type: Optional[str] = None
     license_details: Optional[str] = None
+    platform: Optional[str] = None
 
 
 @app.post("/api/marketplace/publish", tags=["marketplace"])
@@ -2152,9 +2153,10 @@ async def update_listing(listing_id: str, body: UpdateListingRequest, current_us
             price_credits=body.price_credits,
             license_type=body.license_type,
             license_details=body.license_details,
+            platform=body.platform,
         )
-        # Re-index if name/description/tags changed
-        if get_search_index and any(v is not None for v in [body.name, body.description, body.tags]):
+        # Re-index if name/description/tags/platform changed
+        if get_search_index and any(v is not None for v in [body.name, body.description, body.tags, body.platform]):
             idx = get_search_index()
             idx.index_from_dict({
                 "doc_id": listing.listing_id,
@@ -2162,6 +2164,7 @@ async def update_listing(listing_id: str, body: UpdateListingRequest, current_us
                 "description": listing.description,
                 "tags": listing.tags,
                 "category": listing.category,
+                "platform": listing.platform,
                 "owner_id": listing.owner_id,
                 "is_public": listing.is_active,
             })

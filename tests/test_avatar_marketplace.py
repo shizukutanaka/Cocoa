@@ -85,6 +85,18 @@ class TestPublish(unittest.TestCase):
         listing = _listing(store)
         self.assertEqual(listing.platform, "")
 
+    def test_update_listing_platform(self):
+        store = _store()
+        listing = _listing(store, platform="neos")
+        updated = store.update_listing(listing.listing_id, listing.owner_id, platform="VRChat")
+        self.assertEqual(updated.platform, "vrchat")
+
+    def test_update_listing_platform_none_leaves_unchanged(self):
+        store = _store()
+        listing = _listing(store, platform="neos")
+        updated = store.update_listing(listing.listing_id, listing.owner_id, name="New Name")
+        self.assertEqual(updated.platform, "neos")
+
     def test_custom_license_stored(self):
         store = _store()
         listing = _listing(store, license_type="cc_by", license_details="Attribution required")
