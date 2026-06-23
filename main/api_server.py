@@ -2200,7 +2200,7 @@ async def update_listing(listing_id: str, body: UpdateListingRequest, current_us
                 watchers = get_auth_manager().get_users_who_bookmarked(listing_id)
                 if watchers:
                     get_notification_queue().push_batch(
-                        watchers, "system",
+                        watchers, "price_drop",
                         title="ブックマークしたアバターの価格が下がりました",
                         body=f"「{listing.name}」の価格が変わりました",
                         payload={"listing_id": listing_id, "new_price": listing.price_credits,
