@@ -432,6 +432,51 @@ class TestCartManagerCheckout(unittest.TestCase):
         self.assertEqual(len(result["items"]), 3)
         self.assertTrue(result["has_more"])
 
+    def test_checkout_uses_seller_id_from_download_not_cart_item(self):
+        """If the listing is transferred between cart-add and checkout, the
+        OrderItem must record the seller who ACTUALLY received the money
+        (from download result's seller_id), not the stale owner in the CartItem.
+
+        Regression for Bug 17: checkout() used CartItem.owner_id (captured at
+        add-item time) rather than the authoritative seller_id from download().
+        A refund would then claw back from the wrong account.
+        """
+        class _TransferredMP:
+            """Simulates a listing transferred after cart-add: download() returns
+            seller_id='new_owner', but the CartItem.owner_id is 'old_owner'."""
+            def __init__(self):
+                self._listings = {
+                    "lst_t": type("L", (), {
+                        "is_active": True, "is_free": False,
+                        "price_credits": 100,
+                    })()
+                }
+
+            def download(self, listing_id, user_id, promo_code=""):
+                return {
+                    "source_listing_id": listing_id,
+                    "source_avatar_id": "av_t",
+                    "name": "Transferred Avatar",
+                    "parameters": {},
+                    "tags": [],
+                    "category": "vrc",
+                    "amount_paid": 100,
+                    "seller_id": "new_owner",  # transferred — different from cart item
+                }
+
+        mgr = CartManager(CartStore())
+        mgr.add_item(
+            "buyer", "lst_t", "Transferred Avatar",
+            owner_id="old_owner",  # stale owner at cart-add time
+            owner_username="old_creator",
+            price_credits=100, is_free=False,
+        )
+        result = mgr.checkout("buyer", _TransferredMP())
+        items = result["order"]["items"]
+        self.assertEqual(len(items), 1)
+        # Must use the authoritative seller from the download result
+        self.assertEqual(items[0]["owner_id"], "new_owner")
+
 
 # ---------------------------------------------------------------------------
 # Singleton

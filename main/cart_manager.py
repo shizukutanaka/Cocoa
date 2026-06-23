@@ -346,10 +346,16 @@ class CartManager:
                 final_price = result.get("amount_paid", 0 if item.is_free else item.price_credits)
                 discount_pct = promo_info["discount_percent"] if promo_info else 0
 
+                # Use seller_id from the download result — the listing may have
+                # been transferred between cart-add and checkout, so item.owner_id
+                # (captured at add-time) could be stale. The download result
+                # carries the owner who was actually credited, which is who a
+                # refund must claw back from.
+                actual_seller = result.get("seller_id", item.owner_id)
                 order_items.append(OrderItem(
                     listing_id=item.listing_id,
                     name=item.name,
-                    owner_id=item.owner_id,
+                    owner_id=actual_seller,
                     owner_username=item.owner_username,
                     unit_price=item.price_credits,
                     final_price=final_price,

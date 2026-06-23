@@ -1017,6 +1017,12 @@ class MarketplaceStore:
                 # must use this rather than inferring from listing.price_credits,
                 # which would over-count re-downloads and let users farm tier.
                 "amount_paid": actual_price if paid else 0,
+                # Seller credited on this download — may differ from the CartItem
+                # snapshot if the listing was transferred between cart-add and
+                # checkout.  The cart uses this to build an accurate OrderItem so
+                # a later refund claws back from the seller who actually received
+                # the money rather than from whoever owned the listing at add-time.
+                "seller_id": listing.owner_id,
             }
             if applied_promo:
                 result["promo_applied"] = {
