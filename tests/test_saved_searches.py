@@ -189,13 +189,16 @@ class TestSavedSearchSingleton(unittest.TestCase):
 class _FakeListing:
     """Minimal listing-like object for testing _listing_matches."""
     def __init__(self, name="Test Avatar", category="vrc", tags=None,
-                 is_free=True, price_credits=0, platform=""):
+                 is_free=True, price_credits=0, platform="",
+                 description="", owner_username=""):
         self.name = name
         self.category = category
         self.tags = tags or []
         self.is_free = is_free
         self.price_credits = price_credits
         self.platform = platform
+        self.description = description
+        self.owner_username = owner_username
 
 
 class TestSavedSearchNotify(unittest.TestCase):
@@ -360,6 +363,43 @@ class TestSavedSearchNotify(unittest.TestCase):
             ["neos"], "neos", {}, platform="neos",
         )
         self.assertEqual(len(self.store.find_matches(other)), 0)
+
+    def test_find_matches_query_in_description(self):
+        """A query that appears only in the listing description must match.
+        marketplace.search() checks name AND description; find_matches() must
+        be consistent — otherwise a saved search silently misses listings that
+        the live search actually returns."""
+        ss = self.store.create("u1", "Cute Desc", query="unique_desc_word")
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        hit = _FakeListing(name="Generic Avatar", description="unique_desc_word inside the blurb")
+        miss = _FakeListing(name="Generic Avatar", description="no match here")
+        self.assertEqual(len(self.store.find_matches(hit)), 1)
+        self.assertEqual(len(self.store.find_matches(miss)), 0)
+
+    def test_find_matches_query_in_owner_username(self):
+        """A query matching owner_username must also notify — marketplace.search()
+        includes owner_username in its fulltext check."""
+        ss = self.store.create("u1", "Creator Search", query="famous_creator")
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        hit = _FakeListing(name="Some Avatar", owner_username="famous_creator")
+        miss = _FakeListing(name="Some Avatar", owner_username="unknown_creator")
+        self.assertEqual(len(self.store.find_matches(hit)), 1)
+        self.assertEqual(len(self.store.find_matches(miss)), 0)
+
+    def test_find_matches_description_missing_attribute_safe(self):
+        """Listings without a description attribute (legacy stubs) must not raise."""
+
+        class _NoDesc:
+            name = "Test"
+            category = "vrc"
+            tags = []
+            is_free = True
+            price_credits = 0
+            platform = ""
+
+        ss = self.store.create("u1", "Search", query="test")
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        self.assertEqual(len(self.store.find_matches(_NoDesc())), 1)
 
 
 if __name__ == "__main__":

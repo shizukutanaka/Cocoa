@@ -148,7 +148,14 @@ class SavedSearchStore:
         """Return True if listing satisfies the saved search criteria."""
         q = ss.query.lower().strip()
         if q:
-            searchable = f"{listing.name} {listing.category} {' '.join(listing.tags)}".lower()
+            # Mirror marketplace.search() which checks name, description, and
+            # owner_username.  Omitting description caused saved-search
+            # notifications to miss listings that live search did return.
+            desc = getattr(listing, "description", "")
+            owner = getattr(listing, "owner_username", "")
+            searchable = (
+                f"{listing.name} {listing.category} {' '.join(listing.tags)} {desc} {owner}"
+            ).lower()
             if q not in searchable:
                 return False
         f = ss.filters
