@@ -2151,6 +2151,18 @@ class TestCloneListing(unittest.TestCase):
         cloned = self.store.clone_listing(self.cc_listing.listing_id, "u2", "bob")
         self.assertEqual(cloned.download_count, 0)
 
+    def test_clone_preserves_platform(self):
+        store = _store()
+        src = _listing(store, license_type="cc_by", platform="VRChat")
+        cloned = store.clone_listing(src.listing_id, "u2", "bob")
+        self.assertEqual(cloned.platform, "vrchat")
+
+    def test_clone_empty_platform_stays_empty(self):
+        store = _store()
+        src = _listing(store, license_type="cc_by")
+        cloned = store.clone_listing(src.listing_id, "u2", "bob")
+        self.assertEqual(cloned.platform, "")
+
 
 class TestSearchFacets(unittest.TestCase):
     def setUp(self):

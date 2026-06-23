@@ -1861,6 +1861,7 @@ class MarketplaceStore:
             src_thumbnail_url = source.thumbnail_url
             src_license_type = source.license_type
             src_license_details = source.license_details
+            src_platform = source.platform
         # publish() acquires the same lock — call outside to avoid deadlock.
         cloned = self.publish(
             avatar_id=secrets.token_hex(8),
@@ -1876,6 +1877,7 @@ class MarketplaceStore:
             price_credits=0,
             license_type=src_license_type,
             license_details=f"Cloned from listing {listing_id}. {src_license_details}".strip(),
+            platform=src_platform,
         )
         return cloned
 
