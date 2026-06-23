@@ -228,6 +228,7 @@ class TestNotificationPreferences(unittest.TestCase):
         direct = ["price_drop", "tip_received", "commission_received",
                   "commission_response", "commission_delivered", "commission_closed",
                   "refund_approved", "refund_rejected", "dispute_resolved",
+                  "referral_bonus",
                   "saved_search_match", "system"]
         self.q.set_muted_kinds("u1", direct)
         muted = self.q.get_muted_kinds("u1")
@@ -281,6 +282,15 @@ class TestNotificationPreferences(unittest.TestCase):
     def test_muting_dispute_resolved_suppresses(self):
         self.q.set_muted_kinds("u1", ["dispute_resolved"])
         self.assertIsNone(self.q.push("u1", "dispute_resolved", "T", "B"))
+
+    def test_referral_bonus_is_pushable(self):
+        result = self.q.push("referrer1", "referral_bonus", "ボーナス付与", "50 クレジット獲得")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.kind, "referral_bonus")
+
+    def test_muting_referral_bonus_suppresses(self):
+        self.q.set_muted_kinds("referrer1", ["referral_bonus"])
+        self.assertIsNone(self.q.push("referrer1", "referral_bonus", "T", "B"))
 
 
 class TestNotificationTemplates(unittest.TestCase):

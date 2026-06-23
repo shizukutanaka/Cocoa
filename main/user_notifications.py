@@ -70,6 +70,7 @@ _DIRECT_PUSH_KINDS = frozenset({
     "refund_approved",       # buyer: refund request approved, credits returned
     "refund_rejected",       # buyer: refund request rejected
     "dispute_resolved",      # buyer/seller: admin resolved a purchase dispute
+    "referral_bonus",        # referrer: a referred user made their first purchase
 })
 
 # The full set of kinds the system can emit. set_muted_kinds() validates against
