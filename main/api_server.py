@@ -1173,11 +1173,14 @@ async def follow_creator(creator_id: str, current_user: dict = Depends(get_curre
     try:
         following = get_auth_manager().follow(current_user["user_id"], creator_id)
         if get_notification_queue:
-            get_notification_queue().push_from_template(
-                creator_id, "new_follower",
-                payload={"follower_id": current_user["user_id"]},
-                follower_username=current_user.get("username", "ユーザー"),
-            )
+            try:
+                get_notification_queue().push_from_template(
+                    creator_id, "new_follower",
+                    payload={"follower_id": current_user["user_id"]},
+                    follower_username=current_user.get("username", "ユーザー"),
+                )
+            except Exception:
+                pass
         return {"following_count": len(following), "followed": creator_id}
     except (AuthError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -1989,12 +1992,15 @@ async def download_avatar(
             except Exception:
                 pass
         if get_notification_queue and listing.owner_id != current_user["user_id"]:
-            get_notification_queue().push_from_template(
-                listing.owner_id, "new_download",
-                payload={"listing_id": listing_id, "downloader_id": current_user["user_id"]},
-                downloader_username=current_user.get("username", "ユーザー"),
-                listing_name=listing.name,
-            )
+            try:
+                get_notification_queue().push_from_template(
+                    listing.owner_id, "new_download",
+                    payload={"listing_id": listing_id, "downloader_id": current_user["user_id"]},
+                    downloader_username=current_user.get("username", "ユーザー"),
+                    listing_name=listing.name,
+                )
+            except Exception:
+                pass
     return {"status": "downloaded", "avatar_data": data}
 
 
@@ -2026,13 +2032,16 @@ async def post_review(listing_id: str, body: ReviewRequest, current_user: dict =
         )
         listing = mp.get_listing(listing_id)
         if listing and get_notification_queue and listing.owner_id != current_user["user_id"]:
-            get_notification_queue().push_from_template(
-                listing.owner_id, "new_review",
-                payload={"listing_id": listing_id, "reviewer_id": current_user["user_id"], "stars": rv.stars},
-                reviewer_username=current_user.get("username", "ユーザー"),
-                listing_name=listing.name,
-                stars=rv.stars,
-            )
+            try:
+                get_notification_queue().push_from_template(
+                    listing.owner_id, "new_review",
+                    payload={"listing_id": listing_id, "reviewer_id": current_user["user_id"], "stars": rv.stars},
+                    reviewer_username=current_user.get("username", "ユーザー"),
+                    listing_name=listing.name,
+                    stars=rv.stars,
+                )
+            except Exception:
+                pass
         return {"listing_id": listing_id, "average_rating": avg, "review": rv.to_dict()}
     except (ValueError, PermissionError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -2082,11 +2091,14 @@ async def add_review_reply(
         if get_notification_queue:
             review = mp._find_review(review_id)
             if review and review.user_id != current_user["user_id"]:
-                get_notification_queue().push_from_template(
-                    review.user_id, "review_reply",
-                    payload={"review_id": review_id, "reply_id": reply.reply_id},
-                    replier_username=current_user.get("username", "ユーザー"),
-                )
+                try:
+                    get_notification_queue().push_from_template(
+                        review.user_id, "review_reply",
+                        payload={"review_id": review_id, "reply_id": reply.reply_id},
+                        replier_username=current_user.get("username", "ユーザー"),
+                    )
+                except Exception:
+                    pass
         return reply.to_dict()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -2370,12 +2382,15 @@ async def gift_credits(
 
         result = store.get_or_execute(idem_key, _do_gift) if store else _do_gift()
         if not is_replay and get_notification_queue:
-            get_notification_queue().push_from_template(
-                body.recipient_id, "credit_gifted",
-                payload={"sender_id": current_user["user_id"], "amount": body.amount},
-                sender_username=current_user.get("username", "ユーザー"),
-                amount=body.amount,
-            )
+            try:
+                get_notification_queue().push_from_template(
+                    body.recipient_id, "credit_gifted",
+                    payload={"sender_id": current_user["user_id"], "amount": body.amount},
+                    sender_username=current_user.get("username", "ユーザー"),
+                    amount=body.amount,
+                )
+            except Exception:
+                pass
         return {
             "status": "gifted",
             "amount": body.amount,
