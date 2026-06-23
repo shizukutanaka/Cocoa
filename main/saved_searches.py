@@ -166,6 +166,8 @@ class SavedSearchStore:
             # than the live search returns, silently under-notifying the user.
             if not required & {t.lower() for t in listing.tags}:
                 return False
+        if f.get("platform") and getattr(listing, "platform", "").lower() != str(f["platform"]).lower():
+            return False
         if f.get("is_free") is not None and listing.is_free != bool(f["is_free"]):
             return False
         if f.get("min_price") is not None and listing.price_credits < int(f["min_price"]):

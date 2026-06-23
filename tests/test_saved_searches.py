@@ -189,12 +189,13 @@ class TestSavedSearchSingleton(unittest.TestCase):
 class _FakeListing:
     """Minimal listing-like object for testing _listing_matches."""
     def __init__(self, name="Test Avatar", category="vrc", tags=None,
-                 is_free=True, price_credits=0):
+                 is_free=True, price_credits=0, platform=""):
         self.name = name
         self.category = category
         self.tags = tags or []
         self.is_free = is_free
         self.price_credits = price_credits
+        self.platform = platform
 
 
 class TestSavedSearchNotify(unittest.TestCase):
@@ -290,6 +291,43 @@ class TestSavedSearchNotify(unittest.TestCase):
         d = ss.to_dict()
         self.assertIn("notify_on_match", d)
         self.assertFalse(d["notify_on_match"])
+
+    def test_find_matches_platform_filter_hit(self):
+        ss = self.store.create("u1", "VRC Only", filters={"platform": "vrchat"})
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        hit = _FakeListing(platform="vrchat")
+        miss = _FakeListing(platform="neos")
+        self.assertEqual(len(self.store.find_matches(hit)), 1)
+        self.assertEqual(len(self.store.find_matches(miss)), 0)
+
+    def test_find_matches_platform_filter_case_insensitive(self):
+        ss = self.store.create("u1", "VRChat", filters={"platform": "VRChat"})
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        listing = _FakeListing(platform="vrchat")
+        self.assertEqual(len(self.store.find_matches(listing)), 1)
+
+    def test_find_matches_platform_no_attribute_excluded(self):
+        """Listing with no platform attribute is excluded when a platform filter is set."""
+        ss = self.store.create("u1", "VRC Only", filters={"platform": "vrchat"})
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+
+        class _NoPlatform:
+            name = "Test"
+            category = "vrc"
+            tags = []
+            is_free = True
+            price_credits = 0
+
+        self.assertEqual(len(self.store.find_matches(_NoPlatform())), 0)
+
+    def test_find_matches_no_platform_filter_matches_any_platform(self):
+        """No platform filter must not exclude listings with any platform value."""
+        ss = self.store.create("u1", "All Platforms", query="test")
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        for p in ("vrchat", "neos", "ar", ""):
+            listing = _FakeListing(name="test avatar", platform=p)
+            self.assertEqual(len(self.store.find_matches(listing)), 1,
+                             f"platform={p!r} should match when no platform filter is set")
 
     def test_find_matches_sees_updated_query(self):
         """find_matches() must read the current query/filters atomically."""
