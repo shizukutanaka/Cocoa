@@ -1688,16 +1688,12 @@ class MarketplaceStore:
                 if d.listing_id == listing_id and d.buyer_id == buyer_id:
                     raise ValueError("この購入に対する争議は既に存在します")
             # Dispute the amount the buyer ACTUALLY paid (the most recent
-            # purchase ledger entry for this listing), not the list price —
-            # a promo/bundle discount means they paid less, and refunding the
-            # full price would over-compensate the buyer and over-charge the
-            # seller on clawback.  Fall back to the list price if no purchase
-            # entry is found.
-            # NOTE: eligibility is checked AFTER the ledger scan so that a
-            # buyer who paid for a listing that was later made free can still
-            # dispute; the current listing state is irrelevant — what matters
-            # is what the buyer actually paid.
-            paid = listing.price_credits
+            # purchase ledger entry for this listing), not the list price.
+            # Default 0: a promo-covered download (actual_price rounded to 0)
+            # leaves no ledger entry, so it should be rejected as "free".
+            # Paid-then-made-free listings still have their original entry and
+            # are correctly allowed through.
+            paid = 0
             for entry in reversed(self._credit_ledger.get(buyer_id, [])):
                 if entry.get("kind") == "purchase" and entry.get("ref_id") == listing_id:
                     paid = -entry["amount"]

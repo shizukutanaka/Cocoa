@@ -1792,6 +1792,44 @@ class TestPurchaseDisputes(unittest.TestCase):
         # Dispute untouched so an admin can still release it.
         self.assertEqual(self.store.get_disputes(status="open")["total"], 1)
 
+    def test_dispute_blocked_when_promo_zeroed_price(self):
+        """A 99% promo on a 10-credit listing produces actual_price=0.
+        No ledger entry is created, so open_dispute must reject it as free
+        rather than falling back to the list price (which would grant a
+        refund the buyer never paid)."""
+        listing = _listing(
+            self.store, avatar_id="av_zero_promo", owner_id="u_szp_seller",
+            owner_username="szp_seller", name="Tiny Avatar", description="",
+            tags=[], category="vrc", parameters={}, is_free=False,
+            price_credits=10,
+        )
+        # 99% off a 10-credit listing → int(10 * 1/100) = 0
+        self.store.create_promo_code("u_szp_seller", "ALMOSTFREE", 99,
+                                     listing_id=listing.listing_id)
+        self.store.add_credits("u_szp_buyer", 200)
+        result = self.store.download(
+            listing.listing_id, "u_szp_buyer", promo_code="ALMOSTFREE"
+        )
+        self.assertEqual(result["amount_paid"], 0)  # buyer paid nothing
+        with self.assertRaises(ValueError):
+            self.store.open_dispute(listing.listing_id, "u_szp_buyer", "other")
+
+    def test_dispute_allowed_when_promo_left_nonzero_price(self):
+        """A 50% promo on a 100-credit listing still leaves actual_price=50.
+        A ledger entry exists, so open_dispute must succeed with amount=50."""
+        listing = _listing(
+            self.store, avatar_id="av_half_promo", owner_id="u_shp_seller",
+            owner_username="shp_seller", name="Half Avatar", description="",
+            tags=[], category="vrc", parameters={}, is_free=False,
+            price_credits=100,
+        )
+        self.store.create_promo_code("u_shp_seller", "HALF50", 50,
+                                     listing_id=listing.listing_id)
+        self.store.add_credits("u_shp_buyer", 200)
+        self.store.download(listing.listing_id, "u_shp_buyer", promo_code="HALF50")
+        dispute = self.store.open_dispute(listing.listing_id, "u_shp_buyer", "other")
+        self.assertEqual(dispute.amount_credits, 50)
+
 
 class TestPurchaseRefundLedger(unittest.TestCase):
     def setUp(self):
