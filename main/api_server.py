@@ -1840,6 +1840,30 @@ async def clone_listing(listing_id: str, current_user: dict = Depends(get_curren
             current_user["user_id"],
             current_user.get("username", "unknown"),
         )
+        if get_search_index:
+            get_search_index().index_from_dict({
+                "doc_id": cloned.listing_id,
+                "owner_id": cloned.owner_id,
+                "name": cloned.name,
+                "description": cloned.description,
+                "tags": cloned.tags,
+                "category": cloned.category,
+                "platform": cloned.platform,
+                "parameters": cloned.parameters,
+                "is_public": cloned.is_active,
+            })
+        if get_saved_search_store and get_notification_queue:
+            matches = get_saved_search_store().find_matches(cloned)
+            notified_ids = {current_user["user_id"]}
+            for ss in matches:
+                if ss.user_id not in notified_ids:
+                    get_notification_queue().push(
+                        ss.user_id, "saved_search_match",
+                        title="保存検索に一致するアバターが公開されました",
+                        body=f"「{ss.name}」の検索条件に一致: {cloned.name}",
+                        payload={"listing_id": cloned.listing_id, "search_id": ss.search_id},
+                    )
+                    notified_ids.add(ss.user_id)
         return {"status": "cloned", "listing": cloned.to_dict()}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e

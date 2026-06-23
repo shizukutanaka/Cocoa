@@ -3,7 +3,7 @@ import asyncio
 import os
 import sys
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "main"))
 
@@ -240,6 +240,126 @@ class TestLegacyApiSecret(unittest.TestCase):
         self.assertTrue(api_server._verify_legacy_api_secret("s3kr3t-configured"))
         self.assertFalse(api_server._verify_legacy_api_secret("default-secret"))
         self.assertFalse(api_server._verify_legacy_api_secret("wrong"))
+
+
+class TestCloneListingSearchAndNotify(unittest.TestCase):
+    """clone_listing endpoint must register in SearchIndex and fire saved-search
+    notifications — identical to what publish_listing does — so cloned avatars
+    are immediately discoverable and watchers are alerted."""
+
+    def _fake_cloned(self):
+        listing = MagicMock()
+        listing.listing_id = "cloned-lid"
+        listing.owner_id = "u2"
+        listing.name = "Cool Clone"
+        listing.description = "cloned avatar"
+        listing.tags = ["vrc"]
+        listing.category = "vrc"
+        listing.platform = "vrchat"
+        listing.parameters = {}
+        listing.is_active = True
+        listing.to_dict.return_value = {"listing_id": "cloned-lid"}
+        return listing
+
+    def test_clone_registers_in_search_index(self):
+        fake = self._fake_cloned()
+        mock_mp = MagicMock()
+        mock_mp.clone_listing.return_value = fake
+        mock_idx = MagicMock()
+
+        with patch.object(api_server, "get_marketplace", lambda: mock_mp), \
+             patch.object(api_server, "get_search_index", lambda: mock_idx), \
+             patch.object(api_server, "get_saved_search_store", None), \
+             patch.object(api_server, "get_notification_queue", None):
+            asyncio.run(api_server.clone_listing(
+                "src-lid", {"user_id": "u2", "username": "bob"}
+            ))
+
+        mock_idx.index_from_dict.assert_called_once()
+        doc = mock_idx.index_from_dict.call_args[0][0]
+        self.assertEqual(doc["doc_id"], "cloned-lid")
+        self.assertEqual(doc["platform"], "vrchat")
+        self.assertTrue(doc["is_public"])
+
+    def test_clone_sends_saved_search_notification(self):
+        fake = self._fake_cloned()
+        mock_mp = MagicMock()
+        mock_mp.clone_listing.return_value = fake
+
+        ss = MagicMock()
+        ss.search_id = "ss-1"
+        ss.user_id = "u3"
+        ss.name = "VRC Search"
+        mock_store = MagicMock()
+        mock_store.find_matches.return_value = [ss]
+        mock_queue = MagicMock()
+
+        with patch.object(api_server, "get_marketplace", lambda: mock_mp), \
+             patch.object(api_server, "get_search_index", None), \
+             patch.object(api_server, "get_saved_search_store", lambda: mock_store), \
+             patch.object(api_server, "get_notification_queue", lambda: mock_queue):
+            asyncio.run(api_server.clone_listing(
+                "src-lid", {"user_id": "u2", "username": "bob"}
+            ))
+
+        mock_store.find_matches.assert_called_once_with(fake)
+        mock_queue.push.assert_called_once()
+        args = mock_queue.push.call_args[0]
+        self.assertEqual(args[0], "u3")
+        self.assertEqual(args[1], "saved_search_match")
+
+    def test_clone_does_not_notify_the_cloner(self):
+        """The cloner must be excluded from saved-search notifications even if
+        they have a matching saved search, consistent with publish_listing."""
+        fake = self._fake_cloned()
+        mock_mp = MagicMock()
+        mock_mp.clone_listing.return_value = fake
+
+        ss = MagicMock()
+        ss.search_id = "ss-2"
+        ss.user_id = "u2"   # same as cloner
+        ss.name = "My Search"
+        mock_store = MagicMock()
+        mock_store.find_matches.return_value = [ss]
+        mock_queue = MagicMock()
+
+        with patch.object(api_server, "get_marketplace", lambda: mock_mp), \
+             patch.object(api_server, "get_search_index", None), \
+             patch.object(api_server, "get_saved_search_store", lambda: mock_store), \
+             patch.object(api_server, "get_notification_queue", lambda: mock_queue):
+            asyncio.run(api_server.clone_listing(
+                "src-lid", {"user_id": "u2", "username": "bob"}
+            ))
+
+        mock_queue.push.assert_not_called()
+
+    def test_clone_no_duplicate_notifications_for_same_user(self):
+        """A user with two matching saved searches gets only one notification."""
+        fake = self._fake_cloned()
+        mock_mp = MagicMock()
+        mock_mp.clone_listing.return_value = fake
+
+        ss1 = MagicMock()
+        ss1.search_id = "ss-a"
+        ss1.user_id = "u3"
+        ss1.name = "Search A"
+        ss2 = MagicMock()
+        ss2.search_id = "ss-b"
+        ss2.user_id = "u3"
+        ss2.name = "Search B"
+        mock_store = MagicMock()
+        mock_store.find_matches.return_value = [ss1, ss2]
+        mock_queue = MagicMock()
+
+        with patch.object(api_server, "get_marketplace", lambda: mock_mp), \
+             patch.object(api_server, "get_search_index", None), \
+             patch.object(api_server, "get_saved_search_store", lambda: mock_store), \
+             patch.object(api_server, "get_notification_queue", lambda: mock_queue):
+            asyncio.run(api_server.clone_listing(
+                "src-lid", {"user_id": "u2", "username": "bob"}
+            ))
+
+        self.assertEqual(mock_queue.push.call_count, 1)
 
 
 if __name__ == "__main__":
