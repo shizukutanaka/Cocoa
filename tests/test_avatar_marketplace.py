@@ -68,6 +68,23 @@ class TestPublish(unittest.TestCase):
         listing = _listing(store)
         self.assertEqual(listing.license_type, "personal")
 
+    def test_platform_stored_and_lowercased(self):
+        store = _store()
+        listing = _listing(store, platform="VRChat")
+        self.assertEqual(listing.platform, "vrchat")
+
+    def test_platform_in_to_dict(self):
+        store = _store()
+        listing = _listing(store, platform="neos")
+        d = listing.to_dict()
+        self.assertIn("platform", d)
+        self.assertEqual(d["platform"], "neos")
+
+    def test_platform_default_empty(self):
+        store = _store()
+        listing = _listing(store)
+        self.assertEqual(listing.platform, "")
+
     def test_custom_license_stored(self):
         store = _store()
         listing = _listing(store, license_type="cc_by", license_details="Attribution required")

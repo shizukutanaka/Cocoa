@@ -1693,6 +1693,7 @@ async def publish_avatar(body: PublishRequest, current_user: dict = Depends(get_
             price_credits=body.price_credits,
             license_type=body.license_type,
             license_details=body.license_details,
+            platform=body.platform,
         )
         # Also index for search
         if get_search_index:

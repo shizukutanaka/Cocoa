@@ -71,6 +71,7 @@ class MarketplaceListing:
     category: str
     parameters: Dict[str, Any]
     thumbnail_url: str
+    platform: str = ""            # e.g. "vrchat", "neos", "resonite"
     is_free: bool = True
     price_credits: int = 0
     license_type: str = "personal"  # personal | cc_by | cc_by_sa | commercial | custom
@@ -106,6 +107,7 @@ class MarketplaceListing:
             "description": self.description,
             "tags": self.tags,
             "category": self.category,
+            "platform": self.platform,
             "thumbnail_url": self.thumbnail_url,
             "is_free": self.is_free,
             "price_credits": self.price_credits,
@@ -745,12 +747,14 @@ class MarketplaceStore:
         price_credits: int = 0,
         license_type: str = "personal",
         license_details: str = "",
+        platform: str = "",
     ) -> MarketplaceListing:
         # Normalize all string fields once before use so both the listing and the
         # initial version record store the same bounded values.
         name = name.strip()[:200]
         description = description.strip()[:2000]
         category = category.strip()[:50]
+        platform = platform.strip().lower()[:50]
         thumbnail_url = thumbnail_url.strip()[:500]
         owner_username = owner_username.strip()[:100]
         license_details = license_details.strip()[:500]
@@ -792,6 +796,7 @@ class MarketplaceStore:
                 description=description,
                 tags=tags,
                 category=category,
+                platform=platform,
                 parameters=parameters,
                 thumbnail_url=thumbnail_url,
                 is_free=is_free,

@@ -340,6 +340,27 @@ class TestSavedSearchNotify(unittest.TestCase):
         matches = self.store.find_matches(listing)
         self.assertEqual(matches, [])
 
+    def test_find_matches_platform_with_marketplace_listing(self):
+        """Platform filter must work against real MarketplaceListing objects, not
+        just the _FakeListing stub.  Before MarketplaceListing gained a platform
+        field, getattr fell back to '' and all platform filters were silent-ignored."""
+        from avatar_marketplace import MarketplaceStore
+        mp = MarketplaceStore()
+        listing = mp.publish(
+            "av_vrchat", "creator1", "alice", "VRChat Avatar", "for vrchat",
+            ["vrc"], "vrc", {}, platform="vrchat",
+        )
+        ss = self.store.create("u1", "VRChat Only", filters={"platform": "vrchat"})
+        self.store.set_notify_on_match("u1", ss.search_id, True)
+        matches = self.store.find_matches(listing)
+        self.assertEqual(len(matches), 1)
+        # A listing published for a different platform must not match
+        other = mp.publish(
+            "av_neos", "creator1", "alice", "Neos Avatar", "for neos",
+            ["neos"], "neos", {}, platform="neos",
+        )
+        self.assertEqual(len(self.store.find_matches(other)), 0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
