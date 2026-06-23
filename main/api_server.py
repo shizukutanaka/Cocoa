@@ -3243,6 +3243,20 @@ async def transfer_listing(
             new_owner_id=body.new_owner_id,
             new_owner_username=body.new_owner_username,
         )
+        # Re-index so the secondary search engine's owner_id field reflects
+        # the new owner; otherwise the old owner can still see the listing in
+        # their private search results and the new owner cannot.
+        if get_search_index:
+            get_search_index().index_from_dict({
+                "doc_id": listing.listing_id,
+                "name": listing.name,
+                "description": listing.description,
+                "tags": listing.tags,
+                "category": listing.category,
+                "platform": listing.platform,
+                "owner_id": listing.owner_id,
+                "is_public": listing.is_active,
+            })
         return listing.to_dict()
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
