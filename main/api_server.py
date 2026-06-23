@@ -3625,6 +3625,13 @@ async def close_commission(
         raise HTTPException(status_code=503, detail="コミッションモジュールが利用できません")
     try:
         req = get_commission_store().close(current_user["user_id"], request_id)
+        if get_notification_queue:
+            get_notification_queue().push(
+                req.creator_id, "commission_closed",
+                title="コミッションがクローズされました",
+                body=f"「{req.title}」が依頼者によりクローズされました",
+                payload={"request_id": request_id},
+            )
         return req.to_dict()
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e

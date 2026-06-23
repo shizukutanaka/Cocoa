@@ -226,7 +226,7 @@ class TestNotificationPreferences(unittest.TestCase):
         # Kinds pushed directly (not via a template) must be mutable too —
         # these are the ones users most want to control.
         direct = ["price_drop", "tip_received", "commission_received",
-                  "commission_response", "commission_delivered",
+                  "commission_response", "commission_delivered", "commission_closed",
                   "saved_search_match", "system"]
         self.q.set_muted_kinds("u1", direct)
         muted = self.q.get_muted_kinds("u1")
@@ -243,6 +243,16 @@ class TestNotificationPreferences(unittest.TestCase):
     def test_muting_tip_via_set_actually_suppresses(self):
         self.q.set_muted_kinds("u1", ["tip_received"])
         self.assertIsNone(self.q.push("u1", "tip_received", "T", "B"))
+
+    def test_commission_closed_is_pushable(self):
+        result = self.q.push("creator1", "commission_closed", "クローズ", "依頼がクローズされました")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.kind, "commission_closed")
+
+    def test_muting_commission_closed_suppresses(self):
+        self.q.set_muted_kinds("creator1", ["commission_closed"])
+        result = self.q.push("creator1", "commission_closed", "クローズ", "依頼がクローズされました")
+        self.assertIsNone(result)
 
 
 class TestNotificationTemplates(unittest.TestCase):
