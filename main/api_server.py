@@ -1752,6 +1752,7 @@ async def browse_marketplace(
     max_price: Optional[int] = Query(None, ge=0),
     license_type: Optional[str] = Query(None, description="ライセンス種別フィルタ"),
     owner_id: Optional[str] = Query(None, description="クリエイターIDフィルタ"),
+    platform: Optional[str] = Query(None, description="プラットフォームフィルタ (vrchat, neos, …)"),
     facets: bool = Query(False, description="カテゴリ・タグ・ライセンスのファセット集計を返す"),
 ):
     """マーケットプレイスを閲覧（認証不要）"""
@@ -1764,6 +1765,7 @@ async def browse_marketplace(
         limit=limit, offset=offset,
         is_free=is_free, min_price=min_price, max_price=max_price,
         license_type=license_type, owner_id=owner_id,
+        platform=platform,
         include_facets=facets,
     )
 

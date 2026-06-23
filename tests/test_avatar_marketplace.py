@@ -1029,6 +1029,33 @@ class TestSearch(unittest.TestCase):
             self.assertGreaterEqual(item["price_credits"], 500)
             self.assertLessEqual(item["price_credits"], 500)
 
+    def test_search_platform_filter_hit(self):
+        store = _store()
+        store.publish("av_vrc", "u1", "alice", "VRC Avatar", "", [], "vrc", {}, platform="vrchat")
+        store.publish("av_neos", "u1", "alice", "Neos Avatar", "", [], "neos", {}, platform="neos")
+        r = store.search(platform="vrchat")
+        self.assertEqual(r["total"], 1)
+        self.assertEqual(r["items"][0]["platform"], "vrchat")
+
+    def test_search_platform_filter_case_insensitive(self):
+        store = _store()
+        store.publish("av_vrc", "u1", "alice", "VRC Avatar", "", [], "vrc", {}, platform="vrchat")
+        r = store.search(platform="VRChat")
+        self.assertEqual(r["total"], 1)
+
+    def test_search_platform_filter_no_match(self):
+        store = _store()
+        store.publish("av_vrc", "u1", "alice", "VRC Avatar", "", [], "vrc", {}, platform="vrchat")
+        r = store.search(platform="resonite")
+        self.assertEqual(r["total"], 0)
+
+    def test_search_no_platform_filter_returns_all_platforms(self):
+        store = _store()
+        store.publish("av_vrc", "u1", "alice", "VRC Avatar", "", [], "vrc", {}, platform="vrchat")
+        store.publish("av_neos", "u1", "alice", "Neos Avatar", "", [], "neos", {}, platform="neos")
+        r = store.search()
+        self.assertEqual(r["total"], 2)
+
 
 class TestCreatorAnalytics(unittest.TestCase):
     def setUp(self):

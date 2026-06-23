@@ -1365,6 +1365,7 @@ class MarketplaceStore:
         max_price: Optional[int] = None,        # inclusive maximum price_credits
         license_type: Optional[str] = None,     # filter by license_type exact match
         owner_id: Optional[str] = None,         # filter by owner
+        platform: Optional[str] = None,         # filter by platform (case-insensitive)
         include_facets: bool = False,            # if True, include category/tag/license breakdowns
     ) -> Dict[str, Any]:
         query = query[:200]  # cap before any O(n) allocation
@@ -1393,6 +1394,10 @@ class MarketplaceStore:
 
             if license_type:
                 results = [lst for lst in results if lst.license_type == license_type]
+
+            if platform:
+                plat_lower = platform.lower()
+                results = [lst for lst in results if lst.platform.lower() == plat_lower]
 
             # Price filters
             if is_free is not None:
