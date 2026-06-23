@@ -214,7 +214,7 @@ class TestRedisCacheManagerTtlCheck(unittest.TestCase):
 
     def _make_redis_mgr(self):
         """Build a RedisCacheManager with a mocked async redis client."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import AsyncMock, patch
         from redis_cache_manager import RedisCacheManager
         with patch.object(RedisCacheManager, '__init__', lambda self: None):
             mgr = RedisCacheManager.__new__(RedisCacheManager)
@@ -263,7 +263,7 @@ class TestRedisCachedSyncNoLeakedTasks(unittest.TestCase):
 
     def test_cached_sync_does_not_raise_inside_running_loop(self):
         """cached_sync function must return the correct value from an async context."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import AsyncMock, patch
         from redis_cache_manager import RedisCacheManager
 
         with patch.object(RedisCacheManager, '__init__', lambda self: None):

@@ -203,8 +203,8 @@ class TestTOTPReplayProtection(unittest.TestCase):
         with patch.object(mgr, '_get_user_secret', return_value=secret):
             totp = TOTPGenerator(secret)
             valid_token = totp.generate_token()
-            # First call must succeed
-            result1 = mgr.verify_2fa_token.__func__(mgr, 99, valid_token)
+            # First call must succeed (consume the token)
+            mgr.verify_2fa_token.__func__(mgr, 99, valid_token)
         # We need the patch active for both calls — re-do with longer context
         mgr2 = TwoFactorAuthManager(secret_key="replay_test_key_abc123")
         return mgr2, secret

@@ -182,11 +182,8 @@ class TestCompletionRateClamped(unittest.TestCase):
     """
 
     def test_completion_rate_never_exceeds_1(self):
-        from video_analytics import VideoMetrics
-        m = VideoMetrics(video_id="v1")
-        # Simulate more completes than plays by manual assignment
-        # (the real code clamps; here we verify the field can't exceed 1.0 after the fix)
-        # We test via the formula itself
+        # Verify the completion-rate formula clamps at 1.0 even when there are
+        # more complete events than play events.
         complete_events = [1, 2, 3]  # 3 complete events
         play_events = [1]            # only 1 play event
         # With the fix: min(3/1, 1.0) == 1.0

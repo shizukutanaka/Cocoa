@@ -248,7 +248,7 @@ class TestCommissionQuota(unittest.TestCase):
         store = CommissionStore()
         from commissions import _MAX_COMMISSIONS_PER_USER
         for i in range(_MAX_COMMISSIONS_PER_USER):
-            store.create(f"u1", "alice", f"creator{i}", "Title", "desc")
+            store.create("u1", "alice", f"creator{i}", "Title", "desc")
         with self.assertRaises(ValueError):
             store.create("u1", "alice", "creator_extra", "Title", "desc")
 

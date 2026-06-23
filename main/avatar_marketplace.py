@@ -366,6 +366,12 @@ class MarketplaceStore:
         self._votes: Dict[str, Dict[str, int]] = {}  # listing_id → {user_id: stars}
         self._reviews: Dict[str, Dict[str, Review]] = {}  # listing_id → {user_id: Review}
         self._download_log: List[Tuple[str, str, datetime, int]] = []  # (listing_id, downloader_id, ts, amount_paid)
+        # Records the seller who actually received the proceeds for a paid
+        # purchase, keyed by (buyer_id, listing_id). A dispute must claw the
+        # refund back from THIS seller, not from listing.owner_id — the listing
+        # may have been transferred to a new owner after the sale, and clawing
+        # back from the new owner would debit someone who never got the money.
+        self._purchase_seller: Dict[Tuple[str, str], str] = {}
         # Ownership index: user_id → set of downloaded listing_ids. Maintained
         # alongside _download_log so "has user X downloaded listing Y?" is O(1)
         # instead of an O(total_downloads) scan of the log on hot paths.
@@ -959,6 +965,9 @@ class MarketplaceStore:
                 # single money primitive so neither side can be forgotten.
                 self._debit_locked(downloader_id, actual_price, "purchase", ref_id=listing_id)
                 self._credit_locked(listing.owner_id, actual_price, "sale", ref_id=listing_id)
+                # Remember who got the proceeds so a later dispute claws back
+                # from the actual seller even if ownership is transferred.
+                self._purchase_seller[(downloader_id, listing_id)] = listing.owner_id
                 if applied_promo:
                     applied_promo.uses_count += 1
             elif paid and applied_promo:
@@ -1695,11 +1704,16 @@ class MarketplaceStore:
                     break
             if paid <= 0:
                 raise ValueError("無料リスティングは争議の対象外です")
+            # Claw back from the seller who ACTUALLY received the proceeds at
+            # purchase time, not the current owner — the listing may have been
+            # transferred since the sale. Fall back to the current owner only if
+            # no purchase-seller record exists (legacy data / pre-fix sales).
+            seller_id = self._purchase_seller.get((buyer_id, listing_id), listing.owner_id)
             dispute = PurchaseDispute(
                 dispute_id=secrets.token_hex(8),
                 listing_id=listing_id,
                 buyer_id=buyer_id,
-                seller_id=listing.owner_id,
+                seller_id=seller_id,
                 amount_credits=paid,
                 reason=reason,
                 details=details,

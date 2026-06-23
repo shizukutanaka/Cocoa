@@ -117,7 +117,6 @@ class TestOptimizeForEdgeAiNullGuard(unittest.IsolatedAsyncioTestCase):
         mock_route.optimal_nodes = ["n1"]
         mock_global = MagicMock()
         # find_optimal_route is async
-        import asyncio
         async def fake_find(*a, **kw):
             return mock_route
         mock_global.find_optimal_route = fake_find

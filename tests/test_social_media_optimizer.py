@@ -155,8 +155,7 @@ class TestOptimizeForPlatformsUnsupportedPlatform(unittest.IsolatedAsyncioTestCa
         return opt
 
     async def test_unsupported_platform_does_not_crash(self):
-        import asyncio
-        from social_media_optimizer import OptimizationRequest, SocialMediaOptimizer
+        from social_media_optimizer import OptimizationRequest
         opt = self._make_optimizer()
         # Only youtube is "supported"
         from social_media_optimizer import PlatformSpec

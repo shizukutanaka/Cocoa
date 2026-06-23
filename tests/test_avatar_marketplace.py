@@ -1673,6 +1673,42 @@ class TestPurchaseDisputes(unittest.TestCase):
         self.assertEqual(self.store.get_balance("u_pb"), 200)
         self.assertEqual(self.store.get_balance("u_seller3"), 0)
 
+    def test_dispute_after_transfer_claws_back_from_original_seller(self):
+        """If a listing is transferred AFTER a paid purchase, a dispute refund
+        must claw the proceeds back from the seller who actually received them
+        (the original owner), NOT the new owner who never got the money."""
+        # u_buyer already bought paid_listing from u_seller in setUp.
+        # Transfer ownership to a new owner (balance defaults to 0).
+        self.store.transfer_listing(
+            self.paid_listing.listing_id, "u_seller", "u_new_owner", "newowner"
+        )
+        seller_before = self.store.get_balance("u_seller")       # got 50 from sale
+        new_owner_before = self.store.get_balance("u_new_owner")  # got nothing
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        # The dispute must target the original seller, not the new owner.
+        self.assertEqual(dispute.seller_id, "u_seller")
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        # Original seller is debited the 50 they earned; new owner is untouched.
+        self.assertEqual(self.store.get_balance("u_seller"), seller_before - 50)
+        self.assertEqual(self.store.get_balance("u_new_owner"), new_owner_before)
+        # And total credits stay conserved.
+        self.assertTrue(self.store.verify_ledger_integrity()["consistent"])
+
+    def test_dispute_after_transfer_conserves_credits(self):
+        """The transfer-aware clawback must keep the system zero-sum."""
+        self.store.transfer_listing(
+            self.paid_listing.listing_id, "u_seller", "u_new_owner2", "newowner2"
+        )
+        total_before = sum(self.store._credits.values())
+        dispute = self.store.open_dispute(
+            self.paid_listing.listing_id, "u_buyer", "not_as_described"
+        )
+        self.store.resolve_dispute(dispute.dispute_id, "admin1", "refund")
+        total_after = sum(self.store._credits.values())
+        self.assertEqual(total_before, total_after)
+
     def test_get_disputes_returns_paginated(self):
         self.store.open_dispute(self.paid_listing.listing_id, "u_buyer", "other")
         result = self.store.get_disputes()
@@ -2133,9 +2169,7 @@ class TestCloneListing(unittest.TestCase):
         A concurrent update_listing that changes license_type="personal" between
         the check and the publish() call must not bypass the cc_by/cc_by_sa gate
         — the clone must carry the license that was verified, not the live value."""
-        import threading
         lid = self.cc_listing.listing_id
-        cloned_holder = []
 
         # clone_listing: check passes (cc_by), then update_listing runs, then publish
         # We simulate this by having the clone complete first (it snapshots the value)

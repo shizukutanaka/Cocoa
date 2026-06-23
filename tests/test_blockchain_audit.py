@@ -148,7 +148,7 @@ class TestBlockchainAuditMiningTaskRetained(unittest.IsolatedAsyncioTestCase):
 
     async def test_initialize_stores_background_task(self):
         import asyncio
-        from unittest.mock import patch, AsyncMock, MagicMock
+        from unittest.mock import patch, AsyncMock
         with patch('pathlib.Path.mkdir'), \
              patch('pathlib.Path.exists', return_value=False), \
              patch('blockchain_audit.BlockchainAuditManager._load_existing_blockchain', new_callable=AsyncMock), \
