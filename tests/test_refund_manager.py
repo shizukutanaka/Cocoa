@@ -438,6 +438,45 @@ class TestRefundClawback(unittest.TestCase):
         self.assertEqual(mkt._credits["s2"], 0)
         self.assertEqual(result["reclaimed_from_sellers"], 500)
 
+    def test_unitemized_order_refund_conserves_total_via_subsidy(self):
+        # An order with no itemized data (e.g. evicted from the per-user order
+        # cap before approval) has no seller to claw back from. The buyer is
+        # still refunded the recorded total, but the platform must absorb the
+        # full amount as a subsidy so the refund is zero-sum system-wide rather
+        # than minting credits from nothing.
+        order = _FakeOrder("o1", "u1", 400, items=[])  # no items
+        cart = _FakeCartManager([order])
+        mkt = _FakeMarketplace(credits={"u1": 0})
+        mgr = RefundManager()
+        mgr.request_refund("u1", "o1", "want refund", cart)
+        rid = mgr.store.list_requests()["items"][0]["request_id"]
+        total_before = sum(mkt._credits.values())
+        result = mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        self.assertEqual(result["credits_returned"], 400)
+        self.assertEqual(mkt._credits["u1"], 400)            # buyer refunded
+        self.assertEqual(mkt._credits["__platform__"], -400)  # platform absorbs
+        self.assertEqual(sum(mkt._credits.values()), total_before)  # conserved
+        subsidy = next(e for e in mkt._ledger if e["kind"] == "refund_subsidy")
+        self.assertEqual(subsidy["delta"], -400)
+
+    def test_missing_order_refund_conserves_total_via_subsidy(self):
+        # The order is gone entirely by approval time (get_order returns None).
+        # Falls back to the recorded total and books a full platform subsidy.
+        order = _FakeOrder("o1", "u1", 250, items=[])
+        cart = _FakeCartManager([order])
+        mkt = _FakeMarketplace(credits={"u1": 0})
+        mgr = RefundManager()
+        mgr.request_refund("u1", "o1", "want refund", cart)
+        rid = mgr.store.list_requests()["items"][0]["request_id"]
+        # Evict the order after the request is filed but before approval.
+        del cart.store._orders["o1"]
+        total_before = sum(mkt._credits.values())
+        result = mgr.approve_refund(_admin_payload(), rid, mkt, cart)
+        self.assertEqual(result["credits_returned"], 250)
+        self.assertEqual(mkt._credits["u1"], 250)
+        self.assertEqual(mkt._credits["__platform__"], -250)
+        self.assertEqual(sum(mkt._credits.values()), total_before)
+
 
 class TestRefundConcurrency(unittest.TestCase):
     """Concurrent approvals must not double-refund (TOCTOU on status)."""

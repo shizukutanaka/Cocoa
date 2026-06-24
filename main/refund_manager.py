@@ -295,9 +295,15 @@ class RefundManager:
                         req.order_id, item.owner_id, owed, claw,
                     )
         else:
-            # No itemized data (order missing or unitemized) — can't cross-check
-            # against disputes, so fall back to refunding the recorded total.
+            # No itemized data (order missing/evicted or unitemized) — can't
+            # cross-check against disputes or identify which sellers to claw
+            # back from, so fall back to refunding the recorded total. With no
+            # seller to debit, the platform must absorb the ENTIRE amount as a
+            # subsidy (booked below), or these credits would be minted from
+            # nothing and inflate the system-wide supply (the itemized path is
+            # zero-sum; this branch must be too).
             buyer_refund = req.total_credits
+            shortfall = buyer_refund
         # Book any unreclaimed amount as a platform subsidy so the refund is
         # zero-sum across all accounts and the injection is audited (not a
         # silent system-wide credit injection).
