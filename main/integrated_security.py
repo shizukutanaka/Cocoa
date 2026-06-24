@@ -1062,7 +1062,7 @@ class IntegratedSecurityManager:
             if unlock_time > now:
                 active.append({
                     'user_id': user_id,
-                    'unlock_at': datetime.fromtimestamp(unlock_time).isoformat(),
+                    'unlock_at': datetime.fromtimestamp(unlock_time, tz=timezone.utc).isoformat(),
                     'remaining_seconds': int(unlock_time - now)
                 })
 
