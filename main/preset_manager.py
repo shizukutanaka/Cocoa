@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 from pathlib import Path
@@ -223,11 +224,14 @@ class PresetManager:
             self.logger.warning(f"Preset not found in cache: {preset_name}")
             return None
 
-        return self.presets[preset_name].copy()
+        # Deep copy so callers mutating nested values (e.g. the 'parameters'
+        # list) cannot corrupt the in-memory cache. A shallow .copy() shares
+        # nested mutable objects by reference -- the classic shallow-copy trap.
+        return copy.deepcopy(self.presets[preset_name])
 
     def get_all_presets(self) -> Dict[str, Dict[str, Any]]:
         """Get all loaded presets"""
-        return {k: v.copy() for k, v in self.presets.items()}
+        return {k: copy.deepcopy(v) for k, v in self.presets.items()}
 
     def compare_presets(self, preset1: str, preset2: str) -> Dict[str, Any]:
         """Compare two presets"""
