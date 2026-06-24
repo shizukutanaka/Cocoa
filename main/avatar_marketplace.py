@@ -993,7 +993,7 @@ class MarketplaceStore:
                 pc = self._resolve_promo(promo_code.upper().strip(), listing_id, listing.owner_id)
                 if pc:
                     discount = max(0, min(99, pc.discount_percent))
-                    actual_price = max(0, int(listing.price_credits * (100 - discount) / 100))
+                    actual_price = max(0, listing.price_credits * (100 - discount) // 100)
                     applied_promo = pc
 
             if paid and actual_price > 0:
@@ -2467,7 +2467,7 @@ class MarketplaceStore:
         if not pc:
             return None
         discount = max(0, min(99, pc.discount_percent))
-        discounted = max(0, int(listing.price_credits * (100 - discount) / 100))
+        discounted = max(0, listing.price_credits * (100 - discount) // 100)
         return {
             "code": pc.code,
             "discount_percent": pc.discount_percent,

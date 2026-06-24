@@ -331,7 +331,7 @@ class BundleManager:
                 final_price = 0
             else:
                 unit_price = lst.price_credits
-                final_price = max(0, int(unit_price * (100 - discount) / 100))
+                final_price = max(0, unit_price * (100 - discount) // 100)
 
             # Temporarily create a promo to drive the download at the discounted price
             # We do it by calling download() with the adjusted price via direct credit deduction
