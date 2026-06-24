@@ -786,12 +786,18 @@ class StripeBillingService:
     def _handle_invoice_payment_action_required(self, invoice: Dict[str, Any], event_type: str) -> Dict[str, Any]:
         customer_id = invoice.get("customer")
         existing = self._storage.get_by_customer(customer_id) or {}
+        # Fall back to the stored amount only when the webhook omits the field.
+        # `... or existing` would also discard a legitimate amount_due of 0
+        # (fully-credited invoice), reverting to a stale non-zero balance.
+        amount_due = invoice.get("amount_due")
+        if amount_due is None:
+            amount_due = existing.get("amount_due")
         record = {
             **existing,
             "customer_id": customer_id,
             "status": "action_required",
             "mode": self._config.mode,
-            "amount_due": invoice.get("amount_due") or existing.get("amount_due"),
+            "amount_due": amount_due,
             "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "last_event": event_type,
         }
