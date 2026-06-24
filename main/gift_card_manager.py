@@ -109,8 +109,19 @@ class GiftCardStore:
         if expires_at is not None and expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         with self._lock:
-            count = len(self._purchaser_cards.get(purchaser_id, []))
-            if count >= _MAX_VOUCHERS_PER_USER:
+            # Count only OUTSTANDING (un-redeemed) cards toward the cap,
+            # consistent with the rest of the codebase's per-user limits (API
+            # keys free a slot on revoke; commissions count only pending/accepted;
+            # bookmarks/follows are concurrent caps). Counting redeemed cards
+            # would make this a LIFETIME cap that permanently locks out a heavy
+            # gifter after _MAX_VOUCHERS_PER_USER purchases even if every card
+            # was already used.
+            existing = self._purchaser_cards.get(purchaser_id, [])
+            outstanding = sum(
+                1 for cid in existing
+                if cid in self._cards and not self._cards[cid].is_redeemed
+            )
+            if outstanding >= _MAX_VOUCHERS_PER_USER:
                 raise ValueError(f"ギフトカードは最大{_MAX_VOUCHERS_PER_USER}枚まで作成できます")
             for _ in range(10):
                 code = _generate_code()

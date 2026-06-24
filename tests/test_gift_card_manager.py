@@ -236,6 +236,25 @@ class TestGiftCardStore(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.create("u_heavy", 1)
 
+    def test_redeemed_cards_do_not_count_toward_cap(self):
+        # The per-user cap bounds OUTSTANDING cards, not lifetime creations:
+        # redeeming a card must free a slot so a heavy gifter is never
+        # permanently locked out (regression for the lifetime-cap bug).
+        codes = []
+        for _ in range(_MAX_VOUCHERS_PER_USER):
+            codes.append(self.store.create("u_heavy", 1).code)
+        # At the cap — the next create must fail.
+        with self.assertRaises(ValueError):
+            self.store.create("u_heavy", 1)
+        # Redeem one card (someone other than the purchaser).
+        self.store.redeem(codes[0], "recipient")
+        # A slot is now free — creating one more must succeed.
+        card = self.store.create("u_heavy", 1)
+        self.assertIsNotNone(card.code)
+        # ...but we're back at the cap, so a further create fails again.
+        with self.assertRaises(ValueError):
+            self.store.create("u_heavy", 1)
+
 
 class TestGiftCardManager(unittest.TestCase):
     def setUp(self):
