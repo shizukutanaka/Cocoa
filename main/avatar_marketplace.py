@@ -519,6 +519,18 @@ class MarketplaceStore:
         """O(1) ownership check. Caller holds self._lock."""
         return listing_id in self._downloads_by_user.get(user_id, ())
 
+    def _units_sold_locked(self, listing_id: str) -> int:
+        """Number of distinct buyers who have acquired this listing — i.e. copies
+        actually sold. Caller holds self._lock.
+
+        The download log records only non-owner downloads, and a re-download by an
+        existing owner reuses the same downloader_id, so counting DISTINCT
+        downloader_ids yields units sold. This differs from listing.download_count,
+        which counts every download EVENT (re-downloads included) and therefore
+        over-states units sold whenever a buyer re-downloads what they already own.
+        """
+        return len({did for lid, did, _ts, _ap in self._download_log if lid == listing_id})
+
     def get_downloaded_ids(self, user_id: str) -> Set[str]:
         """Return a copy of the set of listing_ids the user has downloaded."""
         with self._lock:
@@ -1984,7 +1996,13 @@ class MarketplaceStore:
                 listing.stock_limit = None
                 listing.stock_remaining = None
             else:
-                already_sold = listing.download_count
+                # Copies already sold = DISTINCT buyers, not download_count.
+                # download_count counts every download event including
+                # re-downloads of an already-owned copy, so using it here would
+                # over-state sales and silently shrink the remaining stock a
+                # later limit grants (e.g. one buyer re-downloading 3× would
+                # consume 3 of the configured copies instead of 1).
+                already_sold = self._units_sold_locked(listing_id)
                 remaining = max(0, stock_limit - already_sold)
                 listing.stock_limit = stock_limit
                 listing.stock_remaining = remaining

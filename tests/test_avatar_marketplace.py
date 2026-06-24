@@ -3454,6 +3454,29 @@ class TestStockLimit(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.download(self.listing_id, "buyer2")  # different user, blocked
 
+    def test_set_stock_limit_counts_redownloads_as_one_sale(self):
+        # A buyer who re-downloads what they already own inflates download_count
+        # (which counts every download EVENT) but has only consumed ONE copy.
+        # Setting a stock limit afterward must subtract distinct buyers, not
+        # download events, or re-downloads silently eat into the new limit.
+        self.store.download(self.listing_id, "buyer")        # 1 distinct sale
+        self.store.download(self.listing_id, "buyer")        # re-download (event #2)
+        self.store.download(self.listing_id, "buyer")        # re-download (event #3)
+        listing = self.store._listings[self.listing_id]
+        self.assertEqual(listing.download_count, 3)          # 3 events recorded
+        # Owner now caps total copies at 5. One buyer bought → 4 should remain,
+        # NOT 5 - 3 = 2.
+        self.store.set_stock_limit(self.listing_id, "creator", 5)
+        self.assertEqual(listing.stock_remaining, 4)
+
+    def test_set_stock_limit_distinct_buyers_consume_stock(self):
+        # Two DIFFERENT buyers each consume a copy; a later limit of 5 leaves 3.
+        self.store.download(self.listing_id, "buyer")
+        self.store.download(self.listing_id, "buyer2")
+        self.store.set_stock_limit(self.listing_id, "creator", 5)
+        listing = self.store._listings[self.listing_id]
+        self.assertEqual(listing.stock_remaining, 3)
+
 
 class TestEarningsSummary(unittest.TestCase):
     def setUp(self):
