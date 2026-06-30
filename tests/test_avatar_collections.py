@@ -132,13 +132,13 @@ class TestVisibility(unittest.TestCase):
         self.public = self.store.create("u1", "Public", is_public=True)
 
     def test_list_own_shows_all(self):
-        cols = self.store.list_user_collections("u1", requester_id="u1")
-        self.assertEqual(len(cols), 2)
+        result = self.store.list_user_collections("u1", requester_id="u1")
+        self.assertEqual(result["total"], 2)
 
     def test_list_other_shows_only_public(self):
-        cols = self.store.list_user_collections("u1", requester_id="u2")
-        self.assertEqual(len(cols), 1)
-        self.assertEqual(cols[0]["name"], "Public")
+        result = self.store.list_user_collections("u1", requester_id="u2")
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["name"], "Public")
 
     def test_get_public_as_other(self):
         col = self.store.get_public(self.public.collection_id, "u2")
@@ -224,6 +224,134 @@ class TestBrowsePublic(unittest.TestCase):
         result = self.store.browse_public()
         for item in result["items"]:
             self.assertTrue(item["is_public"])
+
+
+class TestListUserCollectionsPagination(unittest.TestCase):
+    """list_user_collections() returns the standard pagination envelope."""
+
+    def setUp(self):
+        self.store = CollectionStore()
+        for i in range(5):
+            self.store.create("u1", f"Col {i}", is_public=(i % 2 == 0))
+
+    def test_returns_pagination_envelope(self):
+        result = self.store.list_user_collections("u1", requester_id="u1")
+        for key in ("total", "offset", "limit", "has_more", "next_offset", "items"):
+            self.assertIn(key, result)
+
+    def test_total_reflects_visibility(self):
+        own = self.store.list_user_collections("u1", requester_id="u1")
+        other = self.store.list_user_collections("u1", requester_id="u2")
+        self.assertEqual(own["total"], 5)
+        self.assertLess(other["total"], 5)  # only public ones
+
+    def test_pagination_slices_correctly(self):
+        p1 = self.store.list_user_collections("u1", requester_id="u1", limit=2, offset=0)
+        p2 = self.store.list_user_collections("u1", requester_id="u1", limit=2, offset=2)
+        self.assertEqual(len(p1["items"]), 2)
+        self.assertTrue(p1["has_more"])
+        self.assertEqual(p2["next_offset"], 4)
+
+    def test_has_more_false_on_last_page(self):
+        result = self.store.list_user_collections("u1", requester_id="u1", limit=10, offset=0)
+        self.assertFalse(result["has_more"])
+        self.assertIsNone(result["next_offset"])
+
+
+class _FakeListing:
+    def __init__(self, listing_id, name, price, owner, is_active=True, stock=None):
+        self.listing_id = listing_id
+        self.name = name
+        self.price_credits = price
+        self.owner_id = owner
+        self.is_active = is_active
+        self.stock_remaining = stock
+
+
+class _FakeMarketplace:
+    def __init__(self, listings):
+        import threading
+        self._lock = threading.Lock()
+        self._listings = {lst.listing_id: lst for lst in listings}
+
+
+class TestGetItemsWithStatus(unittest.TestCase):
+    """get_items_with_status() enriches item_ids with live marketplace data."""
+
+    def setUp(self):
+        self.store = CollectionStore()
+        self.col = self.store.create("u1", "My Faves", is_public=True)
+        self.store.add_item(self.col.collection_id, "u1", "L-active")
+        self.store.add_item(self.col.collection_id, "u1", "L-soldout")
+        self.store.add_item(self.col.collection_id, "u1", "L-delisted")
+        self.mp = _FakeMarketplace([
+            _FakeListing("L-active",   "Active Hat",   500, "seller1", is_active=True,  stock=None),
+            _FakeListing("L-soldout",  "Sold-Out Cape", 300, "seller1", is_active=True,  stock=0),
+            _FakeListing("L-delisted", "Gone Jacket",  200, "seller2", is_active=False),
+        ])
+
+    def _get(self, uid="u1", limit=50, offset=0):
+        return self.store.get_items_with_status(
+            self.col.collection_id, uid, self.mp, limit=limit, offset=offset
+        )
+
+    def test_returns_pagination_envelope(self):
+        result = self._get()
+        for key in ("total", "offset", "limit", "has_more", "next_offset", "items"):
+            self.assertIn(key, result)
+        self.assertEqual(result["total"], 3)
+
+    def test_active_item_fields(self):
+        result = self._get()
+        items = {it["listing_id"]: it for it in result["items"]}
+        a = items["L-active"]
+        self.assertTrue(a["is_active"])
+        self.assertFalse(a["delisted"])
+        self.assertFalse(a["is_sold_out"])
+        self.assertTrue(a["is_available"])
+        self.assertEqual(a["current_price"], 500)
+        self.assertEqual(a["listing_name"], "Active Hat")
+
+    def test_soldout_item_fields(self):
+        result = self._get()
+        items = {it["listing_id"]: it for it in result["items"]}
+        s = items["L-soldout"]
+        self.assertTrue(s["is_active"])
+        self.assertTrue(s["is_sold_out"])
+        self.assertFalse(s["is_available"])
+        self.assertFalse(s["delisted"])
+
+    def test_delisted_item_fields(self):
+        result = self._get()
+        items = {it["listing_id"]: it for it in result["items"]}
+        d = items["L-delisted"]
+        self.assertFalse(d["is_active"])
+        self.assertTrue(d["delisted"])
+        self.assertIsNone(d["current_price"])
+        self.assertIsNone(d["listing_name"])
+
+    def test_pagination(self):
+        p1 = self._get(limit=2, offset=0)
+        p2 = self._get(limit=2, offset=2)
+        self.assertEqual(len(p1["items"]), 2)
+        self.assertTrue(p1["has_more"])
+        self.assertEqual(len(p2["items"]), 1)
+        self.assertFalse(p2["has_more"])
+
+    def test_unknown_collection_raises_valueerror(self):
+        with self.assertRaises(ValueError):
+            self.store.get_items_with_status("no-such-id", "u1", self.mp)
+
+    def test_private_collection_as_stranger_raises_permission(self):
+        priv = self.store.create("u1", "Secret", is_public=False)
+        with self.assertRaises(PermissionError):
+            self.store.get_items_with_status(priv.collection_id, "u2", self.mp)
+
+    def test_owner_can_see_private_collection_items(self):
+        priv = self.store.create("u1", "Secret", is_public=False)
+        self.store.add_item(priv.collection_id, "u1", "L-active")
+        result = self.store.get_items_with_status(priv.collection_id, "u1", self.mp)
+        self.assertEqual(result["total"], 1)
 
 
 class TestGetPublicConsistency(unittest.TestCase):

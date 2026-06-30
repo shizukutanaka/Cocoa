@@ -2626,12 +2626,17 @@ async def create_collection(body: CollectionCreateRequest, current_user: dict = 
 
 
 @app.get("/api/collections/mine", tags=["collections"])
-async def my_collections(current_user: dict = Depends(get_current_user)):
-    """自分のコレクション一覧"""
+async def my_collections(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """自分のコレクション一覧（ページネーション対応）"""
     if not get_collection_store:
-        return {"collections": []}
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
     uid = current_user["user_id"]
-    return {"collections": get_collection_store().list_user_collections(uid, requester_id=uid)}
+    return get_collection_store().list_user_collections(uid, requester_id=uid, limit=limit, offset=offset)
 
 
 @app.get("/api/collections/public", tags=["collections"])
@@ -2656,6 +2661,37 @@ async def get_collection(collection_id: str, current_user: dict = Depends(get_cu
     if not col:
         raise HTTPException(status_code=404, detail="コレクションが見つかりません")
     return col.to_dict()
+
+
+@app.get("/api/collections/{collection_id}/items", tags=["collections"])
+async def get_collection_items(
+    collection_id: str,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """コレクションのアイテム一覧（ライブ在庫・価格・公開状態付き）
+
+    ウィッシュリストの get_wishlist_with_status と同様に、コレクション内の
+    各アイテム（リスティング）について現在の価格・在庫状況・公開状態を付与して返す。
+    上場廃止されたリスティングは delisted=True で通知される。
+    """
+    if not get_collection_store:
+        raise HTTPException(status_code=503, detail="コレクション機能が利用できません")
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    try:
+        return get_collection_store().get_items_with_status(
+            collection_id,
+            current_user["user_id"],
+            get_marketplace(),
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
 
 
 @app.put("/api/collections/{collection_id}", tags=["collections"])
@@ -2723,11 +2759,19 @@ async def remove_collection_item(collection_id: str, item_id: str, current_user:
 
 
 @app.get("/api/users/{user_id}/collections", tags=["collections"])
-async def user_public_collections(user_id: str, current_user: dict = Depends(get_current_user)):
-    """ユーザーの公開コレクション一覧"""
+async def user_public_collections(
+    user_id: str,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    """ユーザーの公開コレクション一覧（ページネーション対応）"""
     if not get_collection_store:
-        return {"collections": []}
-    return {"collections": get_collection_store().list_user_collections(user_id, requester_id=current_user["user_id"])}
+        return {"total": 0, "offset": offset, "limit": limit,
+                "has_more": False, "next_offset": None, "items": []}
+    return get_collection_store().list_user_collections(
+        user_id, requester_id=current_user["user_id"], limit=limit, offset=offset
+    )
 
 
 

@@ -129,14 +129,113 @@ class CollectionStore:
                 col.updated_at = datetime.now(timezone.utc)
             return col
 
-    def list_user_collections(self, owner_id: str, *, requester_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List a user's collections. If requester != owner, only public ones."""
+    def list_user_collections(
+        self,
+        owner_id: str,
+        *,
+        requester_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """List a user's collections with pagination.
+
+        If requester != owner only public collections are returned.
+        Returns the standard pagination envelope used across the API.
+        """
+        offset, limit = normalize_pagination(offset, limit)
         with self._lock:
             cols = [c for c in self._collections.values() if c.owner_id == owner_id]
             if requester_id != owner_id:
                 cols = [c for c in cols if c.is_public]
             cols.sort(key=lambda c: c.updated_at, reverse=True)
-            return [c.to_dict() for c in cols]
+            total = len(cols)
+            page = cols[offset : offset + limit]
+            items = [c.to_dict() for c in page]
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": items,
+        }
+
+    def get_items_with_status(
+        self,
+        collection_id: str,
+        requester_id: str,
+        marketplace_store: Any,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Return a collection's items enriched with live marketplace status.
+
+        Like WishlistManager.get_wishlist_with_status(), each item carries:
+          listing_id    : the stored ID
+          is_active     : listing still published and not deactivated
+          is_sold_out   : stock_remaining <= 0
+          is_available  : active and not sold out
+          delisted      : listing removed or deactivated
+          current_price : live price_credits (None if delisted)
+          listing_name  : current listing name (None if delisted)
+          owner_id      : seller user_id (None if delisted)
+
+        Raises ValueError if the collection doesn't exist.
+        Raises PermissionError if requester cannot see it.
+        """
+        with self._lock:
+            col = self._collections.get(collection_id)
+            if not col:
+                raise ValueError("コレクションが見つかりません")
+            if not col.is_public and col.owner_id != requester_id:
+                raise PermissionError("このコレクションを表示する権限がありません")
+            all_ids = list(col.item_ids)
+
+        total = len(all_ids)
+        offset, limit = normalize_pagination(offset, limit)
+        page_ids = all_ids[offset : offset + limit]
+
+        # Snapshot live listing data under marketplace lock for consistency.
+        with marketplace_store._lock:
+            live = {lid: marketplace_store._listings.get(lid) for lid in page_ids}
+
+        items = []
+        for lid in page_ids:
+            lst = live.get(lid)
+            if lst is None or not lst.is_active:
+                items.append({
+                    "listing_id": lid,
+                    "is_active": False,
+                    "delisted": True,
+                    "is_sold_out": False,
+                    "is_available": False,
+                    "current_price": None,
+                    "listing_name": None,
+                    "owner_id": None,
+                })
+            else:
+                sold_out = lst.stock_remaining is not None and lst.stock_remaining <= 0
+                items.append({
+                    "listing_id": lid,
+                    "is_active": True,
+                    "delisted": False,
+                    "is_sold_out": sold_out,
+                    "is_available": not sold_out,
+                    "current_price": lst.price_credits,
+                    "listing_name": lst.name,
+                    "owner_id": lst.owner_id,
+                })
+
+        has_more = offset + limit < total
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "items": items,
+        }
 
     def get_public(self, collection_id: str, requester_id: Optional[str] = None) -> Optional[Collection]:
         """Return a collection only if public or owned by requester."""
