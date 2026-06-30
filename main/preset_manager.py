@@ -133,7 +133,10 @@ class PresetManager:
         try:
             candidate.relative_to(self.preset_dir.resolve())
         except ValueError:
-            raise PresetError(f"無効なプリセット名です: {preset_name}")
+            # Suppress the implicit chain: the ValueError message from
+            # relative_to() contains the resolved filesystem path, which
+            # would appear in tracebacks/logs and leak server internals.
+            raise PresetError(f"無効なプリセット名です: {preset_name}") from None
         return candidate
 
     def save_preset(self, preset_name: str, preset_data: Dict[str, Any]) -> None:
@@ -156,9 +159,12 @@ class PresetManager:
             if preset_name in self.presets:
                 self._remove_from_index(preset_name, self.presets[preset_name])
 
-            # Update cache and index
-            self.presets[preset_name] = preset_data
-            self._update_index(preset_name, preset_data)
+            # Deep copy before caching so callers mutating preset_data after
+            # save() cannot corrupt the in-memory store (write-direction alias
+            # of the same shallow-copy trap fixed on the read side).
+            cached = copy.deepcopy(preset_data)
+            self.presets[preset_name] = cached
+            self._update_index(preset_name, cached)
 
             self.logger.info(f"Saved preset: {preset_name}")
 
