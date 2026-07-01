@@ -900,6 +900,22 @@ class CreateApiKeyRequest(BaseModel):
     name: str
 
 
+# Credits are the marketplace's only purchase currency, but nothing in the
+# codebase converts real money into credits: billing_service.py's Stripe
+# integration is subscriptions only and never calls marketplace.credit(), and
+# a new account starts at a balance of 0 (get_balance defaults unknown users
+# to 0). The only ways to ever acquire a first credit were (a) receiving a
+# gift card from someone who already has credits, or (b) being someone else's
+# referral and having THEM complete a purchase first -- an unreferred new
+# user had no path to ever buy a single paid listing. Grant a small one-time
+# signup credit (same amount as REFERRAL_BONUS_CREDITS in referral_manager.py,
+# for consistency) so every account has an actual entry point into the
+# marketplace. Deliberately independent of REFERRAL_BONUS_CREDITS rather than
+# importing it -- these are different business levers an admin may want to
+# tune separately even though they start equal.
+_SIGNUP_BONUS_CREDITS = 50
+
+
 @app.post("/api/auth/register", tags=["auth"], status_code=201)
 async def register(body: RegisterRequest):
     """新規ユーザー登録。email_verification_token を使って POST /api/auth/verify-email でメール確認を完了してください"""
@@ -909,6 +925,18 @@ async def register(body: RegisterRequest):
         auth = get_auth_manager()
         user = auth.register(body.username, body.email, body.password, "user")
         verification_token = auth.create_email_verification_token(user.user_id)
+        # Best-effort: registration has already succeeded and must not be
+        # rolled back just because the marketplace service is unavailable or
+        # errors. auth.register() enforces username/email uniqueness, so this
+        # can only run once per account -- no separate idempotency tracking
+        # needed for the "one-time" guarantee.
+        if get_marketplace:
+            try:
+                get_marketplace().credit(
+                    user.user_id, _SIGNUP_BONUS_CREDITS, "signup_bonus", ref_id=user.user_id
+                )
+            except Exception:
+                pass
         return {
             "user_id": user.user_id,
             "username": user.username,

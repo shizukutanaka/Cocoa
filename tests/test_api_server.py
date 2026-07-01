@@ -668,5 +668,82 @@ class TestDisputeCommission(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 503)
 
 
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestRegisterSignupBonus(unittest.TestCase):
+    """register() grants a one-time signup credit bonus so a brand-new,
+    unreferred account has an actual entry point into the paid marketplace
+    (previously the only ways to acquire a first credit were a gift card from
+    someone who already had credits, or being someone else's referral)."""
+
+    def _body(self, username="alice", email="alice@example.com", password="hunter22"):
+        body = MagicMock()
+        body.username = username
+        body.email = email
+        body.password = password
+        return body
+
+    def _fake_user(self, user_id="u1", username="alice", role="user"):
+        user = MagicMock()
+        user.user_id = user_id
+        user.username = username
+        user.role = role
+        user.is_email_verified = False
+        return user
+
+    def test_grants_signup_bonus_on_success(self):
+        mock_auth = MagicMock()
+        mock_auth.register.return_value = self._fake_user()
+        mock_auth.create_email_verification_token.return_value = "tok123"
+        mock_mp = MagicMock()
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "get_marketplace", lambda: mock_mp):
+            result = asyncio.run(api_server.register(self._body()))
+
+        self.assertEqual(result["status"], "created")
+        mock_mp.credit.assert_called_once_with(
+            "u1", api_server._SIGNUP_BONUS_CREDITS, "signup_bonus", ref_id="u1"
+        )
+
+    def test_registration_succeeds_even_if_marketplace_credit_fails(self):
+        """Registration must not fail just because the bonus grant errored --
+        the account itself already exists at that point."""
+        mock_auth = MagicMock()
+        mock_auth.register.return_value = self._fake_user()
+        mock_auth.create_email_verification_token.return_value = "tok123"
+        mock_mp = MagicMock()
+        mock_mp.credit.side_effect = RuntimeError("marketplace store down")
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "get_marketplace", lambda: mock_mp):
+            result = asyncio.run(api_server.register(self._body()))
+
+        self.assertEqual(result["status"], "created")
+
+    def test_registration_succeeds_when_marketplace_unavailable(self):
+        mock_auth = MagicMock()
+        mock_auth.register.return_value = self._fake_user()
+        mock_auth.create_email_verification_token.return_value = "tok123"
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "get_marketplace", None):
+            result = asyncio.run(api_server.register(self._body()))
+
+        self.assertEqual(result["status"], "created")
+
+    def test_duplicate_registration_raises_before_any_bonus_call(self):
+        mock_auth = MagicMock()
+        mock_auth.register.side_effect = ValueError("username already exists")
+        mock_mp = MagicMock()
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "get_marketplace", lambda: mock_mp):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.register(self._body()))
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        mock_mp.credit.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

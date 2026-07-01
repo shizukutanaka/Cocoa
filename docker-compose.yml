@@ -1,19 +1,28 @@
-version: '3.8'
-
 services:
-  # API Gateway
-  api-gateway:
+  # Cocoa API
+  #
+  # main/api_server.py is a single FastAPI app serving all marketplace/auth/
+  # avatar/security endpoints in one process -- there is no code-level split
+  # into separate services. This file previously declared five separate
+  # "microservices" (api-gateway, avatar-service, security-service,
+  # collaboration-service, ai-service), each pointing at its own
+  # docker/*.Dockerfile. None of those five Dockerfiles ever existed, so
+  # `docker-compose build` failed immediately for all of them. Even if they
+  # had existed, docker/Dockerfile's default CMD runs main/main.py, which is
+  # a tkinter GUI launcher -- it cannot run in a headless container at all.
+  # Consolidated to the one service that actually works.
+  api:
     build:
       context: .
-      dockerfile: docker/api-gateway.Dockerfile
+      dockerfile: docker/Dockerfile
+    command: ["python", "-m", "uvicorn", "main.api_server:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
     environment:
       - ENVIRONMENT=production
-      - API_GATEWAY_PORT=8000
-      - API_GATEWAY_HOST=0.0.0.0
       - COCOA_SECRET_KEY=${COCOA_SECRET_KEY}
       - COCOA_ENCRYPTION_KEY=${COCOA_ENCRYPTION_KEY}
+      - COCOA_2FA_SECRET=${COCOA_2FA_SECRET}
       - DATABASE_URL=postgresql://cocoa:cocoa_password@db:5432/cocoa
       - REDIS_URL=redis://redis:6379
     depends_on:
@@ -29,119 +38,6 @@ services:
       retries: 3
       start_period: 40s
 
-  # Avatar Service
-  avatar-service:
-    build:
-      context: .
-      dockerfile: docker/avatar-service.Dockerfile
-    ports:
-      - "8001:8001"
-    environment:
-      - ENVIRONMENT=production
-      - AVATAR_SERVICE_PORT=8001
-      - AVATAR_SERVICE_HOST=0.0.0.0
-      - DATABASE_URL=postgresql://cocoa:cocoa_password@db:5432/cocoa
-      - COCOA_SECRET_KEY=${COCOA_SECRET_KEY}
-      - COCOA_ENCRYPTION_KEY=${COCOA_ENCRYPTION_KEY}
-    depends_on:
-      - db
-    networks:
-      - cocoa-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # Security Service
-  security-service:
-    build:
-      context: .
-      dockerfile: docker/security-service.Dockerfile
-    ports:
-      - "8002:8002"
-    environment:
-      - ENVIRONMENT=production
-      - SECURITY_SERVICE_PORT=8002
-      - SECURITY_SERVICE_HOST=0.0.0.0
-      - DATABASE_URL=postgresql://cocoa:cocoa_password@db:5432/cocoa
-      - COCOA_SECRET_KEY=${COCOA_SECRET_KEY}
-      - COCOA_ENCRYPTION_KEY=${COCOA_ENCRYPTION_KEY}
-    depends_on:
-      - db
-    networks:
-      - cocoa-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # Collaboration Service
-  collaboration-service:
-    build:
-      context: .
-      dockerfile: docker/collaboration-service.Dockerfile
-    ports:
-      - "8003:8003"
-    environment:
-      - ENVIRONMENT=production
-      - COLLABORATION_SERVICE_PORT=8003
-      - COLLABORATION_SERVICE_HOST=0.0.0.0
-      - REDIS_URL=redis://redis:6379
-      - COCOA_SECRET_KEY=${COCOA_SECRET_KEY}
-      - COCOA_ENCRYPTION_KEY=${COCOA_ENCRYPTION_KEY}
-    depends_on:
-      - redis
-    networks:
-      - cocoa-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # AI Service
-  ai-service:
-    build:
-      context: .
-      dockerfile: docker/ai-service.Dockerfile
-    ports:
-      - "8004:8004"
-    environment:
-      - ENVIRONMENT=production
-      - AI_SERVICE_PORT=8004
-      - AI_SERVICE_HOST=0.0.0.0
-      - AI_MODEL_PATH=/app/models
-      - AI_ENABLE_GPU=false
-      - COCOA_SECRET_KEY=${COCOA_SECRET_KEY}
-      - COCOA_ENCRYPTION_KEY=${COCOA_ENCRYPTION_KEY}
-    volumes:
-      - ai_models:/app/models
-      - ai_data:/app/data
-    networks:
-      - cocoa-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
   # Frontend
   frontend:
     build:
@@ -150,10 +46,12 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
-      - REACT_APP_API_URL=http://localhost:8000
+      # The frontend is Vite (import.meta.env.VITE_*), not Create React App --
+      # the REACT_APP_API_URL this used to set here was never read by any
+      # frontend code.
+      - VITE_API_BASE_URL=http://localhost:8000
     depends_on:
-      - api-gateway
+      - api
     networks:
       - cocoa-network
     restart: unless-stopped
@@ -167,7 +65,6 @@ services:
       - POSTGRES_PASSWORD=cocoa_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     networks:
@@ -197,6 +94,14 @@ services:
       retries: 3
 
   # Prometheus for monitoring
+  #
+  # NOTE: main/api_server.py's /metrics endpoint returns JSON and requires
+  # auth, so it is not a valid Prometheus scrape target. The real
+  # Prometheus-format exporter (main/prometheus_monitor.py) currently runs
+  # as its own standalone process, not inside this container -- wiring it in
+  # is a follow-up, not done here. This service is left configured (and
+  # docker/prometheus.yml now exists, unlike before) so `docker-compose up`
+  # succeeds, but has nothing meaningful to scrape yet beyond itself.
   prometheus:
     image: prom/prometheus:latest
     command:
@@ -225,8 +130,6 @@ services:
       - "3001:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./docker/grafana-dashboards:/etc/grafana/provisioning/dashboards
-      - ./docker/grafana-datasources:/etc/grafana/provisioning/datasources
     networks:
       - cocoa-network
     restart: unless-stopped
@@ -238,8 +141,6 @@ volumes:
   redis_data:
   prometheus_data:
   grafana_data:
-  ai_models:
-  ai_data:
 
 networks:
   cocoa-network:

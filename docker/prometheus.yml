@@ -1,0 +1,17 @@
+# Minimal Prometheus config so `docker-compose up` has a config.file to
+# mount (it previously referenced this path with no file present, which
+# would fail Prometheus's startup).
+#
+# main/api_server.py's /metrics endpoint is JSON, not the Prometheus text
+# exposition format, and requires auth -- it is not a valid scrape target.
+# The real Prometheus-format exporter (main/prometheus_monitor.py) runs as
+# its own standalone process today, not inside this container. Wiring a
+# real application scrape target in is a follow-up.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
