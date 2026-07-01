@@ -66,6 +66,7 @@ _DIRECT_PUSH_KINDS = frozenset({
     "commission_response",   # requester: creator accepted/declined
     "commission_delivered",  # requester: commission delivered
     "commission_closed",     # creator: requester closed/accepted the commission
+    "commission_disputed",   # the other party: a commission was flagged for admin review
     "tip_received",          # a tip was received
     "refund_approved",       # buyer: refund request approved, credits returned
     "refund_rejected",       # buyer: refund request rejected

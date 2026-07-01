@@ -13,6 +13,7 @@ from api_server import (
     BackupInfo,
     ConnectionManager,
     HealthCheck,
+    HTTPException,
     SecurityReport,
     SystemMetrics,
 )
@@ -509,6 +510,162 @@ class TestCheckoutReferralExceptionIsolation(unittest.TestCase):
 
         # purchase must succeed despite the referral exception
         self.assertIn("purchased", result)
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestDisputeCommission(unittest.TestCase):
+    """dispute_commission() surfaces a commission in the unified moderation
+    queue (kind="commission_dispute", declared in moderation_queue.VALID_KINDS
+    but unreachable until this endpoint existed) and notifies the other party."""
+
+    def _fake_request(self, requester_id="u1", creator_id="u2", title="Cool avatar"):
+        req = MagicMock()
+        req.requester_id = requester_id
+        req.creator_id = creator_id
+        req.title = title
+        return req
+
+    def _body(self, reason="never delivered", details="waited 30 days"):
+        body = MagicMock()
+        body.reason = reason
+        body.details = details
+        return body
+
+    def test_requester_can_dispute(self):
+        req = self._fake_request()
+        mock_cs = MagicMock()
+        mock_cs.get.return_value = req
+        mock_mq = MagicMock()
+        mock_item = MagicMock()
+        mock_item.to_dict.return_value = {"item_id": "m1", "kind": "commission_dispute"}
+        mock_mq.enqueue.return_value = mock_item
+        mock_nq = MagicMock()
+
+        with patch.object(api_server, "get_commission_store", lambda: mock_cs), \
+             patch.object(api_server, "get_moderation_queue", lambda: mock_mq), \
+             patch.object(api_server, "get_notification_queue", lambda: mock_nq):
+            result = asyncio.run(api_server.dispute_commission(
+                "req-1", self._body(), {"user_id": "u1"}
+            ))
+
+        self.assertEqual(result["kind"], "commission_dispute")
+        mock_mq.enqueue.assert_called_once()
+        kwargs = mock_mq.enqueue.call_args.kwargs
+        self.assertEqual(kwargs["kind"], "commission_dispute")
+        self.assertEqual(kwargs["source_id"], "commission_dispute:req-1")
+        self.assertEqual(kwargs["subject_id"], "req-1")
+        self.assertEqual(kwargs["reporter_id"], "u1")
+
+    def test_creator_can_dispute(self):
+        req = self._fake_request()
+        mock_cs = MagicMock()
+        mock_cs.get.return_value = req
+        mock_mq = MagicMock()
+        mock_mq.enqueue.return_value.to_dict.return_value = {"item_id": "m1"}
+
+        with patch.object(api_server, "get_commission_store", lambda: mock_cs), \
+             patch.object(api_server, "get_moderation_queue", lambda: mock_mq), \
+             patch.object(api_server, "get_notification_queue", None):
+            asyncio.run(api_server.dispute_commission(
+                "req-1", self._body(), {"user_id": "u2"}
+            ))
+
+        kwargs = mock_mq.enqueue.call_args.kwargs
+        self.assertEqual(kwargs["reporter_id"], "u2")
+
+    def test_stranger_cannot_dispute(self):
+        req = self._fake_request()
+        mock_cs = MagicMock()
+        mock_cs.get.return_value = req
+        mock_mq = MagicMock()
+
+        with patch.object(api_server, "get_commission_store", lambda: mock_cs), \
+             patch.object(api_server, "get_moderation_queue", lambda: mock_mq), \
+             patch.object(api_server, "get_notification_queue", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.dispute_commission(
+                    "req-1", self._body(), {"user_id": "u3"}
+                ))
+        self.assertEqual(ctx.exception.status_code, 403)
+        mock_mq.enqueue.assert_not_called()
+
+    def test_unknown_commission_raises_404(self):
+        mock_cs = MagicMock()
+        mock_cs.get.return_value = None
+        mock_mq = MagicMock()
+
+        with patch.object(api_server, "get_commission_store", lambda: mock_cs), \
+             patch.object(api_server, "get_moderation_queue", lambda: mock_mq), \
+             patch.object(api_server, "get_notification_queue", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.dispute_commission(
+                    "no-such-id", self._body(), {"user_id": "u1"}
+                ))
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_empty_reason_raises_400(self):
+        req = self._fake_request()
+        mock_cs = MagicMock()
+        mock_cs.get.return_value = req
+        mock_mq = MagicMock()
+
+        with patch.object(api_server, "get_commission_store", lambda: mock_cs), \
+             patch.object(api_server, "get_moderation_queue", lambda: mock_mq), \
+             patch.object(api_server, "get_notification_queue", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.dispute_commission(
+                    "req-1", self._body(reason="   "), {"user_id": "u1"}
+                ))
+        self.assertEqual(ctx.exception.status_code, 400)
+        mock_mq.enqueue.assert_not_called()
+
+    def test_notifies_the_other_party_not_the_disputer(self):
+        req = self._fake_request(requester_id="u1", creator_id="u2")
+        mock_cs = MagicMock()
+        mock_cs.get.return_value = req
+        mock_mq = MagicMock()
+        mock_mq.enqueue.return_value.to_dict.return_value = {"item_id": "m1"}
+        mock_nq = MagicMock()
+
+        with patch.object(api_server, "get_commission_store", lambda: mock_cs), \
+             patch.object(api_server, "get_moderation_queue", lambda: mock_mq), \
+             patch.object(api_server, "get_notification_queue", lambda: mock_nq):
+            asyncio.run(api_server.dispute_commission(
+                "req-1", self._body(), {"user_id": "u1"}
+            ))
+
+        mock_nq.push.assert_called_once()
+        args = mock_nq.push.call_args[0]
+        self.assertEqual(args[0], "u2")  # creator, not the disputing requester
+        self.assertEqual(args[1], "commission_disputed")
+
+    def test_notification_failure_does_not_block_dispute(self):
+        """The dispute itself must succeed even if the notification push fails
+        (matches the established best-effort pattern elsewhere in api_server)."""
+        req = self._fake_request()
+        mock_cs = MagicMock()
+        mock_cs.get.return_value = req
+        mock_mq = MagicMock()
+        mock_mq.enqueue.return_value.to_dict.return_value = {"item_id": "m1"}
+        mock_nq = MagicMock()
+        mock_nq.push.side_effect = RuntimeError("notification service down")
+
+        with patch.object(api_server, "get_commission_store", lambda: mock_cs), \
+             patch.object(api_server, "get_moderation_queue", lambda: mock_mq), \
+             patch.object(api_server, "get_notification_queue", lambda: mock_nq):
+            result = asyncio.run(api_server.dispute_commission(
+                "req-1", self._body(), {"user_id": "u1"}
+            ))
+        self.assertEqual(result["item_id"], "m1")
+
+    def test_moderation_queue_unavailable_raises_503(self):
+        with patch.object(api_server, "get_commission_store", MagicMock()), \
+             patch.object(api_server, "get_moderation_queue", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.dispute_commission(
+                    "req-1", self._body(), {"user_id": "u1"}
+                ))
+        self.assertEqual(ctx.exception.status_code, 503)
 
 
 if __name__ == "__main__":

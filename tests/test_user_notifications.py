@@ -227,6 +227,7 @@ class TestNotificationPreferences(unittest.TestCase):
         # these are the ones users most want to control.
         direct = ["price_drop", "tip_received", "commission_received",
                   "commission_response", "commission_delivered", "commission_closed",
+                  "commission_disputed",
                   "refund_approved", "refund_rejected", "dispute_resolved",
                   "referral_bonus",
                   "saved_search_match", "system"]

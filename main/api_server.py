@@ -3704,6 +3704,11 @@ class CommissionDeliverRequest(BaseModel):
     delivery_listing_id: str = ""
 
 
+class CommissionDisputeRequest(BaseModel):
+    reason: str
+    details: str = ""
+
+
 @app.post("/api/commissions", tags=["commissions"], status_code=201)
 async def create_commission(
     body: CommissionCreateRequest,
@@ -3857,6 +3862,53 @@ async def close_commission(
         raise HTTPException(status_code=403, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=404 if "見つかりません" in str(e) else 400, detail=str(e)) from e
+
+
+@app.post("/api/commissions/{request_id}/dispute", tags=["commissions"], status_code=201)
+async def dispute_commission(
+    request_id: str,
+    body: CommissionDisputeRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """コミッションを紛争として提起する（依頼者またはクリエイターのみ）
+
+    No credit escrow exists for commissions (see commissions.py), so this is a
+    moderation flag rather than a refund mechanism: it surfaces the commission
+    in the admin moderation queue (kind="commission_dispute" -- already declared
+    in moderation_queue.VALID_KINDS but never reachable until this endpoint) and
+    notifies the other party. Either side may file one; the underlying
+    enqueue() dedup keeps a single open review thread per commission unless a
+    prior dispute was already resolved/dismissed.
+    """
+    if not get_commission_store:
+        raise HTTPException(status_code=503, detail="コミッションモジュールが利用できません")
+    if not get_moderation_queue:
+        raise HTTPException(status_code=503, detail="モデレーション機能が利用できません")
+    req = get_commission_store().get(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="コミッションが見つかりません")
+    uid = current_user["user_id"]
+    if req.requester_id != uid and req.creator_id != uid:
+        raise HTTPException(status_code=403, detail="このコミッションへのアクセス権がありません")
+    reason = body.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="理由を入力してください")
+    item = get_moderation_queue().enqueue(
+        kind="commission_dispute", source_id=f"commission_dispute:{request_id}",
+        subject_id=request_id, reporter_id=uid, reason=reason, details=body.details,
+    )
+    other_party = req.creator_id if uid == req.requester_id else req.requester_id
+    if get_notification_queue:
+        try:
+            get_notification_queue().push(
+                other_party, "commission_disputed",
+                title="コミッションが紛争として提起されました",
+                body=f"「{req.title}」が管理者によるレビュー対象になりました",
+                payload={"request_id": request_id},
+            )
+        except Exception:
+            pass
+    return item.to_dict()
 
 
 # --- Tip endpoints ---
