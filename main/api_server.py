@@ -2165,6 +2165,19 @@ async def report_listing(listing_id: str, body: ReportRequest, current_user: dic
         report = get_marketplace().report_listing(
             listing_id, current_user["user_id"], body.reason, body.details
         )
+        # Surface this in the unified admin moderation queue alongside review
+        # reports and creator applications, so admins have a single triage
+        # inbox instead of checking each report type's endpoint separately.
+        # Best-effort: the report itself is already durably recorded above.
+        if get_moderation_queue:
+            try:
+                get_moderation_queue().enqueue(
+                    kind="listing_report", source_id=report.report_id,
+                    subject_id=listing_id, reporter_id=current_user["user_id"],
+                    reason=body.reason, details=body.details,
+                )
+            except Exception:
+                pass
         return {"status": "reported", "report_id": report.report_id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -3134,6 +3147,13 @@ async def resolve_report(report_id: str, body: ResolveReportRequest, admin: dict
                     f"「{listing.name}」はモデレーションにより削除されました",
                     {"listing_id": report.listing_id, "reason": report.reason},
                 )
+        # Sync the mirrored moderation-queue entry so it doesn't linger as a
+        # stale "pending" item after the underlying report is resolved here.
+        if get_moderation_queue:
+            try:
+                get_moderation_queue().resolve_by_source(report.report_id, body.action, body.note)
+            except Exception:
+                pass
         return {"status": "resolved", "report": report.to_dict()}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -3163,6 +3183,16 @@ async def report_review(
         report = get_marketplace().report_review(
             review_id, current_user["user_id"], body.reason, body.details
         )
+        # See report_listing: surface in the unified admin moderation queue.
+        if get_moderation_queue:
+            try:
+                get_moderation_queue().enqueue(
+                    kind="review_report", source_id=report.report_id,
+                    subject_id=review_id, reporter_id=current_user["user_id"],
+                    reason=body.reason, details=body.details,
+                )
+            except Exception:
+                pass
         return report.to_dict()
     except ValueError as e:
         status = 404 if "見つかりません" in str(e) else 400
@@ -3195,6 +3225,12 @@ async def resolve_review_report(
         report = get_marketplace().resolve_review_report(
             report_id, admin["user_id"], body.action, body.note, hide=body.hide
         )
+        # See resolve_report: sync the mirrored moderation-queue entry.
+        if get_moderation_queue:
+            try:
+                get_moderation_queue().resolve_by_source(report.report_id, body.action, body.note)
+            except Exception:
+                pass
         return {"status": "resolved", "report": report.to_dict()}
     except ValueError as e:
         status = 404 if "見つかりません" in str(e) else 400
@@ -3572,10 +3608,21 @@ async def submit_creator_application(
         raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     auth = get_auth_manager()
     try:
-        app = auth.submit_creator_application(
+        application = auth.submit_creator_application(
             current_user["user_id"], body.reason, body.portfolio_url
         )
-        return app.to_dict()
+        # See report_listing: surface in the unified admin moderation queue.
+        # reporter_id == subject_id here since this is a self-filed application.
+        if get_moderation_queue:
+            try:
+                get_moderation_queue().enqueue(
+                    kind="creator_application", source_id=application.application_id,
+                    subject_id=current_user["user_id"], reporter_id=current_user["user_id"],
+                    reason=body.reason, details=body.portfolio_url,
+                )
+            except Exception:
+                pass
+        return application.to_dict()
     except AuthError as e:
         raise HTTPException(status_code=404 if e.code == "not_found" else 400, detail=e.message) from e
     except ValueError as e:
@@ -3619,8 +3666,19 @@ async def review_creator_application(
         raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     auth = get_auth_manager()
     try:
-        app = auth.review_creator_application(admin, application_id, body.decision, body.note)
-        return app.to_dict()
+        application = auth.review_creator_application(admin, application_id, body.decision, body.note)
+        # See resolve_report: sync the mirrored moderation-queue entry.
+        # decision is "approved" | "rejected"; map to the queue's terminal
+        # statuses ("resolved" = action taken, "dismissed" = no action taken).
+        if get_moderation_queue:
+            try:
+                queue_status = "resolved" if body.decision == "approved" else "dismissed"
+                get_moderation_queue().resolve_by_source(
+                    application.application_id, queue_status, body.note
+                )
+            except Exception:
+                pass
+        return application.to_dict()
     except AuthError as e:
         raise HTTPException(status_code=403, detail=e.message) from e
     except ValueError as e:

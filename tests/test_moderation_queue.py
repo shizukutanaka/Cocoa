@@ -237,6 +237,59 @@ class TestModerationQueue(unittest.TestCase):
         self.assertEqual(stats["in_review"], 1)
 
 
+class TestResolveBySource(unittest.TestCase):
+    """resolve_by_source() syncs a queue entry when the underlying report
+    (listing report, review report, creator application) is resolved
+    elsewhere, so the mirrored entry doesn't linger as stale 'pending'."""
+
+    def setUp(self):
+        self.q = _q()
+
+    def test_resolves_matching_entry(self):
+        self.q.enqueue("listing_report", "rep1", "lst1", "u1", "spam")
+        item = self.q.resolve_by_source("rep1", "resolved", "took down listing")
+        self.assertIsNotNone(item)
+        self.assertEqual(item.status, "resolved")
+        self.assertEqual(item.notes, "took down listing")
+        self.assertIsNotNone(item.resolved_at)
+
+    def test_dismiss_sets_dismissed_status(self):
+        self.q.enqueue("review_report", "rep2", "rev1", "u1", "spam")
+        item = self.q.resolve_by_source("rep2", "dismissed", "invalid report")
+        self.assertEqual(item.status, "dismissed")
+
+    def test_no_matching_entry_returns_none(self):
+        # Report was created before the queue was wired up, or the queue was
+        # unavailable at enqueue time. The caller's resolve action is still
+        # the source of truth -- this must be a silent no-op, not an error.
+        result = self.q.resolve_by_source("no-such-source", "resolved")
+        self.assertIsNone(result)
+
+    def test_resolved_at_cleared_when_reopened_via_status(self):
+        self.q.enqueue("listing_report", "rep3", "lst1", "u1", "spam")
+        self.q.resolve_by_source("rep3", "resolved")
+        item_id = self.q._by_source["rep3"]
+        # Reopen through the normal update_status path.
+        reopened = self.q.update_status(item_id, "in_review")
+        self.assertIsNone(reopened.resolved_at)
+
+    def test_invalid_status_raises(self):
+        self.q.enqueue("listing_report", "rep4", "lst1", "u1", "spam")
+        with self.assertRaises(ValueError):
+            self.q.resolve_by_source("rep4", "not_a_real_status")
+
+    def test_syncs_the_currently_open_item_after_reentry(self):
+        # A source whose first report was resolved, then re-reported, gets a
+        # NEW open item (see test_enqueue_after_resolve_creates_new_item).
+        # resolve_by_source must act on that fresh item, not the stale one.
+        first = self.q.enqueue("listing_report", "rep5", "lst1", "u1", "spam")
+        self.q.update_status(first.item_id, "dismissed")
+        second = self.q.enqueue("listing_report", "rep5", "lst1", "u2", "spam again")
+        result = self.q.resolve_by_source("rep5", "resolved")
+        self.assertEqual(result.item_id, second.item_id)
+        self.assertEqual(self.q.get(first.item_id).status, "dismissed")  # untouched
+
+
 class TestModerationQueuePaginationClamp(unittest.TestCase):
     def setUp(self):
         self.q = _q()

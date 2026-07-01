@@ -136,6 +136,34 @@ class ModerationQueue:
         with self._lock:
             return self._items.get(item_id)
 
+    def resolve_by_source(
+        self, source_id: str, status: str, notes: str = ""
+    ) -> Optional[ModerationItem]:
+        """Sync the queue entry for source_id to a terminal status.
+
+        Called by the underlying report/application resolve endpoints
+        (marketplace report resolution, creator application review, etc.) so a
+        moderation_queue entry doesn't outlive the report it mirrors as a
+        permanently-stale "pending" item. Returns None as a no-op if no queue
+        entry exists for this source (e.g. it was filed before the queue
+        wiring existed, or the queue was unavailable when it was created) --
+        the caller's own resolve action is the source of truth either way.
+        """
+        if status not in VALID_STATUSES:
+            raise ValueError(f"Invalid status: {status}")
+        with self._lock:
+            item_id = self._by_source.get(source_id)
+            item = self._items.get(item_id) if item_id else None
+            if not item:
+                return None
+            item.status = status
+            if notes:
+                item.notes = notes.strip()[:2000]
+            now = datetime.now(timezone.utc)
+            item.updated_at = now
+            item.resolved_at = now if status in ("resolved", "dismissed") else None
+            return item
+
     def assign(self, item_id: str, admin_id: str) -> ModerationItem:
         with self._lock:
             item = self._items.get(item_id)
