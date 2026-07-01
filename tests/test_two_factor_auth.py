@@ -306,5 +306,207 @@ class TestTwoFactorAuthServiceFailsClosed(unittest.TestCase):
         )
 
 
+class TestTwoFactorStore(unittest.TestCase):
+    """TwoFactorStore is the in-memory persistence layer that makes
+    setup/enable/verify/status actually work end-to-end (previously
+    TwoFactorAuthService always passed db_manager=None, so nothing was ever
+    stored and every operation silently no-op'd or fell into its fail-closed
+    path regardless of what setup returned to the caller)."""
+
+    def _make(self):
+        from two_factor_auth import TwoFactorStore
+        return TwoFactorStore()
+
+    def test_save_and_get_secret(self):
+        store = self._make()
+        store.save('two_factor_setup', {
+            'user_id': 1, 'secret': 'SECRET123', 'backup_codes': ['AAAA', 'BBBB'],
+        })
+        self.assertEqual(store.get_two_factor_secret(1), 'SECRET123')
+
+    def test_get_secret_unknown_user_returns_none(self):
+        store = self._make()
+        self.assertIsNone(store.get_two_factor_secret(999))
+
+    def test_save_ignores_unrelated_collection(self):
+        store = self._make()
+        store.save('something_else', {'user_id': 1, 'secret': 'X', 'backup_codes': []})
+        self.assertIsNone(store.get_two_factor_secret(1))
+
+    def test_get_backup_codes_returns_copy(self):
+        store = self._make()
+        store.save('two_factor_setup', {'user_id': 1, 'secret': 'S', 'backup_codes': ['A', 'B']})
+        codes = store.get_two_factor_backup_codes(1)
+        codes.append('MUTATED')
+        self.assertEqual(store.get_two_factor_backup_codes(1), ['A', 'B'])
+
+    def test_consume_backup_code_succeeds_once(self):
+        store = self._make()
+        store.save('two_factor_setup', {'user_id': 1, 'secret': 'S', 'backup_codes': ['CODE1', 'CODE2']})
+        self.assertTrue(store.consume_two_factor_backup_code(1, 'CODE1'))
+        self.assertEqual(store.remaining_backup_codes_count(1), 1)
+
+    def test_consume_backup_code_rejects_replay(self):
+        store = self._make()
+        store.save('two_factor_setup', {'user_id': 1, 'secret': 'S', 'backup_codes': ['CODE1']})
+        self.assertTrue(store.consume_two_factor_backup_code(1, 'CODE1'))
+        self.assertFalse(store.consume_two_factor_backup_code(1, 'CODE1'))
+
+    def test_consume_backup_code_wrong_code_fails(self):
+        store = self._make()
+        store.save('two_factor_setup', {'user_id': 1, 'secret': 'S', 'backup_codes': ['CODE1']})
+        self.assertFalse(store.consume_two_factor_backup_code(1, 'WRONG'))
+        self.assertEqual(store.remaining_backup_codes_count(1), 1)
+
+    def test_consume_backup_code_unknown_user_fails(self):
+        store = self._make()
+        self.assertFalse(store.consume_two_factor_backup_code(404, 'ANY'))
+
+    def test_set_enabled_true_also_marks_setup_completed(self):
+        store = self._make()
+        store.set_enabled(1, True)
+        self.assertTrue(store.is_enabled(1))
+        self.assertTrue(store.is_setup_completed(1))
+
+    def test_set_enabled_false_does_not_clear_setup_completed(self):
+        store = self._make()
+        store.set_enabled(1, True)
+        store.set_enabled(1, False)
+        self.assertFalse(store.is_enabled(1))
+        self.assertTrue(store.is_setup_completed(1))
+
+    def test_is_enabled_default_false(self):
+        store = self._make()
+        self.assertFalse(store.is_enabled(1))
+
+    def test_delete_clears_all_state(self):
+        store = self._make()
+        store.save('two_factor_setup', {'user_id': 1, 'secret': 'S', 'backup_codes': ['A']})
+        store.set_enabled(1, True)
+        store.delete(1)
+        self.assertIsNone(store.get_two_factor_secret(1))
+        self.assertEqual(store.get_two_factor_backup_codes(1), [])
+        self.assertFalse(store.is_enabled(1))
+        self.assertFalse(store.is_setup_completed(1))
+
+    def test_users_are_independent(self):
+        store = self._make()
+        store.save('two_factor_setup', {'user_id': 1, 'secret': 'S1', 'backup_codes': ['A']})
+        store.save('two_factor_setup', {'user_id': 2, 'secret': 'S2', 'backup_codes': ['B']})
+        store.set_enabled(1, True)
+        self.assertTrue(store.is_enabled(1))
+        self.assertFalse(store.is_enabled(2))
+        self.assertEqual(store.get_two_factor_secret(2), 'S2')
+
+
+class TestTwoFactorLifecycleWithStore(unittest.TestCase):
+    """End-to-end setup -> enable -> verify -> status flow through
+    TwoFactorAuthManager wired to a real TwoFactorStore, proving the storage
+    gap this change closes actually works (not just at the unit level)."""
+
+    def _manager(self):
+        from two_factor_auth import TwoFactorAuthManager, TwoFactorStore
+        store = TwoFactorStore()
+        mgr = TwoFactorAuthManager(secret_key="k", db_manager=store)
+        return mgr, store
+
+    def test_status_reflects_store_when_wired(self):
+        mgr, store = self._manager()
+        self.assertFalse(mgr.get_2fa_status(1)['is_enabled'])
+        store.set_enabled(1, True)
+        self.assertTrue(mgr.get_2fa_status(1)['is_enabled'])
+
+    def test_enable_persists_via_store(self):
+        from two_factor_auth import TOTPGenerator
+        mgr, store = self._manager()
+        setup = mgr.setup_2fa(1, "alice")
+        token = TOTPGenerator(setup['secret']).generate_token()
+        result = mgr.enable_2fa(1, "alice", token)
+        self.assertTrue(result['success'])
+        self.assertTrue(store.is_enabled(1))
+
+    def test_verify_backup_code_consumes_via_manager(self):
+        mgr, store = self._manager()
+        setup = mgr.setup_2fa(1, "alice")
+        code = setup['backup_codes'][0]
+        r1 = mgr.verify_backup_code(1, code)
+        self.assertTrue(r1['valid'])
+        r2 = mgr.verify_backup_code(1, code)
+        self.assertFalse(r2['valid'], "backup code must be single-use through the manager too")
+
+    def test_verify_backup_code_falls_back_without_consumer(self):
+        """A db_manager that only implements the read-only interface (no
+        consume_two_factor_backup_code) must keep working exactly as before --
+        valid codes pass but are not consumed. Guards against a regression
+        that would require every external db_manager to add the new method."""
+        from two_factor_auth import TwoFactorAuthManager
+
+        class _ReadOnlyDB:
+            def get_two_factor_secret(self, user_id):
+                return "SECRET"
+            def get_two_factor_backup_codes(self, user_id):
+                return ["FIXEDCODE"]
+
+        mgr = TwoFactorAuthManager(secret_key="k", db_manager=_ReadOnlyDB())
+        r1 = mgr.verify_backup_code(1, "FIXEDCODE")
+        self.assertTrue(r1['valid'])
+        r2 = mgr.verify_backup_code(1, "FIXEDCODE")
+        self.assertTrue(r2['valid'], "read-only db_manager must preserve pre-existing non-consuming behavior")
+
+    def test_setup_survives_missing_qrcode_package(self):
+        """setup_2fa must not raise just because the optional qrcode package
+        isn't installed -- the URI alone is enough for manual entry, and
+        failing here would discard the just-generated secret/backup codes."""
+        import two_factor_auth as tfa
+        mgr, _store = self._manager()
+        original = tfa.QRCODE_AVAILABLE
+        tfa.QRCODE_AVAILABLE = False
+        try:
+            result = mgr.setup_2fa(1, "alice")
+        finally:
+            tfa.QRCODE_AVAILABLE = original
+        self.assertIsNone(result['qr_code_image'])
+        self.assertTrue(result['qr_code_uri'].startswith("otpauth://totp/"))
+        self.assertTrue(result['secret'])
+
+
+class TestTwoFactorServiceEndToEnd(unittest.TestCase):
+    """Exercises the actual production wiring (TwoFactorAuthService, which
+    api_server.py's module-level convenience functions delegate to) rather
+    than a manually-constructed TwoFactorAuthManager + store."""
+
+    def _service(self):
+        from two_factor_auth import TwoFactorAuthService
+        saved = os.environ.get("COCOA_2FA_SECRET")
+        os.environ["COCOA_2FA_SECRET"] = "test-only-secret-not-for-production"
+        self.addCleanup(lambda: (
+            os.environ.pop("COCOA_2FA_SECRET", None) if saved is None
+            else os.environ.__setitem__("COCOA_2FA_SECRET", saved)
+        ))
+        return TwoFactorAuthService()
+
+    def test_service_constructs_with_a_working_store(self):
+        from two_factor_auth import TwoFactorStore
+        svc = self._service()
+        self.assertIsInstance(svc.store, TwoFactorStore)
+        self.assertIs(svc.tfa_manager.db_manager, svc.store)
+
+    def test_full_lifecycle_through_service(self):
+        from two_factor_auth import TOTPGenerator
+        svc = self._service()
+
+        setup = svc.setup_user_2fa(1, "alice")
+        self.assertFalse(svc.get_user_2fa_status(1)['is_enabled'])
+
+        token = TOTPGenerator(setup['secret']).generate_token()
+        enable_result = svc.enable_user_2fa(1, "alice", token)
+        self.assertTrue(enable_result['success'])
+        self.assertTrue(svc.get_user_2fa_status(1)['is_enabled'])
+
+        code = setup['backup_codes'][0]
+        self.assertTrue(svc.verify_backup_code(1, code)['valid'])
+        self.assertFalse(svc.verify_backup_code(1, code)['valid'])
+
+
 if __name__ == '__main__':
     unittest.main()

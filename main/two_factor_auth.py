@@ -109,6 +109,99 @@ class TOTPGenerator:
         return self.interval - (current_time % self.interval)
 
 
+class TwoFactorStore:
+    """Thread-safe in-memory persistence for 2FA secrets and backup codes.
+
+    Matches this codebase's established in-memory-singleton pattern (cart,
+    wishlist, gift_card, membership, license, etc. stores all work this way).
+
+    Before this class existed, TwoFactorAuthService always constructed
+    TwoFactorAuthManager with db_manager=None, so every method that depends on
+    persistence (_get_user_secret, _get_user_backup_codes) fell into its
+    documented fail-closed path unconditionally: setup_2fa generated and
+    returned real secrets/codes to the caller, but nothing was ever stored, so
+    enable_2fa / verify_2fa_token / verify_backup_code always failed, and
+    get_2fa_status always reported hardcoded False/None regardless of what
+    setup_2fa had returned. 2FA was fully non-functional end-to-end.
+
+    Implements the exact duck-typed interface TwoFactorAuthManager already
+    expects (get_two_factor_secret, get_two_factor_backup_codes, save), plus
+    the additional methods it opportunistically uses when present:
+    consume_two_factor_backup_code (atomic single-use check-and-remove --
+    without this, a leaked backup code could be replayed forever), set_enabled,
+    is_enabled, is_setup_completed, remaining_backup_codes_count, and delete.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._secrets: Dict[int, str] = {}
+        self._backup_codes: Dict[int, List[str]] = {}
+        self._enabled: Dict[int, bool] = {}
+        self._setup_completed: Dict[int, bool] = {}
+
+    def save(self, collection: str, data: Dict[str, Any]) -> None:
+        """Generic save() matching the call TwoFactorAuthManager.setup_2fa()
+        already makes: self.db_manager.save('two_factor_setup', setup_data)."""
+        if collection != "two_factor_setup":
+            return
+        user_id = data["user_id"]
+        with self._lock:
+            self._secrets[user_id] = data["secret"]
+            self._backup_codes[user_id] = list(data["backup_codes"])
+            self._enabled[user_id] = bool(data.get("is_enabled", False))
+            self._setup_completed[user_id] = bool(data.get("setup_completed", False))
+
+    def get_two_factor_secret(self, user_id: int) -> Optional[str]:
+        with self._lock:
+            return self._secrets.get(user_id)
+
+    def get_two_factor_backup_codes(self, user_id: int) -> List[str]:
+        with self._lock:
+            return list(self._backup_codes.get(user_id, []))
+
+    def consume_two_factor_backup_code(self, user_id: int, code: str) -> bool:
+        """Atomically verify-and-remove a backup code so it can never be
+        replayed. Timing-safe comparison against every stored code (no early
+        return on the comparison itself, so failure doesn't leak which
+        position -- if any -- was closest to matching)."""
+        with self._lock:
+            codes = self._backup_codes.get(user_id, [])
+            match_index = -1
+            for i, vc in enumerate(codes):
+                if hmac.compare_digest(code, vc):
+                    match_index = i
+            if match_index < 0:
+                return False
+            del codes[match_index]
+            return True
+
+    def set_enabled(self, user_id: int, enabled: bool) -> None:
+        with self._lock:
+            self._enabled[user_id] = enabled
+            if enabled:
+                self._setup_completed[user_id] = True
+
+    def is_enabled(self, user_id: int) -> bool:
+        with self._lock:
+            return self._enabled.get(user_id, False)
+
+    def is_setup_completed(self, user_id: int) -> bool:
+        with self._lock:
+            return self._setup_completed.get(user_id, False)
+
+    def remaining_backup_codes_count(self, user_id: int) -> int:
+        with self._lock:
+            return len(self._backup_codes.get(user_id, []))
+
+    def delete(self, user_id: int) -> None:
+        """Remove all 2FA state for a user (called on disable_2fa)."""
+        with self._lock:
+            self._secrets.pop(user_id, None)
+            self._backup_codes.pop(user_id, None)
+            self._enabled.pop(user_id, None)
+            self._setup_completed.pop(user_id, None)
+
+
 class TwoFactorAuthManager:
     """2要素認証マネージャー"""
 
@@ -221,11 +314,18 @@ class TwoFactorAuthManager:
                 }
                 self.db_manager.save('two_factor_setup', setup_data)
 
+            # The QR image is a convenience; the URI alone is sufficient for
+            # manual entry in any authenticator app. Degrade gracefully rather
+            # than failing the whole setup (and losing the just-generated
+            # secret/backup codes from the response) when the qrcode package
+            # isn't installed.
+            qr_code_image = self.create_qr_code(username, secret) if QRCODE_AVAILABLE else None
+
             return {
                 'secret': secret,
                 'backup_codes': backup_codes,
                 'qr_code_uri': self.generate_qr_code_uri(username, secret),
-                'qr_code_image': self.create_qr_code(username, secret),
+                'qr_code_image': qr_code_image,
                 'status': 'setup_required'
             }
 
@@ -286,9 +386,10 @@ class TwoFactorAuthManager:
                 }
 
             # 2FAを有効化
-            if self.db_manager:
-                # データベースで有効化処理を実装
-                pass
+            db = self.db_manager
+            setter = getattr(db, "set_enabled", None) if db is not None else None
+            if callable(setter):
+                setter(user_id, True)
 
             # 監査ログを記録
             logger.info(f"2FA enabled for user: {username}")
@@ -351,17 +452,43 @@ class TwoFactorAuthManager:
             }
 
     def verify_backup_code(self, user_id: int, backup_code: str) -> Dict[str, Any]:
-        """バックアップコードを検証"""
+        """バックアップコードを検証（利用可能なら単回使用として消費する）"""
         try:
-            # Validate against the user's OWN backup codes. No codes available →
-            # fail closed (never accept a hardcoded, source-visible code set).
+            db = self.db_manager
+            consumer = getattr(db, "consume_two_factor_backup_code", None) if db is not None else None
+            if callable(consumer):
+                # Preferred path: atomic check-and-remove so a leaked backup
+                # code can never be replayed after its first successful use.
+                try:
+                    consumed = consumer(user_id, backup_code)
+                except Exception as e:  # pragma: no cover - defensive
+                    logger.error(f"バックアップコード消費エラー: {e}")
+                    consumed = False
+                if consumed:
+                    return {
+                        'valid': True,
+                        'message': 'バックアップコードが認証されました'
+                    }
+                if not self._get_user_backup_codes(user_id):
+                    return {
+                        'valid': False,
+                        'error': '2要素認証が構成されていません'
+                    }
+                return {
+                    'valid': False,
+                    'error': '無効なバックアップコードです'
+                }
+
+            # Fallback for db_managers that only implement the read-only
+            # get_two_factor_backup_codes() (external callers pre-dating
+            # single-use support). Matches the historical behavior: a valid
+            # code passes but is not consumed.
             valid_codes = self._get_user_backup_codes(user_id)
             if not valid_codes:
                 return {
                     'valid': False,
                     'error': '2要素認証が構成されていません'
                 }
-
             if any(hmac.compare_digest(backup_code, vc) for vc in valid_codes):
                 return {
                     'valid': True,
@@ -399,8 +526,9 @@ class TwoFactorAuthManager:
                     'error': 'パスワードが正しくありません'
                 }
 
-            if self.db_manager:
-                pass  # database disable logic goes here
+            deleter = getattr(db, "delete", None) if db is not None else None
+            if callable(deleter):
+                deleter(user_id)
 
             logger.info(f"2FA disabled for user: {user_id}")
             return {
@@ -418,13 +546,25 @@ class TwoFactorAuthManager:
     def get_2fa_status(self, user_id: int) -> Dict[str, Any]:
         """2FAステータスを取得"""
         try:
-            # データベースから2FAステータスを取得（実際の実装では適切なデータベースクエリ）
-            # ここでは仮の実装として、固定のステータスを返す
+            db = self.db_manager
+            is_enabled_fn = getattr(db, "is_enabled", None) if db is not None else None
+            if callable(is_enabled_fn):
+                # Real persistence is wired in: report the user's actual state
+                # instead of the hardcoded stub this always returned before.
+                setup_fn = getattr(db, "is_setup_completed", None)
+                remaining_fn = getattr(db, "remaining_backup_codes_count", None)
+                return {
+                    'is_enabled': bool(is_enabled_fn(user_id)),
+                    'setup_completed': bool(setup_fn(user_id)) if callable(setup_fn) else False,
+                    'backup_codes_remaining': remaining_fn(user_id) if callable(remaining_fn) else 0,
+                    'last_used': None
+                }
 
+            # No persistence layer wired in: nothing has ever been enabled.
             return {
-                'is_enabled': False,  # 仮の値
+                'is_enabled': False,
                 'setup_completed': False,
-                'backup_codes_remaining': 10,
+                'backup_codes_remaining': 0,
                 'last_used': None
             }
 
@@ -453,7 +593,14 @@ class TwoFactorAuthService:
                 "environment / secret manager."
             )
         self.secret_key = secret
-        self.tfa_manager = TwoFactorAuthManager(self.secret_key)
+        # Wire in the in-memory persistence layer so setup/enable/verify/status
+        # actually work end-to-end -- see TwoFactorStore's docstring for what
+        # was broken before this existed. disable_2fa's password-verification
+        # gate is intentionally untouched: it fails closed without a
+        # verify_password callable, which TwoFactorStore does not provide
+        # (password verification belongs to auth_manager, a separate concern).
+        self.store = TwoFactorStore()
+        self.tfa_manager = TwoFactorAuthManager(self.secret_key, db_manager=self.store)
 
     def setup_user_2fa(self, user_id: int, username: str) -> Dict[str, Any]:
         """ユーザーの2FAをセットアップ"""
