@@ -37,7 +37,8 @@
 | 7 | ビルド可能なデプロイ構成 | `docker-compose.yml` が実在しない 5 つのサービス別 Dockerfile を参照しておりビルド不能だった。実在する構成（単一 api サービス + uvicorn 起動）に修正 | `0f9a100` |
 | 8 | `qrcode` 依存の宣言と障害分離 | `requirements.txt` 未宣言のパッケージに `setup_2fa()` が無条件依存し、未インストール環境で 2FA の入口が全滅していた | `2c6f0fd` |
 | 9 | ログイン時の 2FA 強制 | `auth_manager.login()` が 2FA 有効状態を一切参照せず、有効化してもパスワードのみでフルトークンが発行され続けていた。`PendingTwoFactor` 型 + `POST /api/auth/login/verify-2fa` を新設し、2FA 未設定ユーザーへの影響ゼロを維持したまま強制 | `0b7c24a` |
-| 10 | Prometheus の実スクレイプ対象 | `/metrics` は JSON+認証必須で収集不能、本物のエクスポーターは独立プロセス設計で未統合だった。`get_prometheus_monitor()` シングルトンと `GET /metrics/prometheus`（未認証・Prometheusテキスト形式）を新設し `docker/prometheus.yml` から実際にスクレイプ可能に。`psutil.cpu_percent(interval=1)` の1秒ブロッキングは `run_in_threadpool` で回避。リクエスト単位の計装（record_request等）は別途フォローアップ | `a6aa3f1` |
+| 10 | Prometheus の実スクレイプ対象 | `/metrics` は JSON+認証必須で収集不能、本物のエクスポーターは独立プロセス設計で未統合だった。`get_prometheus_monitor()` シングルトンと `GET /metrics/prometheus`（未認証・Prometheusテキスト形式）を新設し `docker/prometheus.yml` から実際にスクレイプ可能に。`psutil.cpu_percent(interval=1)` の1秒ブロッキングは `run_in_threadpool` で回避 | `a6aa3f1` |
+| 12 | Prometheus リクエスト計装（#10 のフォローアップ） | `#10` 時点では http request カウンタ・レイテンシヒストグラムがゼロのままだった。`security_middleware` に `_record_request_metrics()` を配線し全リクエストで `record_request` + `observe_request_duration` を記録。ラベルは生パスではなくルートテンプレート（`request.scope["route"].path`）に限定して高カーディナリティを回避、ルート未マッチ（404・レート制限拒否）は `unmatched` に集約。計装は best-effort（例外はレスポンスに影響させず握りつぶす） | `41d3301` |
 | 11 | 非金銭データのアカウント削除カスケード（3-3 の一部） | 実装中に判明: `DELETE /api/auth/me` は**既に存在**していたが、パスワード確認なし（トークンのみでアカウント無効化可能というセキュリティ上の欠落）・ソフト削除のみ（`is_active=False`、ユーザー名/メール解放されず）・カスケードはリスティングのみという不完全な実装だった（当初の監査記述「セルフ削除APIが存在しない」は誤りだったため訂正）。パスワード確認必須の新実装に置き換え、`AuthManager.delete_own_account()` でハード削除（管理者削除と同じ`store.delete_user()`を使用しユーザー名/メールを解放）。カート・ウィッシュリスト・コレクション・保存検索・通知・2FA秘密鍵を横断削除する `_cascade_delete_user_data()` を新設し、管理者削除エンドポイントとも共有。クレジット残高・台帳・コミッション・紹介コード・会員ティア・ライセンスキーは会計/法務判断が必要なため意図的に対象外（3-3後半として下記に残す） | `37d7287` |
 
 ---
