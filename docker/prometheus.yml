@@ -2,11 +2,14 @@
 # mount (it previously referenced this path with no file present, which
 # would fail Prometheus's startup).
 #
-# main/api_server.py's /metrics endpoint is JSON, not the Prometheus text
-# exposition format, and requires auth -- it is not a valid scrape target.
-# The real Prometheus-format exporter (main/prometheus_monitor.py) runs as
-# its own standalone process today, not inside this container. Wiring a
-# real application scrape target in is a follow-up.
+# main/api_server.py's /metrics endpoint is JSON and requires auth -- not a
+# valid scrape target. GET /metrics/prometheus (unauthenticated, real text
+# exposition format via main/prometheus_monitor.py's get_prometheus_monitor()
+# singleton) is the real target, running in-process in the `api` service
+# rather than as prometheus_monitor.py's separate standalone MetricsServer.
+# Most counters read near-zero until request-level instrumentation
+# (record_request/record_operation) is wired into api_server.py's middleware
+# -- a separate follow-up, since that touches every request's hot path.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -15,3 +18,8 @@ scrape_configs:
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
+
+  - job_name: 'cocoa-api'
+    metrics_path: '/metrics/prometheus'
+    static_configs:
+      - targets: ['api:8000']

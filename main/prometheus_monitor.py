@@ -35,6 +35,7 @@ except ImportError:
     psutil = None
 
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -473,6 +474,29 @@ class MetricsServer:
         except KeyboardInterrupt:
             logger.info("Metrics server stopped")
             server.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Singleton
+# ---------------------------------------------------------------------------
+_prometheus_monitor: Optional[EnhancedPrometheusMonitor] = None
+_prometheus_monitor_lock = threading.Lock()
+
+
+def get_prometheus_monitor() -> EnhancedPrometheusMonitor:
+    """Lazily construct and cache the process-wide monitor.
+
+    Lets api_server.py expose GET /metrics/prometheus in-process instead of
+    requiring MetricsServer to run as a separate standalone process on its
+    own port -- the registry (and therefore every counter/gauge previously
+    recorded) is shared across every caller of this function.
+    """
+    global _prometheus_monitor
+    if _prometheus_monitor is None:
+        with _prometheus_monitor_lock:
+            if _prometheus_monitor is None:
+                _prometheus_monitor = EnhancedPrometheusMonitor()
+    return _prometheus_monitor
 
 
 def example_usage():

@@ -879,5 +879,41 @@ class TestLoginTwoFactor(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 503)
 
 
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestPrometheusMetricsEndpoint(unittest.TestCase):
+    """GET /metrics/prometheus: unauthenticated (a scraper never presents
+    credentials), returns the real Prometheus text exposition format, and
+    must never block the event loop on the underlying psutil call."""
+
+    def test_returns_prometheus_format_response(self):
+        mock_monitor = MagicMock()
+        mock_monitor.expose_metrics.return_value = b"# HELP cocoa_up 1\ncocoa_up 1\n"
+        mock_monitor.get_content_type.return_value = "text/plain; version=0.0.4"
+
+        with patch.object(api_server, "get_prometheus_monitor", lambda: mock_monitor), \
+             patch.object(api_server, "PROMETHEUS_AVAILABLE", True):
+            result = asyncio.run(api_server.get_prometheus_metrics())
+
+        mock_monitor.update_system_metrics.assert_called_once()
+        self.assertEqual(result.body, b"# HELP cocoa_up 1\ncocoa_up 1\n")
+        self.assertEqual(result.media_type, "text/plain; version=0.0.4")
+
+    def test_unavailable_when_no_monitor_factory(self):
+        with patch.object(api_server, "get_prometheus_monitor", None), \
+             patch.object(api_server, "PROMETHEUS_AVAILABLE", True):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.get_prometheus_metrics())
+        self.assertEqual(ctx.exception.status_code, 503)
+
+    def test_unavailable_when_prometheus_client_missing(self):
+        mock_monitor = MagicMock()
+        with patch.object(api_server, "get_prometheus_monitor", lambda: mock_monitor), \
+             patch.object(api_server, "PROMETHEUS_AVAILABLE", False):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.get_prometheus_metrics())
+        self.assertEqual(ctx.exception.status_code, 503)
+        mock_monitor.update_system_metrics.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

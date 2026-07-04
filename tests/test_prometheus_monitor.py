@@ -60,5 +60,25 @@ class TestMetricsServer(unittest.TestCase):
         self.assertEqual(srv.port, 9999)
 
 
+class TestGetPrometheusMonitor(unittest.TestCase):
+    def test_returns_singleton(self):
+        from prometheus_monitor import PROMETHEUS_AVAILABLE, get_prometheus_monitor
+        if not PROMETHEUS_AVAILABLE:
+            self.skipTest("prometheus_client not installed")
+        m1 = get_prometheus_monitor()
+        m2 = get_prometheus_monitor()
+        self.assertIs(m1, m2)
+
+    def test_returns_enhanced_prometheus_monitor_instance(self):
+        from prometheus_monitor import (
+            PROMETHEUS_AVAILABLE,
+            EnhancedPrometheusMonitor,
+            get_prometheus_monitor,
+        )
+        if not PROMETHEUS_AVAILABLE:
+            self.skipTest("prometheus_client not installed")
+        self.assertIsInstance(get_prometheus_monitor(), EnhancedPrometheusMonitor)
+
+
 if __name__ == '__main__':
     unittest.main()

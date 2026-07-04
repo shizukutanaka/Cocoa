@@ -31,6 +31,7 @@ try:
         WebSocketDisconnect,
         status,
     )
+    from fastapi.concurrency import run_in_threadpool
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse, StreamingResponse
     from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -45,6 +46,7 @@ except ImportError:
     WebSocketDisconnect = None
     status = None
     CORSMiddleware = None
+    run_in_threadpool = None
     JSONResponse = None
     HTTPAuthorizationCredentials = None
     uvicorn = None
@@ -91,6 +93,7 @@ try:
     from .health_monitor import get_health_monitor
     from .integrated_security import get_security_manager
     from .performance_monitor import PerformanceMonitor
+    from .prometheus_monitor import PROMETHEUS_AVAILABLE, get_prometheus_monitor
     from .redis_cache_manager import cache_async, get_cache_manager
     from .two_factor_auth import (
         disable_2fa,
@@ -118,6 +121,8 @@ except ImportError:
     verify_backup_code = None
     disable_2fa = None
     get_2fa_status = None
+    get_prometheus_monitor = None
+    PROMETHEUS_AVAILABLE = False
 
 # New modules (always available — pure stdlib)
 try:
@@ -564,6 +569,30 @@ async def get_metrics(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"メトリクス取得エラー: {e}")
         raise HTTPException(status_code=500, detail="メトリクス取得に失敗しました") from e
+
+
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics():
+    """Prometheus スクレイプ用エンドポイント。
+
+    GET /metrics (above) returns JSON and requires auth, so it is not a valid
+    Prometheus scrape target -- a scraper never presents credentials. This
+    endpoint is deliberately unauthenticated (matching how Prometheus itself
+    and every real-world exporter work) and returns the real text exposition
+    format via prometheus_client, sourced from the same process-wide monitor
+    a real deployment would also use for record_request/record_operation
+    instrumentation (not yet wired into request handling -- see
+    FEATURE_AUDIT.md -- so most counters read zero until that follow-up).
+    """
+    if not get_prometheus_monitor or not PROMETHEUS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prometheus 連携が利用できません")
+    monitor = get_prometheus_monitor()
+    # update_system_metrics() calls psutil.cpu_percent(interval=1), which
+    # blocks for a full second -- run off the event loop so one scrape can't
+    # stall every other concurrent request.
+    await run_in_threadpool(monitor.update_system_metrics)
+    return Response(content=monitor.expose_metrics(), media_type=monitor.get_content_type())
+
 
 # バックアップ管理エンドポイント
 @app.get("/backups", response_model=List[BackupInfo])
