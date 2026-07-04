@@ -36,6 +36,7 @@
 | 6 | コレクションのライブ状態表示 | `item_ids` の生配列しか返さず、表示にアイテム数ぶんの API 呼び出しが必要だった。`get_items_with_status()` + `GET /api/collections/{id}/items` を新設 | `a4c5528` |
 | 7 | ビルド可能なデプロイ構成 | `docker-compose.yml` が実在しない 5 つのサービス別 Dockerfile を参照しておりビルド不能だった。実在する構成（単一 api サービス + uvicorn 起動）に修正 | `0f9a100` |
 | 8 | `qrcode` 依存の宣言と障害分離 | `requirements.txt` 未宣言のパッケージに `setup_2fa()` が無条件依存し、未インストール環境で 2FA の入口が全滅していた | `2c6f0fd` |
+| 9 | ログイン時の 2FA 強制 | `auth_manager.login()` が 2FA 有効状態を一切参照せず、有効化してもパスワードのみでフルトークンが発行され続けていた。`PendingTwoFactor` 型 + `POST /api/auth/login/verify-2fa` を新設し、2FA 未設定ユーザーへの影響ゼロを維持したまま強制 | `0b7c24a` |
 
 ---
 
@@ -90,16 +91,7 @@
 - **注意**: 全ストアが同一のシングルトン + Lock パターンで書かれているため、
   ストアの下に永続化バックエンドを差す移行は機械的に進めやすい。
 
-### 3-5. ログイン時に 2FA が強制されない【優先度: 中】
-
-- **事実**: `auth_manager.login()` は 2FA の有効状態を一切参照しない
-  （検証: `grep -in "2fa\|totp\|two_factor" main/auth_manager.py` → 0 件）。
-  `2c6f0fd` で 2FA の永続化は機能するようになったが、有効化してもログインが
-  2 要素にならない。`/api/2fa/*` は独立 API として動くだけ。
-- **必要な実装**: login → 「2FA 有効なら一時トークンを返し、TOTP 検証後に本トークン発行」
-  という 2 段階フロー。`auth_manager.py` は 193 テストを持つため慎重な変更が必要。
-
-### 3-6. Prometheus の実スクレイプ対象が無い【優先度: 低】
+### 3-5. Prometheus の実スクレイプ対象が無い【優先度: 低】
 
 - **事実**: `main/api_server.py` の `/metrics` は JSON レスポンス + 認証必須で、
   Prometheus のテキスト形式ではない。本物のエクスポーター（`main/prometheus_monitor.py`、
@@ -204,4 +196,5 @@ git rm main/preset_manager.py main/preset_diff_core.py main/preset_schema.py \
 2. **アカウント削除カスケード（3-3）** — 法的リスクの解消
 3. **永続化（3-4）** — 1・2 の成果を再起動で失わないための土台（順序を上げる判断もあり）
 4. **死コード削除** — 4-2 の 3 ファイルは即実行可能。残り 57 モジュールは個別精査後に一括判断
-5. **ログイン 2FA 強制（3-5）** — セキュリティ完成度の引き上げ
+
+~~5. ログイン 2FA 強制~~ — `0b7c24a` で実装済み（セクション 2 参照）
