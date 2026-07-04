@@ -223,6 +223,14 @@ class NotificationQueue:
                     return True
         return False
 
+    def delete_all_for_user(self, user_id: str) -> int:
+        """Delete every notification and muted-kind preference for user_id
+        (account deletion). Returns the count of notifications removed."""
+        with self._lock:
+            removed = len(self._queues.pop(user_id, []))
+            self._muted.pop(user_id, None)
+            return removed
+
     def unread_count(self, user_id: str) -> int:
         with self._lock:
             return sum(1 for n in self._queues.get(user_id, []) if not n.is_read)

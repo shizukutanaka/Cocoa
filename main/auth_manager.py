@@ -1280,6 +1280,22 @@ class AuthManager:
         user.pw_version += 1
         logger.info("Password changed for user_id: %s", user_id)
 
+    def delete_own_account(self, user_id: str, password: str) -> None:
+        """Self-service account deletion, gated on the account's own password
+        (mirrors change_password's confirmation pattern) rather than the
+        admin-only DELETE /api/admin/users/{user_id} path. Only removes this
+        AuthManager's own three indexes (_by_id/_by_username/_by_email) --
+        cascading into other stores (cart, wishlist, collections, 2FA, etc.)
+        is the API layer's job, same as the existing admin delete endpoint,
+        so both paths share one cascade implementation."""
+        user = self.store.get_by_id(user_id)
+        if not user:
+            raise AuthError("not_found", "ユーザーが見つかりません")
+        if not verify_password(password, user.password_hash):
+            raise AuthError("invalid_credentials", "パスワードが正しくありません")
+        self.store.delete_user(user_id)
+        logger.info("Account self-deleted: %s", user.username)
+
     @staticmethod
     def _validate_password_strength(password: str) -> None:
         if len(password) < 8:

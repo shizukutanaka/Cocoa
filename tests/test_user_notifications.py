@@ -71,6 +71,29 @@ class TestNotificationQueue(unittest.TestCase):
         ok = self.q.delete_notification("u1", "no-such-id")
         self.assertFalse(ok)
 
+    def test_delete_all_for_user_removes_notifications(self):
+        self.q.push("u1", "system", "T1", "B")
+        self.q.push("u1", "system", "T2", "B")
+        removed = self.q.delete_all_for_user("u1")
+        self.assertEqual(removed, 2)
+        result = self.q.get_notifications("u1")
+        self.assertEqual(result["total"], 0)
+
+    def test_delete_all_for_user_clears_muted_kinds(self):
+        self.q.mute_kind("u1", "system")
+        self.q.delete_all_for_user("u1")
+        self.assertEqual(self.q.get_muted_kinds("u1"), [])
+
+    def test_delete_all_for_user_does_not_touch_other_users(self):
+        self.q.push("u1", "system", "T", "B")
+        self.q.push("u2", "system", "T", "B")
+        self.q.delete_all_for_user("u1")
+        result = self.q.get_notifications("u2")
+        self.assertEqual(result["total"], 1)
+
+    def test_delete_all_for_unknown_user_returns_zero(self):
+        self.assertEqual(self.q.delete_all_for_user("no-such-user"), 0)
+
     def test_unread_count(self):
         self.q.push("u1", "system", "T1", "B")
         self.q.push("u1", "system", "T2", "B")

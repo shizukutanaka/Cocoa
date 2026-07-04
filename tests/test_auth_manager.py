@@ -634,6 +634,43 @@ class TestChangePassword(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "not_found")
 
 
+class TestDeleteOwnAccount(unittest.TestCase):
+    """delete_own_account(): self-service deletion gated on the account's own
+    password, mirroring change_password's confirmation pattern."""
+
+    def setUp(self):
+        self.auth = AuthManager()
+        self.auth.register("delme", "delme@x.com", "MyPass1!")
+        self.user_id = self.auth.store.get_by_username("delme").user_id
+
+    def test_correct_password_deletes_account(self):
+        self.auth.delete_own_account(self.user_id, "MyPass1!")
+        self.assertIsNone(self.auth.store.get_by_username("delme"))
+
+    def test_wrong_password_raises_and_account_survives(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.delete_own_account(self.user_id, "WrongPass!")
+        self.assertEqual(ctx.exception.code, "invalid_credentials")
+        self.assertIsNotNone(self.auth.store.get_by_username("delme"))
+
+    def test_nonexistent_user_raises_not_found(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.delete_own_account("no-such-id", "whatever")
+        self.assertEqual(ctx.exception.code, "not_found")
+
+    def test_deleted_account_cannot_login(self):
+        self.auth.delete_own_account(self.user_id, "MyPass1!")
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.login("delme", "MyPass1!")
+        self.assertEqual(ctx.exception.code, "invalid_credentials")
+
+    def test_username_and_email_freed_after_deletion(self):
+        self.auth.delete_own_account(self.user_id, "MyPass1!")
+        # A new account can now reuse the same username/email.
+        new_user = self.auth.register("delme", "delme@x.com", "AnotherPass1!")
+        self.assertNotEqual(new_user.user_id, self.user_id)
+
+
 class TestUserProfile(unittest.TestCase):
     def setUp(self):
         self.auth = AuthManager()

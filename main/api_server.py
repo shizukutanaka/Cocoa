@@ -964,6 +964,10 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+class DeleteAccountRequest(BaseModel):
+    password: str
+
+
 class CreateApiKeyRequest(BaseModel):
     name: str
 
@@ -1161,6 +1165,35 @@ async def change_password(body: ChangePasswordRequest, current_user: dict = Depe
         raise HTTPException(status_code=400, detail=e.message) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/auth/me", tags=["auth"])
+async def delete_own_account(body: DeleteAccountRequest, current_user: dict = Depends(get_current_user)):
+    """自分のアカウントを削除する（パスワード確認必須）。
+
+    Replaces a pre-existing DELETE /api/auth/me that took no password body at
+    all (a valid access token alone soft-deactivated the account -- a stolen/
+    leaked token could deactivate the victim's account with no further proof
+    of identity) and only deactivated marketplace listings, leaving cart,
+    wishlist, collections, saved searches, notifications, and 2FA secrets
+    behind. This version requires the account's own password (mirrors
+    change_password's confirmation pattern), hard-deletes via
+    AuthManager.delete_own_account() (frees the username/email for reuse,
+    consistent with the admin delete endpoint, rather than leaving an
+    is_active=False record sitting in the store forever), and runs the full
+    _cascade_delete_user_data() shared with the admin endpoint (credit
+    balance/ledger/commissions/referral code/membership tier/license keys
+    deliberately retained -- see that function's docstring / FEATURE_AUDIT.md
+    3-3 for why).
+    """
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    try:
+        get_auth_manager().delete_own_account(current_user["user_id"], body.password)
+    except AuthError as e:
+        raise HTTPException(status_code=400, detail=e.message) from e
+    cascade = _cascade_delete_user_data(current_user["user_id"])
+    return {"status": "deleted", **cascade}
 
 
 @app.get("/api/notifications", tags=["notifications"])
@@ -2985,6 +3018,77 @@ async def revoke_creator_verification(user_id: str, admin: dict = Depends(get_cu
         raise HTTPException(status_code=404 if e.code == "not_found" else 403, detail=e.message) from e
 
 
+def _cascade_delete_user_data(user_id: str) -> Dict[str, int]:
+    """Delete a user's data across every in-memory store EXCEPT financial/
+    contractual records, which are deliberately retained for audit (same
+    split this endpoint already applied to marketplace listings before this
+    helper existed: "deactivate listings, retain credits/tips for audit").
+
+    Retained on purpose (see FEATURE_AUDIT.md 3-3 -- this is a partial
+    resolution, not full): credit balance/ledger, commission requests,
+    referral codes, membership tier, license keys. None of those have a
+    legitimate "just delete it" answer without an accounting/legal retention
+    policy decision this change does not make.
+
+    Cleared here because none of it carries a retention requirement -- it is
+    pure personal/preference/session data: cart, wishlist, collections,
+    saved searches, notifications (incl. muted-kind preferences), and 2FA
+    secrets/backup codes (keeping login credentials for a deleted account
+    serves no purpose at all).
+
+    Each step is independently best-effort so one unavailable store can't
+    block cleanup via the others. Shared by both the admin delete endpoint
+    and the self-service one so they behave identically.
+    """
+    counts: Dict[str, int] = {
+        "listings_deactivated": 0, "collections_deleted": 0,
+        "saved_searches_deleted": 0, "notifications_deleted": 0,
+    }
+    if get_marketplace:
+        try:
+            deactivated_ids = get_marketplace().deactivate_all_listings(user_id)
+            counts["listings_deactivated"] = len(deactivated_ids)
+            # Keep the search index consistent — a deactivated listing must
+            # not remain discoverable in search results.
+            if get_search_index and deactivated_ids:
+                idx = get_search_index()
+                for lid in deactivated_ids:
+                    idx.remove(lid)
+        except Exception:
+            pass
+    if get_cart_manager:
+        try:
+            get_cart_manager().clear_cart(user_id)
+        except Exception:
+            pass
+    if get_wishlist_manager:
+        try:
+            get_wishlist_manager().clear_wishlist(user_id)
+        except Exception:
+            pass
+    if get_collection_store:
+        try:
+            counts["collections_deleted"] = get_collection_store().delete_all_for_owner(user_id)
+        except Exception:
+            pass
+    if get_saved_search_store:
+        try:
+            counts["saved_searches_deleted"] = get_saved_search_store().delete_all_for_user(user_id)
+        except Exception:
+            pass
+    if get_notification_queue:
+        try:
+            counts["notifications_deleted"] = get_notification_queue().delete_all_for_user(user_id)
+        except Exception:
+            pass
+    if get_two_factor_service:
+        try:
+            get_two_factor_service().store.delete(user_id)
+        except Exception:
+            pass
+    return counts
+
+
 @app.delete("/api/admin/users/{user_id}", tags=["admin"])
 async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
     """ユーザーを削除（管理者専用）"""
@@ -2994,19 +3098,8 @@ async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
     ok = auth.store.delete_user(user_id)
     if not ok:
         raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
-    # Cascade: deactivate all the deleted user's listings so orphaned content
-    # can't be purchased. Other stores (credits, tips) retain records for audit.
-    listings_removed = 0
-    if get_marketplace:
-        deactivated_ids = get_marketplace().deactivate_all_listings(user_id)
-        listings_removed = len(deactivated_ids)
-        # Keep the search index consistent — a deactivated listing must not
-        # remain discoverable in search results.
-        if get_search_index and deactivated_ids:
-            idx = get_search_index()
-            for lid in deactivated_ids:
-                idx.remove(lid)
-    return {"user_id": user_id, "status": "deleted", "listings_deactivated": listings_removed}
+    cascade = _cascade_delete_user_data(user_id)
+    return {"user_id": user_id, "status": "deleted", **cascade}
 
 
 @app.post("/api/marketplace/{listing_id}/favorite", tags=["marketplace"], status_code=201)
@@ -3683,32 +3776,6 @@ async def list_all_tags(
         for tag, cnt in tag_counts.most_common(limit)
     ]
     return {"items": items, "total": len(tag_counts)}
-
-
-@app.delete("/api/auth/me", tags=["auth"])
-async def delete_own_account(current_user: dict = Depends(get_current_user)):
-    """自分のアカウントを削除（非可逆。リスティング・レビューは残る）"""
-    if not get_auth_manager:
-        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
-    auth = get_auth_manager()
-    user = auth.store.get_by_id(current_user["user_id"])
-    if not user:
-        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
-    # Soft-delete: deactivate the account and remove active listings so the
-    # marketplace is not left with orphaned listings from a deleted creator.
-    user.is_active = False
-    if get_marketplace:
-        try:
-            deactivated_ids = get_marketplace().deactivate_all_listings(current_user["user_id"])
-            # Drop the deactivated listings from the search index so they don't
-            # keep showing up in public search results.
-            if get_search_index and deactivated_ids:
-                idx = get_search_index()
-                for lid in deactivated_ids:
-                    idx.remove(lid)
-        except Exception:
-            pass
-    return {"status": "deleted", "user_id": current_user["user_id"]}
 
 
 # --- Creator application endpoints ---

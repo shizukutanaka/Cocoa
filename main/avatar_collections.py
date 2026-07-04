@@ -107,6 +107,16 @@ class CollectionStore:
             del self._collections[collection_id]
             return True
 
+    def delete_all_for_owner(self, owner_id: str) -> int:
+        """Delete every collection owned by owner_id. For account deletion --
+        no permission check needed since the caller already established the
+        request is on behalf of this exact user. Returns the count removed."""
+        with self._lock:
+            ids = [cid for cid, c in self._collections.items() if c.owner_id == owner_id]
+            for cid in ids:
+                del self._collections[cid]
+            return len(ids)
+
     def add_item(self, collection_id: str, requester_id: str, item_id: str) -> Collection:
         with self._lock:
             col = self._require_owned(collection_id, requester_id)

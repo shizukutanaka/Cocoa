@@ -103,6 +103,15 @@ class SavedSearchStore:
                 ids.remove(search_id)
             return True
 
+    def delete_all_for_user(self, user_id: str) -> int:
+        """Delete every saved search owned by user_id (account deletion).
+        Returns the count removed."""
+        with self._lock:
+            ids = self._user_index.pop(user_id, [])
+            for sid in ids:
+                self._searches.pop(sid, None)
+            return len(ids)
+
     def record_use(self, user_id: str, search_id: str) -> bool:
         with self._lock:
             ss = self._searches.get(search_id)

@@ -915,5 +915,163 @@ class TestPrometheusMetricsEndpoint(unittest.TestCase):
         mock_monitor.update_system_metrics.assert_not_called()
 
 
+class TestCascadeDeleteUserData(unittest.TestCase):
+    """_cascade_delete_user_data(): shared by the admin and self-service
+    delete endpoints. Deliberately does NOT touch credit balance/ledger,
+    commissions, referral codes, membership tier, or license keys -- see the
+    function's own docstring / FEATURE_AUDIT.md 3-3 for why."""
+
+    def _mocks(self):
+        mock_mp = MagicMock()
+        mock_mp.deactivate_all_listings.return_value = ["lid-1", "lid-2"]
+        mock_idx = MagicMock()
+        mock_cart = MagicMock()
+        mock_wishlist = MagicMock()
+        mock_collections = MagicMock()
+        mock_collections.delete_all_for_owner.return_value = 3
+        mock_searches = MagicMock()
+        mock_searches.delete_all_for_user.return_value = 2
+        mock_notifs = MagicMock()
+        mock_notifs.delete_all_for_user.return_value = 5
+        mock_2fa_service = MagicMock()
+        return {
+            "get_marketplace": lambda: mock_mp,
+            "get_search_index": lambda: mock_idx,
+            "get_cart_manager": lambda: mock_cart,
+            "get_wishlist_manager": lambda: mock_wishlist,
+            "get_collection_store": lambda: mock_collections,
+            "get_saved_search_store": lambda: mock_searches,
+            "get_notification_queue": lambda: mock_notifs,
+            "get_two_factor_service": lambda: mock_2fa_service,
+        }, {
+            "marketplace": mock_mp, "index": mock_idx, "cart": mock_cart,
+            "wishlist": mock_wishlist, "collections": mock_collections,
+            "searches": mock_searches, "notifs": mock_notifs, "tfa": mock_2fa_service,
+        }
+
+    def test_calls_every_store(self):
+        patches, mocks = self._mocks()
+        with patch.multiple(api_server, **patches):
+            result = api_server._cascade_delete_user_data("u1")
+
+        mocks["marketplace"].deactivate_all_listings.assert_called_once_with("u1")
+        self.assertEqual(mocks["index"].remove.call_count, 2)
+        mocks["cart"].clear_cart.assert_called_once_with("u1")
+        mocks["wishlist"].clear_wishlist.assert_called_once_with("u1")
+        mocks["collections"].delete_all_for_owner.assert_called_once_with("u1")
+        mocks["searches"].delete_all_for_user.assert_called_once_with("u1")
+        mocks["notifs"].delete_all_for_user.assert_called_once_with("u1")
+        mocks["tfa"].store.delete.assert_called_once_with("u1")
+
+        self.assertEqual(result["listings_deactivated"], 2)
+        self.assertEqual(result["collections_deleted"], 3)
+        self.assertEqual(result["saved_searches_deleted"], 2)
+        self.assertEqual(result["notifications_deleted"], 5)
+
+    def test_never_touches_credit_or_ledger(self):
+        # No mock in this suite exposes a credit/debit/ledger method at all --
+        # this test documents the invariant explicitly so a future edit that
+        # adds such a call is caught by a NEW assertion failure here, not
+        # silently passing an unrelated test.
+        patches, mocks = self._mocks()
+        with patch.multiple(api_server, **patches):
+            api_server._cascade_delete_user_data("u1")
+        mocks["marketplace"].credit.assert_not_called()
+        mocks["marketplace"].debit.assert_not_called()
+
+    def test_one_store_raising_does_not_block_the_others(self):
+        patches, mocks = self._mocks()
+        mocks["cart"].clear_cart.side_effect = RuntimeError("cart store down")
+        with patch.multiple(api_server, **patches):
+            result = api_server._cascade_delete_user_data("u1")
+        # cart's own failure doesn't stop the rest from running.
+        mocks["wishlist"].clear_wishlist.assert_called_once_with("u1")
+        mocks["notifs"].delete_all_for_user.assert_called_once_with("u1")
+        self.assertEqual(result["collections_deleted"], 3)
+
+    def test_missing_stores_do_not_raise(self):
+        with patch.multiple(
+            api_server,
+            get_marketplace=None, get_cart_manager=None, get_wishlist_manager=None,
+            get_collection_store=None, get_saved_search_store=None,
+            get_notification_queue=None, get_two_factor_service=None,
+        ):
+            result = api_server._cascade_delete_user_data("u1")
+        self.assertEqual(result["listings_deactivated"], 0)
+        self.assertEqual(result["collections_deleted"], 0)
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestDeleteOwnAccountEndpoint(unittest.TestCase):
+    """DELETE /api/auth/me -- self-service account deletion."""
+
+    def _body(self, password="hunter22"):
+        body = MagicMock()
+        body.password = password
+        return body
+
+    def test_success_deletes_and_cascades(self):
+        mock_auth = MagicMock()
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "_cascade_delete_user_data", lambda uid: {"collections_deleted": 1}) as mock_cascade:
+            result = asyncio.run(api_server.delete_own_account(
+                self._body(), {"user_id": "u1"}
+            ))
+
+        mock_auth.delete_own_account.assert_called_once_with("u1", "hunter22")
+        self.assertEqual(result["status"], "deleted")
+        self.assertEqual(result["collections_deleted"], 1)
+
+    def test_wrong_password_returns_400_and_no_cascade(self):
+        mock_auth = MagicMock()
+        mock_auth.delete_own_account.side_effect = AuthError("invalid_credentials", "wrong password")
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth) as _, \
+             patch.object(api_server, "_cascade_delete_user_data") as mock_cascade:
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.delete_own_account(self._body(), {"user_id": "u1"}))
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        mock_cascade.assert_not_called()
+
+    def test_unavailable_raises_503(self):
+        with patch.object(api_server, "get_auth_manager", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.delete_own_account(self._body(), {"user_id": "u1"}))
+        self.assertEqual(ctx.exception.status_code, 503)
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestAdminDeleteUserCascade(unittest.TestCase):
+    """DELETE /api/admin/users/{user_id} now also runs the shared cascade,
+    on top of its pre-existing listing deactivation."""
+
+    def test_response_includes_cascade_counts(self):
+        mock_auth = MagicMock()
+        mock_auth.store.delete_user.return_value = True
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "_cascade_delete_user_data",
+                          lambda uid: {"listings_deactivated": 4, "collections_deleted": 2,
+                                       "saved_searches_deleted": 1, "notifications_deleted": 0}):
+            result = asyncio.run(api_server.delete_user("u1", {"user_id": "admin1", "role": "admin"}))
+
+        self.assertEqual(result["status"], "deleted")
+        self.assertEqual(result["listings_deactivated"], 4)
+        self.assertEqual(result["collections_deleted"], 2)
+
+    def test_unknown_user_returns_404_without_cascade(self):
+        mock_auth = MagicMock()
+        mock_auth.store.delete_user.return_value = False
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "_cascade_delete_user_data") as mock_cascade:
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.delete_user("u1", {"user_id": "admin1", "role": "admin"}))
+
+        self.assertEqual(ctx.exception.status_code, 404)
+        mock_cascade.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

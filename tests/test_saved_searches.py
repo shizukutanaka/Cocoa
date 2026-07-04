@@ -88,6 +88,38 @@ class TestSavedSearchDelete(unittest.TestCase):
         self.assertEqual(len(self.store.list("u1")), 1)
 
 
+class TestDeleteAllForUser(unittest.TestCase):
+    """delete_all_for_user(): account-deletion cascade support."""
+
+    def setUp(self):
+        self.store = SavedSearchStore()
+
+    def test_deletes_all_of_users_searches(self):
+        self.store.create("u1", "A")
+        self.store.create("u1", "B")
+        count = self.store.delete_all_for_user("u1")
+        self.assertEqual(count, 2)
+        self.assertEqual(self.store.list("u1"), [])
+
+    def test_does_not_touch_other_users_searches(self):
+        self.store.create("u1", "Mine")
+        other = self.store.create("u2", "Theirs")
+        self.store.delete_all_for_user("u1")
+        self.assertEqual(len(self.store.list("u2")), 1)
+        self.assertEqual(self.store.list("u2")[0].search_id, other.search_id)
+
+    def test_unknown_user_returns_zero(self):
+        self.assertEqual(self.store.delete_all_for_user("no-such-user"), 0)
+
+    def test_user_index_cleared_after_delete(self):
+        # A subsequent create() for the same user must not resurrect old
+        # search_ids into a stale _user_index entry.
+        self.store.create("u1", "A")
+        self.store.delete_all_for_user("u1")
+        self.store.create("u1", "New Search")
+        self.assertEqual(len(self.store.list("u1")), 1)
+
+
 class TestSavedSearchRecordUse(unittest.TestCase):
     def setUp(self):
         self.store = SavedSearchStore()

@@ -125,6 +125,31 @@ class TestUpdateDelete(unittest.TestCase):
         self.assertFalse(self.store.delete("no-such-id", "u1"))
 
 
+class TestDeleteAllForOwner(unittest.TestCase):
+    """delete_all_for_owner(): account-deletion cascade support."""
+
+    def setUp(self):
+        self.store = CollectionStore()
+
+    def test_deletes_all_of_owners_collections(self):
+        self.store.create("u1", "A")
+        self.store.create("u1", "B")
+        self.store.create("u1", "C")
+        count = self.store.delete_all_for_owner("u1")
+        self.assertEqual(count, 3)
+        result = self.store.list_user_collections("u1", requester_id="u1")
+        self.assertEqual(result["total"], 0)
+
+    def test_does_not_touch_other_owners_collections(self):
+        self.store.create("u1", "Mine")
+        other = self.store.create("u2", "Theirs")
+        self.store.delete_all_for_owner("u1")
+        self.assertIsNotNone(self.store.get(other.collection_id))
+
+    def test_unknown_owner_returns_zero(self):
+        self.assertEqual(self.store.delete_all_for_owner("no-such-user"), 0)
+
+
 class TestVisibility(unittest.TestCase):
     def setUp(self):
         self.store = CollectionStore()
