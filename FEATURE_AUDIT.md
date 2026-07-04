@@ -37,6 +37,7 @@
 | 7 | ビルド可能なデプロイ構成 | `docker-compose.yml` が実在しない 5 つのサービス別 Dockerfile を参照しておりビルド不能だった。実在する構成（単一 api サービス + uvicorn 起動）に修正 | `0f9a100` |
 | 8 | `qrcode` 依存の宣言と障害分離 | `requirements.txt` 未宣言のパッケージに `setup_2fa()` が無条件依存し、未インストール環境で 2FA の入口が全滅していた | `2c6f0fd` |
 | 9 | ログイン時の 2FA 強制 | `auth_manager.login()` が 2FA 有効状態を一切参照せず、有効化してもパスワードのみでフルトークンが発行され続けていた。`PendingTwoFactor` 型 + `POST /api/auth/login/verify-2fa` を新設し、2FA 未設定ユーザーへの影響ゼロを維持したまま強制 | `0b7c24a` |
+| 10 | Prometheus の実スクレイプ対象 | `/metrics` は JSON+認証必須で収集不能、本物のエクスポーターは独立プロセス設計で未統合だった。`get_prometheus_monitor()` シングルトンと `GET /metrics/prometheus`（未認証・Prometheusテキスト形式）を新設し `docker/prometheus.yml` から実際にスクレイプ可能に。`psutil.cpu_percent(interval=1)` の1秒ブロッキングは `run_in_threadpool` で回避。リクエスト単位の計装（record_request等）は別途フォローアップ | `a6aa3f1` |
 
 ---
 
@@ -90,13 +91,6 @@
   複数レプリカでは状態が分裂するため水平スケール不可。
 - **注意**: 全ストアが同一のシングルトン + Lock パターンで書かれているため、
   ストアの下に永続化バックエンドを差す移行は機械的に進めやすい。
-
-### 3-5. Prometheus の実スクレイプ対象が無い【優先度: 低】
-
-- **事実**: `main/api_server.py` の `/metrics` は JSON レスポンス + 認証必須で、
-  Prometheus のテキスト形式ではない。本物のエクスポーター（`main/prometheus_monitor.py`、
-  `prometheus_client.generate_latest` 使用）は独立プロセス設計で API サーバーに未統合。
-  詳細は `docker/prometheus.yml` 内のコメント参照。
 
 ---
 
@@ -198,3 +192,4 @@ git rm main/preset_manager.py main/preset_diff_core.py main/preset_schema.py \
 4. **死コード削除** — 4-2 の 3 ファイルは即実行可能。残り 57 モジュールは個別精査後に一括判断
 
 ~~5. ログイン 2FA 強制~~ — `0b7c24a` で実装済み（セクション 2 参照）
+~~6. Prometheus 実スクレイプ対象~~ — `a6aa3f1` で実装済み（セクション 2 参照）
