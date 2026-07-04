@@ -11,9 +11,13 @@ for _p in (str(ROOT), str(ROOT / "main")):
 from auth_manager import (
     AuthError,
     AuthManager,
+    PendingTwoFactor,
+    TokenPair,
     UserStore,
+    create_2fa_pending_token,
     create_access_token,
     create_refresh_token,
+    decode_2fa_pending_token,
     decode_access_token,
     decode_refresh_token,
     hash_password,
@@ -406,6 +410,184 @@ class TestAuthManager(unittest.TestCase):
         self.auth.change_role(admin_payload, user.user_id, "moderator")
         updated = self.auth.store.get_by_id(user.user_id)
         self.assertEqual(updated.role, "moderator")
+
+
+class TestTwoFactorPendingToken(unittest.TestCase):
+    """create_2fa_pending_token / decode_2fa_pending_token: the JWT "type"
+    claim must be distinct from access/refresh so decode_access_token and
+    decode_refresh_token reject it outright (get_current_user must never
+    accept a pending token as a substitute for a real access token)."""
+
+    def test_round_trips_user_id(self):
+        token = create_2fa_pending_token("user-123")
+        payload = decode_2fa_pending_token(token)
+        self.assertEqual(payload["sub"], "user-123")
+        self.assertEqual(payload["type"], "2fa_pending")
+
+    def test_rejected_by_decode_access_token(self):
+        token = create_2fa_pending_token("user-123")
+        with self.assertRaises(ValueError):
+            decode_access_token(token)
+
+    def test_rejected_by_decode_refresh_token(self):
+        token = create_2fa_pending_token("user-123")
+        with self.assertRaises(ValueError):
+            decode_refresh_token(token)
+
+    def test_access_token_rejected_by_decode_2fa_pending_token(self):
+        token = create_access_token("user-123", "alice", "user")
+        with self.assertRaises(ValueError):
+            decode_2fa_pending_token(token)
+
+    def test_has_short_expiry(self):
+        payload = decode_2fa_pending_token(create_2fa_pending_token("user-123"))
+        self.assertLessEqual(payload["exp"] - payload["iat"], 5 * 60)
+
+
+class TestLoginWithTwoFactor(unittest.TestCase):
+    """login() must not change behavior for accounts without 2FA (checker
+    unset or returns False), and must gate accounts with 2FA enabled behind
+    complete_login_with_2fa() rather than issuing tokens directly."""
+
+    def setUp(self):
+        self.auth = AuthManager()
+        self.user = self.auth.register("alice", "alice@x.com", "Alice123!", "user")
+
+    def test_login_unaffected_when_no_checker_wired(self):
+        result = self.auth.login("alice", "Alice123!")
+        self.assertIsInstance(result, TokenPair)
+
+    def test_login_unaffected_when_checker_returns_false(self):
+        self.auth.set_two_factor_checker(lambda uid: False)
+        result = self.auth.login("alice", "Alice123!")
+        self.assertIsInstance(result, TokenPair)
+
+    def test_login_returns_pending_when_checker_returns_true(self):
+        self.auth.set_two_factor_checker(lambda uid: True)
+        result = self.auth.login("alice", "Alice123!")
+        self.assertIsInstance(result, PendingTwoFactor)
+        self.assertTrue(result.pending_token)
+
+    def test_pending_result_has_no_real_tokens(self):
+        self.auth.set_two_factor_checker(lambda uid: True)
+        result = self.auth.login("alice", "Alice123!")
+        self.assertFalse(hasattr(result, "access_token"))
+        self.assertFalse(hasattr(result, "refresh_token"))
+
+    def test_wrong_password_still_rejected_before_2fa_check(self):
+        self.auth.set_two_factor_checker(lambda uid: True)
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.login("alice", "wrong-password")
+        self.assertEqual(ctx.exception.code, "invalid_credentials")
+
+    def test_locked_account_still_rejected_before_2fa_check(self):
+        self.auth.set_two_factor_checker(lambda uid: True)
+        for _ in range(6):
+            try:
+                self.auth.login("alice", "wrong")
+            except AuthError:
+                pass
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.login("alice", "Alice123!")
+        self.assertEqual(ctx.exception.code, "account_locked")
+
+
+class TestCompleteLoginWithTwoFactor(unittest.TestCase):
+    """complete_login_with_2fa(): the second step of a 2FA-gated login."""
+
+    def setUp(self):
+        self.auth = AuthManager()
+        self.user = self.auth.register("alice", "alice@x.com", "Alice123!", "user")
+        self.auth.set_two_factor_checker(lambda uid: True)
+        self.verified_codes = set()
+        self.auth.set_two_factor_verifier(
+            lambda uid, code, is_backup: code in self.verified_codes
+        )
+        self.pending = self.auth.login("alice", "Alice123!")
+
+    def test_correct_code_returns_token_pair(self):
+        self.verified_codes.add("111111")
+        result = self.auth.complete_login_with_2fa(self.pending.pending_token, "111111")
+        self.assertIsInstance(result, TokenPair)
+
+    def test_issued_access_token_verifies(self):
+        self.verified_codes.add("111111")
+        result = self.auth.complete_login_with_2fa(self.pending.pending_token, "111111")
+        payload = self.auth.verify_access_token(result.access_token)
+        self.assertEqual(payload["sub"], self.user.user_id)
+
+    def test_wrong_code_raises_invalid_2fa_code(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.complete_login_with_2fa(self.pending.pending_token, "000000")
+        self.assertEqual(ctx.exception.code, "invalid_2fa_code")
+
+    def test_wrong_code_does_not_burn_pending_token(self):
+        # A mistyped code must not force the user to re-enter their password —
+        # only a SUCCESSFUL verification consumes the pending token.
+        with self.assertRaises(AuthError):
+            self.auth.complete_login_with_2fa(self.pending.pending_token, "000000")
+        self.verified_codes.add("111111")
+        result = self.auth.complete_login_with_2fa(self.pending.pending_token, "111111")
+        self.assertIsInstance(result, TokenPair)
+
+    def test_pending_token_is_single_use_after_success(self):
+        self.verified_codes.add("111111")
+        self.auth.complete_login_with_2fa(self.pending.pending_token, "111111")
+        # Retry with a DIFFERENT, still-"valid" code -- isolates the jti-claim
+        # single-use guard from any code-level replay protection the verifier
+        # itself might apply, since "222222" was never submitted before.
+        self.verified_codes.add("222222")
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.complete_login_with_2fa(self.pending.pending_token, "222222")
+        self.assertEqual(ctx.exception.code, "token_invalid")
+
+    def test_expired_token_rejected(self):
+        from datetime import datetime, timedelta, timezone
+        from auth_manager import _encode_token
+        past = datetime.now(timezone.utc) - timedelta(minutes=10)
+        expired_payload = {
+            "sub": self.user.user_id,
+            "type": "2fa_pending",
+            "iat": int((past - timedelta(minutes=5)).timestamp()),
+            "exp": int(past.timestamp()),
+            "jti": "expired-jti-for-test",
+        }
+        expired_token = _encode_token(expired_payload)
+        self.verified_codes.add("111111")
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.complete_login_with_2fa(expired_token, "111111")
+        self.assertEqual(ctx.exception.code, "token_invalid")
+
+    def test_access_token_rejected_as_pending_token(self):
+        real_tokens = self.auth._issue_tokens(self.user)
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.complete_login_with_2fa(real_tokens.access_token, "111111")
+        self.assertEqual(ctx.exception.code, "token_invalid")
+
+    def test_garbage_token_rejected(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.complete_login_with_2fa("not-a-real-token", "111111")
+        self.assertEqual(ctx.exception.code, "token_invalid")
+
+    def test_raises_2fa_unavailable_when_no_verifier_wired(self):
+        fresh_auth = AuthManager()
+        fresh_auth.register("bob", "bob@x.com", "Bob12345!", "user")
+        fresh_auth.set_two_factor_checker(lambda uid: True)
+        pending = fresh_auth.login("bob", "Bob12345!")
+        with self.assertRaises(AuthError) as ctx:
+            fresh_auth.complete_login_with_2fa(pending.pending_token, "111111")
+        self.assertEqual(ctx.exception.code, "2fa_unavailable")
+
+    def test_wrong_code_counts_toward_lockout(self):
+        # Brute-forcing the 2FA code must be rate-limited the same as password
+        # guessing -- otherwise it's an unlimited-attempt 6-digit code.
+        for _ in range(6):
+            try:
+                self.auth.complete_login_with_2fa(self.pending.pending_token, "000000")
+            except AuthError:
+                pass
+        user = self.auth.store.get_by_id(self.user.user_id)
+        self.assertTrue(user.is_locked())
 
 
 class TestChangePassword(unittest.TestCase):

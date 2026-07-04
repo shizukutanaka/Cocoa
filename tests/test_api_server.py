@@ -17,6 +17,7 @@ from api_server import (
     SecurityReport,
     SystemMetrics,
 )
+from auth_manager import AuthError, PendingTwoFactor, TokenPair
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
@@ -743,6 +744,139 @@ class TestRegisterSignupBonus(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 400)
         mock_mp.credit.assert_not_called()
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestLoginTwoFactor(unittest.TestCase):
+    """login() and the new /api/auth/login/verify-2fa endpoint. _wire_auth_2fa
+    is patched to a no-op in every test here -- these tests exercise the
+    endpoint's own branching logic (isinstance(tokens, PendingTwoFactor)),
+    not the wiring helper itself (already covered end-to-end manually against
+    real AuthManager/TwoFactorAuthService instances)."""
+
+    def _body(self, username="alice", password="hunter22"):
+        body = MagicMock()
+        body.username = username
+        body.password = password
+        return body
+
+    def _verify_body(self, pending_token="pend-abc", code="123456", is_backup_code=False):
+        body = MagicMock()
+        body.pending_token = pending_token
+        body.code = code
+        body.is_backup_code = is_backup_code
+        return body
+
+    def test_login_without_2fa_returns_tokens_unchanged(self):
+        mock_auth = MagicMock()
+        mock_auth.login.return_value = TokenPair(access_token="acc", refresh_token="ref")
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "_wire_auth_2fa", lambda: None):
+            result = asyncio.run(api_server.login(self._body()))
+
+        self.assertEqual(result["access_token"], "acc")
+        self.assertEqual(result["refresh_token"], "ref")
+        self.assertNotIn("requires_2fa", result)
+
+    def test_login_with_2fa_enabled_returns_pending_shape(self):
+        mock_auth = MagicMock()
+        mock_auth.login.return_value = PendingTwoFactor(pending_token="pend-xyz")
+
+        # login()'s isinstance(tokens, PendingTwoFactor) check reads the name
+        # from api_server's own module namespace at call time. Under this
+        # test file's bare `import api_server` (no parent package), api_server's
+        # internal `from .auth_manager import ...` fails and PendingTwoFactor
+        # falls back to a dummy placeholder class distinct from the real one
+        # this test constructs above -- patch it to the real class so the
+        # isinstance check behaves as it does in production (where api_server
+        # is loaded as main.api_server, a proper package import that resolves
+        # the real class without needing this patch).
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "_wire_auth_2fa", lambda: None), \
+             patch.object(api_server, "PendingTwoFactor", PendingTwoFactor):
+            result = asyncio.run(api_server.login(self._body()))
+
+        self.assertTrue(result["requires_2fa"])
+        self.assertEqual(result["pending_token"], "pend-xyz")
+        self.assertNotIn("access_token", result)
+        self.assertNotIn("refresh_token", result)
+
+    def test_login_wrong_password_still_401(self):
+        mock_auth = MagicMock()
+        mock_auth.login.side_effect = AuthError("invalid_credentials", "bad creds")
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "_wire_auth_2fa", lambda: None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.login(self._body()))
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_login_account_locked_returns_429(self):
+        mock_auth = MagicMock()
+        mock_auth.login.side_effect = AuthError("account_locked", "locked")
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "_wire_auth_2fa", lambda: None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.login(self._body()))
+        self.assertEqual(ctx.exception.status_code, 429)
+
+    def test_verify_2fa_success_returns_token_shape(self):
+        mock_auth = MagicMock()
+        mock_auth.complete_login_with_2fa.return_value = TokenPair(access_token="acc2", refresh_token="ref2")
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "_wire_auth_2fa", lambda: None):
+            result = asyncio.run(api_server.verify_two_factor_login(self._verify_body()))
+
+        self.assertEqual(result["access_token"], "acc2")
+        self.assertEqual(result["refresh_token"], "ref2")
+        mock_auth.complete_login_with_2fa.assert_called_once_with("pend-abc", "123456", False)
+
+    def test_verify_2fa_passes_is_backup_code_flag(self):
+        mock_auth = MagicMock()
+        mock_auth.complete_login_with_2fa.return_value = TokenPair(access_token="a", refresh_token="r")
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "_wire_auth_2fa", lambda: None):
+            asyncio.run(api_server.verify_two_factor_login(
+                self._verify_body(code="AAAA1111", is_backup_code=True)
+            ))
+
+        mock_auth.complete_login_with_2fa.assert_called_once_with("pend-abc", "AAAA1111", True)
+
+    def test_verify_2fa_wrong_code_returns_401(self):
+        mock_auth = MagicMock()
+        mock_auth.complete_login_with_2fa.side_effect = AuthError("invalid_2fa_code", "wrong code")
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "_wire_auth_2fa", lambda: None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.verify_two_factor_login(self._verify_body()))
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_verify_2fa_expired_pending_token_returns_401(self):
+        mock_auth = MagicMock()
+        mock_auth.complete_login_with_2fa.side_effect = AuthError("token_invalid", "expired")
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "_wire_auth_2fa", lambda: None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.verify_two_factor_login(self._verify_body()))
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_login_unavailable_raises_503(self):
+        with patch.object(api_server, "get_auth_manager", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.login(self._body()))
+        self.assertEqual(ctx.exception.status_code, 503)
+
+    def test_verify_2fa_unavailable_raises_503(self):
+        with patch.object(api_server, "get_auth_manager", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.verify_two_factor_login(self._verify_body()))
+        self.assertEqual(ctx.exception.status_code, 503)
 
 
 if __name__ == "__main__":

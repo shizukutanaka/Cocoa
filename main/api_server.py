@@ -121,7 +121,7 @@ except ImportError:
 
 # New modules (always available — pure stdlib)
 try:
-    from .auth_manager import AuthError, get_auth_manager
+    from .auth_manager import AuthError, PendingTwoFactor, get_auth_manager
     from .avatar_collections import get_collection_store
     from .avatar_marketplace import get_marketplace
     from .bundle_manager import get_bundle_manager
@@ -162,6 +162,39 @@ except ImportError:
     get_refund_manager = None
     get_wishlist_manager = None
     AuthError = Exception
+    PendingTwoFactor = type("PendingTwoFactor", (), {})  # never matches isinstance() when auth_manager is unavailable
+
+_auth_2fa_wired = False
+
+
+def _wire_auth_2fa() -> None:
+    """Idempotently connect the auth_manager singleton to the 2FA service.
+
+    api_server.py never constructs AuthManager() itself -- get_auth_manager()
+    lazily builds and caches the one instance inside auth_manager.py -- so
+    this wires the DI callables (set_two_factor_checker/verifier) into that
+    already-built singleton rather than passing them at construction time.
+
+    If COCOA_2FA_SECRET is unset, get_two_factor_service() raises and this is
+    a no-op: login proceeds exactly as before (2FA simply isn't enforced,
+    same as if no user had ever enabled it). Not cached as a permanent
+    failure, so setting the env var later without a restart still takes
+    effect on the next login.
+    """
+    global _auth_2fa_wired
+    if _auth_2fa_wired or not get_auth_manager or not get_two_factor_service:
+        return
+    try:
+        service = get_two_factor_service()
+    except Exception:
+        return
+    auth = get_auth_manager()
+    auth.set_two_factor_checker(lambda uid: service.get_user_2fa_status(uid).get("is_enabled", False))
+    auth.set_two_factor_verifier(lambda uid, code, is_backup: (
+        service.verify_backup_code(uid, code) if is_backup else service.verify_user_token(uid, code)
+    ).get("valid", False))
+    _auth_2fa_wired = True
+
 
 # ロギング設定
 logging.basicConfig(
@@ -874,6 +907,12 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class VerifyTwoFactorLoginRequest(BaseModel):
+    pending_token: str
+    code: str
+    is_backup_code: bool = False
+
+
 class PasswordResetRequest(BaseModel):
     email: str
 
@@ -980,12 +1019,22 @@ async def resend_verification(current_user: dict = Depends(get_current_user)):
 
 @app.post("/api/auth/login", tags=["auth"])
 async def login(body: LoginRequest):
-    """ログイン（JWT トークンペアを返す）"""
+    """ログイン。2FA が無効なアカウントは JWT トークンペアを返す。
+    2FA が有効なアカウントはトークンを発行せず、
+    POST /api/auth/login/verify-2fa に渡す pending_token を返す
+    （{"requires_2fa": true, "pending_token": "...", "expires_in": ...}）。"""
     if not get_auth_manager:
         raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    _wire_auth_2fa()
     try:
         auth = get_auth_manager()
         tokens = auth.login(body.username, body.password)
+        if isinstance(tokens, PendingTwoFactor):
+            return {
+                "requires_2fa": True,
+                "pending_token": tokens.pending_token,
+                "expires_in": tokens.expires_in,
+            }
         return {
             "access_token": tokens.access_token,
             "refresh_token": tokens.refresh_token,
@@ -995,6 +1044,25 @@ async def login(body: LoginRequest):
     except AuthError as e:
         code = 429 if e.code == "account_locked" else 401
         raise HTTPException(status_code=code, detail=e.message) from e
+
+
+@app.post("/api/auth/login/verify-2fa", tags=["auth"])
+async def verify_two_factor_login(body: VerifyTwoFactorLoginRequest):
+    """ログイン第2段階: pending_token + TOTP/バックアップコードでトークンペアを取得する。"""
+    if not get_auth_manager:
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
+    _wire_auth_2fa()
+    try:
+        auth = get_auth_manager()
+        tokens = auth.complete_login_with_2fa(body.pending_token, body.code, body.is_backup_code)
+        return {
+            "access_token": tokens.access_token,
+            "refresh_token": tokens.refresh_token,
+            "token_type": tokens.token_type,
+            "expires_in": tokens.expires_in,
+        }
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=e.message) from e
 
 
 @app.post("/api/auth/refresh", tags=["auth"])

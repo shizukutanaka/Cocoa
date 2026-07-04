@@ -23,7 +23,7 @@ import unicodedata
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 try:
     from .pagination import normalize_pagination
@@ -170,6 +170,15 @@ class TokenPair:
     expires_in: int = _ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
 
+@dataclass
+class PendingTwoFactor:
+    """Returned by login() instead of TokenPair when the account has 2FA
+    enabled. No access/refresh token is issued yet -- the caller must present
+    a valid TOTP or backup code to complete_login_with_2fa() to obtain one."""
+    pending_token: str
+    expires_in: int = 300
+
+
 # ---------------------------------------------------------------------------
 # Password utilities
 # ---------------------------------------------------------------------------
@@ -284,6 +293,33 @@ def decode_refresh_token(token: str) -> Dict[str, Any]:
     payload = _decode_token(token)
     if payload.get("type") != "refresh":
         raise ValueError("Not a refresh token")
+    return payload
+
+
+_TWO_FACTOR_PENDING_EXPIRE_MINUTES = 5
+
+
+def create_2fa_pending_token(user_id: str) -> str:
+    """Short-lived token proving the password step of login already passed.
+
+    Distinct "type" claim from access/refresh so decode_access_token /
+    decode_refresh_token (and therefore get_current_user) reject it outright --
+    it must never be usable as a substitute for a real access token."""
+    now = datetime.now(timezone.utc)
+    payload: Dict[str, Any] = {
+        "sub": user_id,
+        "type": "2fa_pending",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=_TWO_FACTOR_PENDING_EXPIRE_MINUTES)).timestamp()),
+        "jti": secrets.token_hex(16),
+    }
+    return _encode_token(payload)
+
+
+def decode_2fa_pending_token(token: str) -> Dict[str, Any]:
+    payload = _decode_token(token)
+    if payload.get("type") != "2fa_pending":
+        raise ValueError("Not a 2FA-pending token")
     return payload
 
 
@@ -593,10 +629,37 @@ class AuthManager:
         auth.logout(tokens.access_token, tokens.refresh_token)
     """
 
-    def __init__(self, store: Optional[UserStore] = None, max_failed_attempts: Optional[int] = None, lockout_minutes: Optional[int] = None):
+    def __init__(
+        self,
+        store: Optional[UserStore] = None,
+        max_failed_attempts: Optional[int] = None,
+        lockout_minutes: Optional[int] = None,
+        two_factor_checker: Optional[Callable[[str], bool]] = None,
+        two_factor_verifier: Optional[Callable[[str, str, bool], bool]] = None,
+    ):
         self.store = store or UserStore()
         self._max_failed = max_failed_attempts if max_failed_attempts is not None else _MAX_FAILED
         self._lockout_minutes = lockout_minutes if lockout_minutes is not None else _LOCKOUT_MINUTES
+        # Deliberately NOT importing two_factor_auth here -- these are injected
+        # callables so auth_manager.py stays decoupled from the 2FA module
+        # (matches this codebase's existing DI pattern, e.g.
+        # TwoFactorAuthManager(db_manager=None)). None means "2FA not enforced",
+        # so every caller that constructs AuthManager() without these args
+        # (all existing tests) sees zero behavior change.
+        self._two_factor_checker = two_factor_checker
+        self._two_factor_verifier = two_factor_verifier
+
+    def set_two_factor_checker(self, fn: Callable[[str], bool]) -> None:
+        """Wire in a callable(user_id) -> bool reporting whether 2FA is
+        enabled for that user. Called post-construction (e.g. from
+        api_server.py) since api_server.py never constructs AuthManager
+        itself -- it only calls the lazy get_auth_manager() singleton."""
+        self._two_factor_checker = fn
+
+    def set_two_factor_verifier(self, fn: Callable[[str, str, bool], bool]) -> None:
+        """Wire in a callable(user_id, code, is_backup_code) -> bool that
+        verifies a TOTP or backup code."""
+        self._two_factor_verifier = fn
 
     # --- Registration ---
 
@@ -606,7 +669,12 @@ class AuthManager:
 
     # --- Login / Logout ---
 
-    def login(self, username: str, password: str) -> TokenPair:
+    def _issue_tokens(self, user: UserRecord) -> TokenPair:
+        access = create_access_token(user.user_id, user.username, user.role, pw_version=user.pw_version)
+        refresh = create_refresh_token(user.user_id)
+        return TokenPair(access_token=access, refresh_token=refresh)
+
+    def login(self, username: str, password: str) -> Union[TokenPair, PendingTwoFactor]:
         user = self.store.get_by_username(username)
         if not user:
             # Run a dummy verification so a missing username takes the same time
@@ -634,10 +702,18 @@ class AuthManager:
         # Reset on success (atomic under the store lock).
         self.store.record_successful_login(user.user_id)
 
-        access = create_access_token(user.user_id, user.username, user.role, pw_version=user.pw_version)
-        refresh = create_refresh_token(user.user_id)
+        if self._two_factor_checker and self._two_factor_checker(user.user_id):
+            # Password verified, but the account requires a second factor.
+            # Do NOT issue a real access/refresh token yet -- only a short-lived
+            # pending token that proves the password step passed and lets the
+            # caller retry complete_login_with_2fa() without re-entering the
+            # password, but which decode_access_token/get_current_user reject
+            # outright (different "type" claim).
+            logger.info("Login requires 2FA: %s", username)
+            return PendingTwoFactor(pending_token=create_2fa_pending_token(user.user_id))
+
         logger.info("Login successful: %s", username)
-        return TokenPair(access_token=access, refresh_token=refresh)
+        return self._issue_tokens(user)
 
     def logout(self, access_token: str, refresh_token: Optional[str] = None) -> None:
         for tok in [t for t in [access_token, refresh_token] if t]:
@@ -649,6 +725,50 @@ class AuthManager:
             except Exception:
                 pass
         logger.debug("Tokens revoked (logout)")
+
+    def complete_login_with_2fa(
+        self, pending_token: str, code: str, is_backup_code: bool = False
+    ) -> TokenPair:
+        """Second step of a 2FA-gated login: exchange a pending_token from
+        login() plus a TOTP/backup code for a real TokenPair."""
+        try:
+            payload = decode_2fa_pending_token(pending_token)
+        except Exception as e:
+            raise AuthError("token_invalid", "確認トークンが無効または期限切れです") from e
+
+        user_id = payload.get("sub", "")
+        # Re-fetch and re-check account state -- it may have changed in the
+        # window between the password step and this call (banned, locked, etc).
+        user = self.store.get_by_id(user_id)
+        if not user or not user.is_active:
+            raise AuthError("account_disabled", "アカウントが無効です")
+        if user.is_banned:
+            raise AuthError("account_banned", "アカウントが停止されています")
+        if user.is_locked():
+            remaining = int((user.locked_until - datetime.now(timezone.utc)).total_seconds())
+            raise AuthError("account_locked", f"アカウントがロックされています（{remaining}秒後に解除）")
+
+        if not self._two_factor_verifier:
+            raise AuthError("2fa_unavailable", "2要素認証機能が利用できません")
+
+        if not self._two_factor_verifier(user.user_id, code, is_backup_code):
+            # A wrong code counts toward the same lockout counter as a wrong
+            # password -- otherwise the 6-digit TOTP (or a backup code) would
+            # be brute-forceable with no rate limit once past the password step.
+            self.store.record_failed_login(user.user_id, self._max_failed, self._lockout_minutes)
+            raise AuthError("invalid_2fa_code", "確認コードが正しくありません")
+
+        # Code correct: atomically claim this pending token's jti so it can't
+        # be replayed for a second session (a wrong-code attempt above does
+        # NOT burn it -- only claimed on success, so a mistyped code doesn't
+        # force the user to re-enter their password to retry).
+        jti = payload.get("jti", "")
+        if jti and not self.store.claim_jti_revocation(jti, exp=payload.get("exp")):
+            raise AuthError("token_invalid", "この確認コードは既に使用されています")
+
+        self.store.record_successful_login(user.user_id)
+        logger.info("2FA login completed: %s", user.username)
+        return self._issue_tokens(user)
 
     # --- Token management ---
 
