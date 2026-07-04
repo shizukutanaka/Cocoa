@@ -915,6 +915,94 @@ class TestPrometheusMetricsEndpoint(unittest.TestCase):
         mock_monitor.update_system_metrics.assert_not_called()
 
 
+class TestRequestEndpointLabel(unittest.TestCase):
+    """_request_endpoint_label(): labels a request by its matched route
+    TEMPLATE (bounded cardinality), never the raw path."""
+
+    def _req(self, scope):
+        req = MagicMock()
+        req.scope = scope
+        return req
+
+    def test_uses_matched_route_template(self):
+        route = MagicMock()
+        route.path = "/api/collections/{collection_id}"
+        label = api_server._request_endpoint_label(self._req({"route": route}))
+        self.assertEqual(label, "/api/collections/{collection_id}")
+
+    def test_no_route_falls_back_to_unmatched(self):
+        self.assertEqual(api_server._request_endpoint_label(self._req({})), "unmatched")
+
+    def test_route_with_none_path_falls_back(self):
+        route = MagicMock()
+        route.path = None
+        self.assertEqual(api_server._request_endpoint_label(self._req({"route": route})), "unmatched")
+
+    def test_request_without_scope_attr_falls_back(self):
+        bare = object()  # no .scope attribute at all
+        self.assertEqual(api_server._request_endpoint_label(bare), "unmatched")
+
+
+class TestRecordRequestMetrics(unittest.TestCase):
+    """_record_request_metrics(): best-effort per-request instrumentation.
+    Must record both the request counter and the latency histogram when
+    Prometheus is available, no-op when it is not, and never let an exception
+    from the monitor escape into the request path."""
+
+    def _req(self, path="/api/x/{id}", method="GET"):
+        req = MagicMock()
+        req.method = method
+        route = MagicMock()
+        route.path = path
+        req.scope = {"route": route}
+        return req
+
+    def test_records_counter_and_histogram_when_available(self):
+        mon = MagicMock()
+        with patch.object(api_server, "get_prometheus_monitor", lambda: mon), \
+             patch.object(api_server, "PROMETHEUS_AVAILABLE", True):
+            api_server._record_request_metrics(self._req(), 200, 0.0)
+        mon.record_request.assert_called_once_with("GET", "/api/x/{id}", 200)
+        self.assertEqual(mon.observe_request_duration.call_count, 1)
+        op, duration = mon.observe_request_duration.call_args.args
+        self.assertEqual(op, "/api/x/{id}")
+        self.assertGreaterEqual(duration, 0.0)
+
+    def test_noop_when_prometheus_unavailable(self):
+        mon = MagicMock()
+        with patch.object(api_server, "get_prometheus_monitor", lambda: mon), \
+             patch.object(api_server, "PROMETHEUS_AVAILABLE", False):
+            api_server._record_request_metrics(self._req(), 200, 0.0)
+        mon.record_request.assert_not_called()
+        mon.observe_request_duration.assert_not_called()
+
+    def test_noop_when_no_monitor_factory(self):
+        with patch.object(api_server, "get_prometheus_monitor", None), \
+             patch.object(api_server, "PROMETHEUS_AVAILABLE", True):
+            # Must not raise despite get_prometheus_monitor being None.
+            api_server._record_request_metrics(self._req(), 200, 0.0)
+
+    def test_monitor_exception_is_swallowed(self):
+        mon = MagicMock()
+        mon.record_request.side_effect = RuntimeError("prometheus internal boom")
+        with patch.object(api_server, "get_prometheus_monitor", lambda: mon), \
+             patch.object(api_server, "PROMETHEUS_AVAILABLE", True):
+            # A broken monitor must never break the response.
+            api_server._record_request_metrics(self._req(), 500, 0.0)
+
+    def test_rate_limited_request_labelled_unmatched(self):
+        # A request rejected before routing has no route in scope -- it must
+        # collapse to "unmatched", not the raw path (cardinality safety).
+        mon = MagicMock()
+        req = MagicMock()
+        req.method = "POST"
+        req.scope = {}
+        with patch.object(api_server, "get_prometheus_monitor", lambda: mon), \
+             patch.object(api_server, "PROMETHEUS_AVAILABLE", True):
+            api_server._record_request_metrics(req, 429, 0.0)
+        mon.record_request.assert_called_once_with("POST", "unmatched", 429)
+
+
 class TestCascadeDeleteUserData(unittest.TestCase):
     """_cascade_delete_user_data(): shared by the admin and self-service
     delete endpoints. Deliberately does NOT touch credit balance/ledger,

@@ -7,9 +7,11 @@
 # exposition format via main/prometheus_monitor.py's get_prometheus_monitor()
 # singleton) is the real target, running in-process in the `api` service
 # rather than as prometheus_monitor.py's separate standalone MetricsServer.
-# Most counters read near-zero until request-level instrumentation
-# (record_request/record_operation) is wired into api_server.py's middleware
-# -- a separate follow-up, since that touches every request's hot path.
+# api_server.py's security_middleware now feeds that monitor on every request
+# via _record_request_metrics (http request counter + latency histogram,
+# labelled by route TEMPLATE to keep cardinality bounded), so the http_request
+# counters and request-duration histogram carry real traffic. The remaining
+# gauges (cpu/memory/disk) are refreshed on each scrape of /metrics/prometheus.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s

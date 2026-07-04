@@ -13,6 +13,7 @@ import hmac
 import io
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -260,6 +261,42 @@ else:
     app = _NullApp()
     security = None
 
+
+def _request_endpoint_label(request) -> str:
+    """Return the low-cardinality Prometheus label for a request: its matched
+    route TEMPLATE (e.g. "/api/collections/{collection_id}"), never the raw
+    path. Labelling by raw path would let an unbounded set of IDs explode
+    metric cardinality (a well-known Prometheus anti-pattern) -- worst of all
+    for 404 probing and rate-limited abusive traffic. Requests that never
+    matched a route (404s, or rejected by the rate limiter before routing)
+    collapse to a single "unmatched" label.
+
+    Reads request.scope["route"], populated by Starlette's router during
+    call_next. Under BaseHTTPMiddleware (what @app.middleware("http") uses)
+    the router mutates the same scope dict this request wraps, so the route is
+    visible here after call_next returns; if for any reason it is not, the
+    "unmatched" fallback keeps metrics bounded rather than crashing.
+    """
+    route = request.scope.get("route") if hasattr(request, "scope") else None
+    return getattr(route, "path", None) or "unmatched"
+
+
+def _record_request_metrics(request, status_code: int, start_time: float) -> None:
+    """Best-effort per-request Prometheus instrumentation. Any failure here
+    must never affect the response the user receives, so everything is guarded
+    and swallowed. No-op when the Prometheus subsystem is unavailable."""
+    if not get_prometheus_monitor or not PROMETHEUS_AVAILABLE:
+        return
+    try:
+        endpoint = _request_endpoint_label(request)
+        duration = time.perf_counter() - start_time
+        monitor = get_prometheus_monitor()
+        monitor.record_request(request.method, endpoint, status_code)
+        monitor.observe_request_duration(endpoint, duration)
+    except Exception:
+        pass
+
+
 # セキュリティ・レート制限ミドルウェア
 if FASTAPI_AVAILABLE:
     # Security response headers applied to every response
@@ -297,15 +334,22 @@ if FASTAPI_AVAILABLE:
 
     @app.middleware("http")  # type: ignore[union-attr]
     async def security_middleware(request: Request, call_next):
-        """Rate limiting + security headers middleware."""
+        """Rate limiting + security headers + Prometheus request instrumentation."""
         path = request.url.path
         logger.info(f"API Request: {request.method} {path}")
+        start = time.perf_counter()
 
         if get_rate_limiter and get_client_ip:
             limiter = get_rate_limiter()
             client_key = _rate_limit_key(request)
             allowed, rl_headers = limiter.check(client_key, path)
             if not allowed:
+                # Rejected before routing, so no route template exists yet --
+                # _record_request_metrics collapses it to the "unmatched"
+                # label, which is exactly right for high-volume abusive traffic
+                # (recording the raw path here would be the worst cardinality
+                # case of all).
+                _record_request_metrics(request, 429, start)
                 return JSONResponse(
                     status_code=429,
                     content={
@@ -317,9 +361,11 @@ if FASTAPI_AVAILABLE:
             response = await call_next(request)
             for k, v in rl_headers.items():
                 response.headers[k] = v
+            _record_request_metrics(request, response.status_code, start)
             return _apply_security_headers(response)
 
         response = await call_next(request)
+        _record_request_metrics(request, response.status_code, start)
         return _apply_security_headers(response)
 
 # Pydanticモデル定義
@@ -580,9 +626,8 @@ async def get_prometheus_metrics():
     endpoint is deliberately unauthenticated (matching how Prometheus itself
     and every real-world exporter work) and returns the real text exposition
     format via prometheus_client, sourced from the same process-wide monitor
-    a real deployment would also use for record_request/record_operation
-    instrumentation (not yet wired into request handling -- see
-    FEATURE_AUDIT.md -- so most counters read zero until that follow-up).
+    security_middleware feeds via _record_request_metrics on every request
+    (http request counter + latency histogram, labelled by route template).
     """
     if not get_prometheus_monitor or not PROMETHEUS_AVAILABLE:
         raise HTTPException(status_code=503, detail="Prometheus 連携が利用できません")
