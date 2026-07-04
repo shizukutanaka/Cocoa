@@ -513,6 +513,174 @@ class TestCheckoutReferralExceptionIsolation(unittest.TestCase):
         self.assertIn("purchased", result)
 
 
+class TestCheckoutIdempotency(unittest.TestCase):
+    """checkout_cart / purchase_bundle honour an Idempotency-Key so a retried
+    request (e.g. after a network timeout) returns the ORIGINAL result instead
+    of charging again -- matching the gift/tip/gift-card endpoints. Uses a real
+    IdempotencyStore since it's pure stdlib."""
+
+    def _store(self):
+        from idempotency import IdempotencyStore
+        return IdempotencyStore()
+
+    def test_checkout_same_key_charges_once_and_returns_original(self):
+        store = self._store()
+        calls = {"n": 0}
+
+        def fake_checkout(uid, mp):
+            calls["n"] += 1
+            return {"success": True, "order": {"order_id": f"ord-{calls['n']}",
+                                               "total_credits": 100, "items": []}, "failed_items": []}
+        mock_cm = MagicMock()
+        mock_cm.checkout.side_effect = fake_checkout
+        mock_membership = MagicMock()
+
+        with patch.object(api_server, "get_cart_manager", lambda: mock_cm), \
+             patch.object(api_server, "get_marketplace", MagicMock()), \
+             patch.object(api_server, "get_idempotency_store", lambda: store), \
+             patch.object(api_server, "get_membership_manager", lambda: mock_membership), \
+             patch.object(api_server, "get_referral_manager", None), \
+             patch.object(api_server, "get_license_manager", None), \
+             patch.object(api_server, "get_notification_queue", None):
+            user = {"user_id": "u1", "username": "alice"}
+            r1 = asyncio.run(api_server.checkout_cart(user, idempotency_key="k1"))
+            r2 = asyncio.run(api_server.checkout_cart(user, idempotency_key="k1"))
+
+        self.assertEqual(calls["n"], 1)  # charged exactly once
+        self.assertEqual(r1["order"]["order_id"], r2["order"]["order_id"])  # same order returned
+        # One-time side effect (tier tracking) must not re-fire on the replay.
+        self.assertEqual(mock_membership.record_purchase.call_count, 1)
+
+    def test_checkout_no_key_runs_every_time(self):
+        store = self._store()
+        calls = {"n": 0}
+
+        def fake_checkout(uid, mp):
+            calls["n"] += 1
+            return {"success": True, "order": {"order_id": f"o{calls['n']}",
+                                               "total_credits": 0, "items": []}, "failed_items": []}
+        mock_cm = MagicMock()
+        mock_cm.checkout.side_effect = fake_checkout
+
+        with patch.object(api_server, "get_cart_manager", lambda: mock_cm), \
+             patch.object(api_server, "get_marketplace", MagicMock()), \
+             patch.object(api_server, "get_idempotency_store", lambda: store), \
+             patch.object(api_server, "get_membership_manager", None), \
+             patch.object(api_server, "get_referral_manager", None), \
+             patch.object(api_server, "get_license_manager", None), \
+             patch.object(api_server, "get_notification_queue", None):
+            user = {"user_id": "u1", "username": "alice"}
+            asyncio.run(api_server.checkout_cart(user, idempotency_key=None))
+            asyncio.run(api_server.checkout_cart(user, idempotency_key=None))
+
+        self.assertEqual(calls["n"], 2)  # no idempotency requested → runs each time
+
+    def test_checkout_different_keys_are_independent(self):
+        store = self._store()
+        calls = {"n": 0}
+
+        def fake_checkout(uid, mp):
+            calls["n"] += 1
+            return {"success": True, "order": {"order_id": f"o{calls['n']}",
+                                               "total_credits": 0, "items": []}, "failed_items": []}
+        mock_cm = MagicMock()
+        mock_cm.checkout.side_effect = fake_checkout
+
+        with patch.object(api_server, "get_cart_manager", lambda: mock_cm), \
+             patch.object(api_server, "get_marketplace", MagicMock()), \
+             patch.object(api_server, "get_idempotency_store", lambda: store), \
+             patch.object(api_server, "get_membership_manager", None), \
+             patch.object(api_server, "get_referral_manager", None), \
+             patch.object(api_server, "get_license_manager", None), \
+             patch.object(api_server, "get_notification_queue", None):
+            user = {"user_id": "u1", "username": "alice"}
+            asyncio.run(api_server.checkout_cart(user, idempotency_key="k1"))
+            asyncio.run(api_server.checkout_cart(user, idempotency_key="k2"))
+
+        self.assertEqual(calls["n"], 2)  # distinct keys → two genuine checkouts
+
+    def test_idempotency_key_is_scoped_per_user(self):
+        # Two different users sending the same client-chosen key must NOT
+        # collide -- the stored key is prefixed with the user id.
+        store = self._store()
+        calls = {"n": 0}
+
+        def fake_checkout(uid, mp):
+            calls["n"] += 1
+            return {"success": True, "order": {"order_id": f"{uid}-{calls['n']}",
+                                               "total_credits": 0, "items": []}, "failed_items": []}
+        mock_cm = MagicMock()
+        mock_cm.checkout.side_effect = fake_checkout
+
+        with patch.object(api_server, "get_cart_manager", lambda: mock_cm), \
+             patch.object(api_server, "get_marketplace", MagicMock()), \
+             patch.object(api_server, "get_idempotency_store", lambda: store), \
+             patch.object(api_server, "get_membership_manager", None), \
+             patch.object(api_server, "get_referral_manager", None), \
+             patch.object(api_server, "get_license_manager", None), \
+             patch.object(api_server, "get_notification_queue", None):
+            asyncio.run(api_server.checkout_cart({"user_id": "u1", "username": "a"}, idempotency_key="same"))
+            asyncio.run(api_server.checkout_cart({"user_id": "u2", "username": "b"}, idempotency_key="same"))
+
+        self.assertEqual(calls["n"], 2)  # same raw key, different users → not a collision
+
+    def test_bundle_same_key_charges_once(self):
+        store = self._store()
+        calls = {"n": 0}
+
+        def fake_purchase(bid, uid, mp, cart):
+            calls["n"] += 1
+            return {"purchased": [], "total_charged": 50, "result_id": calls["n"]}
+        mock_bm = MagicMock()
+        mock_bm.purchase_bundle.side_effect = fake_purchase
+
+        with patch.object(api_server, "get_bundle_manager", lambda: mock_bm), \
+             patch.object(api_server, "get_marketplace", MagicMock()), \
+             patch.object(api_server, "get_cart_manager", None), \
+             patch.object(api_server, "get_idempotency_store", lambda: store), \
+             patch.object(api_server, "get_membership_manager", None), \
+             patch.object(api_server, "get_referral_manager", None), \
+             patch.object(api_server, "get_license_manager", None), \
+             patch.object(api_server, "get_notification_queue", None):
+            user = {"user_id": "u1", "username": "alice"}
+            b1 = asyncio.run(api_server.purchase_bundle("bnd1", user, idempotency_key="k1"))
+            b2 = asyncio.run(api_server.purchase_bundle("bnd1", user, idempotency_key="k1"))
+
+        self.assertEqual(calls["n"], 1)
+        self.assertEqual(b1["result_id"], b2["result_id"])
+
+    def test_failed_checkout_is_not_cached(self):
+        # A checkout that raises (e.g. empty cart) must NOT be memoized -- the
+        # user must be able to retry with the same key after fixing the cart.
+        store = self._store()
+        calls = {"n": 0}
+
+        def fake_checkout(uid, mp):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ValueError("カートが空です")
+            return {"success": True, "order": {"order_id": "ord-real",
+                                               "total_credits": 0, "items": []}, "failed_items": []}
+        mock_cm = MagicMock()
+        mock_cm.checkout.side_effect = fake_checkout
+
+        with patch.object(api_server, "get_cart_manager", lambda: mock_cm), \
+             patch.object(api_server, "get_marketplace", MagicMock()), \
+             patch.object(api_server, "get_idempotency_store", lambda: store), \
+             patch.object(api_server, "get_membership_manager", None), \
+             patch.object(api_server, "get_referral_manager", None), \
+             patch.object(api_server, "get_license_manager", None), \
+             patch.object(api_server, "get_notification_queue", None):
+            user = {"user_id": "u1", "username": "alice"}
+            with self.assertRaises(Exception):
+                asyncio.run(api_server.checkout_cart(user, idempotency_key="k1"))
+            # Retry with the SAME key must actually re-run (failure wasn't cached).
+            r = asyncio.run(api_server.checkout_cart(user, idempotency_key="k1"))
+
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(r["order"]["order_id"], "ord-real")
+
+
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestDisputeCommission(unittest.TestCase):
     """dispute_commission() surfaces a commission in the unified moderation

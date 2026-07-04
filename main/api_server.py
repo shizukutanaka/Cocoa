@@ -4321,13 +4321,32 @@ async def set_cart_item_promo(
 
 
 @app.post("/api/cart/checkout", tags=["cart"], status_code=201)
-async def checkout_cart(current_user: dict = Depends(get_current_user)):
-    """カートのチェックアウトを実行する（全アイテムを一括購入）"""
+async def checkout_cart(
+    current_user: dict = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    """カートのチェックアウトを実行する（全アイテムを一括購入）。
+
+    Send an Idempotency-Key header to make a retried checkout (e.g. after a
+    network timeout on the first attempt) return the ORIGINAL order instead of
+    charging again / creating a second order -- matching the gift/tip/gift-card
+    endpoints. Without the header, behaviour is unchanged.
+    """
     if not get_cart_manager or not get_marketplace:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     try:
-        result = get_cart_manager().checkout(current_user["user_id"], get_marketplace())
-        if result.get("success"):
+        idem_key = f"{current_user['user_id']}:{idempotency_key}" if idempotency_key else None
+        store = get_idempotency_store() if get_idempotency_store else None
+        is_replay = store is not None and idem_key and store.seen(idem_key)
+
+        def _do_checkout():
+            return get_cart_manager().checkout(current_user["user_id"], get_marketplace())
+
+        result = store.get_or_execute(idem_key, _do_checkout) if store else _do_checkout()
+        # On a replayed request the charge + order already happened on the first
+        # call; skip re-firing the one-time side effects (tier tracking, referral
+        # bonus, license issuance, seller notifications) so they run exactly once.
+        if not is_replay and result.get("success"):
             total = result.get("order", {}).get("total_credits", 0)
             order_items = result.get("order", {}).get("items", [])
             user_id = current_user["user_id"]
@@ -4531,16 +4550,31 @@ async def delete_bundle(
 async def purchase_bundle(
     bundle_id: str,
     current_user: dict = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
-    """バンドルを購入する（割引適用、購入済みアイテムはスキップ）"""
+    """バンドルを購入する（割引適用、購入済みアイテムはスキップ）。
+
+    Send an Idempotency-Key header to make a retried purchase return the
+    ORIGINAL result instead of charging again -- matching checkout_cart and the
+    gift/tip/gift-card endpoints. Without the header, behaviour is unchanged.
+    """
     if not get_bundle_manager or not get_marketplace:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     cart = get_cart_manager() if get_cart_manager else None
     try:
-        result = get_bundle_manager().purchase_bundle(
-            bundle_id, current_user["user_id"], get_marketplace(), cart
-        )
-        if result.get("purchased"):
+        idem_key = f"{current_user['user_id']}:{idempotency_key}" if idempotency_key else None
+        store = get_idempotency_store() if get_idempotency_store else None
+        is_replay = store is not None and idem_key and store.seen(idem_key)
+
+        def _do_purchase():
+            return get_bundle_manager().purchase_bundle(
+                bundle_id, current_user["user_id"], get_marketplace(), cart
+            )
+
+        result = store.get_or_execute(idem_key, _do_purchase) if store else _do_purchase()
+        # On a replay the charge already happened; skip re-firing one-time side
+        # effects (tier tracking, referral bonus, license keys, notifications).
+        if not is_replay and result.get("purchased"):
             total = result.get("total_charged", 0)
             user_id = current_user["user_id"]
             downloader_username = current_user.get("username", "ユーザー")
