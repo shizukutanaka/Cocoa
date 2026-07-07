@@ -25,6 +25,7 @@ try:
         String,
         Text,
         create_engine,
+        text,
     )
     from sqlalchemy.ext.declarative import declarative_base
     from sqlalchemy.orm import Session, relationship, sessionmaker
@@ -37,7 +38,7 @@ except ImportError:
     # Stub column/type constructors so model classes can be defined without crashing
     def _stub(*a, **kw): return None
     Column = Integer = String = Text = DateTime = Boolean = Float = BigInteger = JSON = _stub
-    ForeignKey = relationship = _stub
+    ForeignKey = relationship = text = _stub
     Session = object
 
 try:
@@ -69,9 +70,17 @@ DEFAULT_DB_CONFIG = {
 class DatabaseManager:
     """PostgreSQLデータベースマネージャー"""
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """データベースマネージャーを初期化"""
+    def __init__(self, config: Optional[Dict[str, Any]] = None, database_url: Optional[str] = None):
+        """データベースマネージャーを初期化
+
+        database_url: an explicit SQLAlchemy URL (e.g. "sqlite:///:memory:")
+        that bypasses the postgresql:// URL this class otherwise builds from
+        config/env vars, and skips the postgres-only pool kwargs (pool_size,
+        max_overflow, ...) that other dialects don't accept. Intended for
+        tests -- production deployments should configure DB_HOST etc instead.
+        """
         self.config = {**DEFAULT_DB_CONFIG, **(config or {})}
+        self._database_url = database_url
         self._engine = None
         self._session_factory = None
         self._is_initialized = False
@@ -93,6 +102,13 @@ class DatabaseManager:
     def _initialize_engine(self):
         """データベースエンジンを初期化"""
         try:
+            if self._database_url is not None:
+                # Explicit URL (tests): postgres-only pool kwargs below don't
+                # apply to every dialect (e.g. sqlite), so skip them here.
+                self._engine = create_engine(self._database_url, echo=self.config['echo'], future=True)
+                logger.info(f"Database engine initialized for explicit URL")
+                return
+
             # 接続文字列の構築
             connection_string = (
                 f"postgresql://{self.config['username']}:{self.config['password']}"
@@ -173,7 +189,9 @@ class DatabaseManager:
         """データベース接続をテスト"""
         try:
             with self.get_session() as session:
-                session.execute("SELECT 1")
+                # SQLAlchemy 2.0 requires raw SQL strings to be wrapped in
+                # text() -- passing a bare string raises ArgumentError.
+                session.execute(text("SELECT 1"))
             return True
         except Exception as e:
             logger.error(f"Database connection test failed: {e}")
@@ -292,7 +310,13 @@ class SystemMetrics(Base):
     metric_type = Column(String(50), nullable=False)  # cpu, memory, disk, network
     value = Column(Float, nullable=False)
     unit = Column(String(20), nullable=False)  # %, bytes, count, etc.
-    metadata = Column(JSON, nullable=True)
+    # Python attribute can't be named "metadata" -- every Declarative model
+    # already has a reserved class-level `metadata` (its MetaData object), so
+    # naming a mapped column that collides raises InvalidRequestError at
+    # class-body evaluation time. name="metadata" keeps the actual DB column
+    # name unchanged (no migration impact) while the Python-side attribute
+    # becomes extra_data.
+    extra_data = Column("metadata", JSON, nullable=True)
 
 
 class SecurityAlert(Base):

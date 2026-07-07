@@ -17,7 +17,10 @@ import threading
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional, Union
 
-from cache_manager import MemoryCache
+try:
+    from .cache_manager import MemoryCache
+except ImportError:  # pragma: no cover - support flat import in tests
+    from cache_manager import MemoryCache
 
 try:
     import redis

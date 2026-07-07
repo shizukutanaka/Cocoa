@@ -285,10 +285,19 @@ class TwoFactorAuthManager:
         qr.add_data(uri)
         qr.make(fit=True)
 
-        # 画像をバイト列に変換
+        # 画像をバイト列に変換。qrcode の既定イメージファクトリは Pillow が
+        # インストールされていれば PilImage（.save() に format= が必須。
+        # BytesIO にはファイル名が無く拡張子から推測できないため）、
+        # 無ければピュア Python の PyPNGImage（.save() は format= 引数を
+        # 受け付けず TypeError になる）に変わる。どちらでも動くように、
+        # まず format='PNG' を試し、非対応なら引数無しで再試行する。
         img = qr.make_image(fill_color="black", back_color="white")
         img_buffer = io.BytesIO()
-        img.save(img_buffer, format='PNG')
+        try:
+            img.save(img_buffer, format='PNG')
+        except TypeError:
+            img_buffer = io.BytesIO()
+            img.save(img_buffer)
         return img_buffer.getvalue()
 
     def setup_2fa(self, user_id: int, username: str) -> Dict[str, Any]:

@@ -3,14 +3,18 @@
 Spec: docs/SPEC_REDIS_CACHE_MANAGER.md (REQ-RCM-01..04)
 Runnable without pytest:  python3 -m unittest tests.test_redis_cache_manager -v
 
-All tests exercise FallbackCacheManager because redis is not installed in the
-test environment. RedisCacheManager itself is tested only at the import level.
+Most tests exercise FallbackCacheManager directly (no live Redis server
+needed in CI). The get_cache_manager() fallback-selection tests patch
+REDIS_AVAILABLE / RedisCacheManager explicitly rather than assuming the
+`redis` package is absent -- it may or may not be installed depending on
+which requirements file the environment used.
 """
 import asyncio
 import os
 import pickle
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -300,7 +304,27 @@ class TestGetCacheManager(unittest.TestCase):
         self.assertIsNotNone(manager)
 
     def test_returns_fallback_when_redis_unavailable(self):
-        manager = get_cache_manager()
+        # Force the "redis package not installed" path explicitly (via
+        # unittest.mock.patch) instead of relying on the sandbox happening to
+        # lack the redis package -- RedisCacheManager's __init__ only raises
+        # when REDIS_AVAILABLE is False; its connection pool is otherwise
+        # lazy and doesn't validate connectivity, so if a real `redis`
+        # package IS installed (as this project's own requirements-ci.txt
+        # now does), get_cache_manager() would happily return a
+        # RedisCacheManager with no live Redis server behind it -- this test
+        # must exercise the fallback path regardless of that.
+        with unittest.mock.patch.object(rcm, "REDIS_AVAILABLE", False):
+            manager = get_cache_manager()
+        self.assertIsInstance(manager, FallbackCacheManager)
+
+    def test_returns_fallback_when_redis_connection_fails(self):
+        # Even with the redis package installed, a construction-time failure
+        # (bad host, auth failure, etc.) must still degrade to the fallback
+        # rather than propagate and break the caller.
+        with unittest.mock.patch.object(
+            rcm, "RedisCacheManager", side_effect=ConnectionError("no redis server")
+        ):
+            manager = get_cache_manager()
         self.assertIsInstance(manager, FallbackCacheManager)
 
     def test_singleton_same_instance(self):

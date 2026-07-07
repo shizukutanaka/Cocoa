@@ -23,19 +23,21 @@ class TestDatabaseManagerInit(unittest.TestCase):
         self.dm = DatabaseManager(database_url="sqlite:///:memory:")
 
     def tearDown(self):
-        self.dm.close()
+        self.dm.engine.dispose()
 
     def test_create_tables_does_not_raise(self):
         self.dm.create_tables()
 
     def test_get_session_returns_session(self):
-        session = self.dm.get_session()
-        self.assertIsNotNone(session)
-        session.close()
+        # get_session() is a @contextmanager -- must be entered with `with`,
+        # not called directly (that returns a context manager object, not a
+        # session).
+        with self.dm.get_session() as session:
+            self.assertIsNotNone(session)
 
-    def test_health_check_returns_true(self):
+    def test_connection_returns_true(self):
         self.dm.create_tables()
-        result = self.dm.health_check()
+        result = self.dm.test_connection()
         self.assertTrue(result)
 
 
@@ -45,11 +47,11 @@ class TestUserModel(unittest.TestCase):
     def setUp(self):
         self.dm = DatabaseManager(database_url="sqlite:///:memory:")
         self.dm.create_tables()
-        self.session = self.dm.get_session()
+        self.session = self.dm.session_factory()
 
     def tearDown(self):
         self.session.close()
-        self.dm.close()
+        self.dm.engine.dispose()
 
     def test_create_user(self):
         user = User(username="testuser", email="test@example.com", password_hash="hash123")
@@ -72,7 +74,7 @@ class TestAvatarModel(unittest.TestCase):
     def setUp(self):
         self.dm = DatabaseManager(database_url="sqlite:///:memory:")
         self.dm.create_tables()
-        self.session = self.dm.get_session()
+        self.session = self.dm.session_factory()
         user = User(username="avatarowner", email="owner@example.com", password_hash="h")
         self.session.add(user)
         self.session.commit()
@@ -80,51 +82,65 @@ class TestAvatarModel(unittest.TestCase):
 
     def tearDown(self):
         self.session.close()
-        self.dm.close()
+        self.dm.engine.dispose()
 
     def test_create_avatar(self):
-        avatar = Avatar(user_id=self.user_id, name="TestAvatar")
+        # owner_id is the real FK column name (not user_id); avatar_id and
+        # parameters are both nullable=False.
+        avatar = Avatar(owner_id=self.user_id, name="TestAvatar", avatar_id="av-1", parameters={})
         self.session.add(avatar)
         self.session.commit()
         self.assertIsNotNone(avatar.id)
 
     def test_avatar_belongs_to_user(self):
-        avatar = Avatar(user_id=self.user_id, name="UserAvatar")
+        avatar = Avatar(owner_id=self.user_id, name="UserAvatar", avatar_id="av-2", parameters={})
         self.session.add(avatar)
         self.session.commit()
-        result = self.session.query(Avatar).filter(Avatar.user_id == self.user_id).first()
+        result = self.session.query(Avatar).filter(Avatar.owner_id == self.user_id).first()
         self.assertEqual(result.name, "UserAvatar")
 
 
 @requires_sqlalchemy
 class TestUserRepository(unittest.TestCase):
+    """BaseRepository/UserRepository take the model class + DatabaseManager at
+    construction time, and every lookup method takes the session as a
+    per-call argument (not stored on the repo) -- session lifetime is the
+    caller's responsibility, matching how a request-scoped session would work
+    in a real endpoint."""
 
     def setUp(self):
         self.dm = DatabaseManager(database_url="sqlite:///:memory:")
         self.dm.create_tables()
-        self.session = self.dm.get_session()
-        self.repo = UserRepository(self.session)
+        self.session = self.dm.session_factory()
+        self.repo = UserRepository(User, self.dm)
 
     def tearDown(self):
         self.session.close()
-        self.dm.close()
+        self.dm.engine.dispose()
 
-    def test_create_returns_user(self):
-        user = self.repo.create(username="repouser", email="repo@example.com", password_hash="h")
+    def test_create_via_repository(self):
+        user = self.repo.create(self.session, username="repouser", email="repo@example.com", password_hash="h")
         self.assertIsNotNone(user.id)
 
     def test_get_by_id(self):
-        user = self.repo.create(username="getuser", email="get@example.com", password_hash="h")
-        fetched = self.repo.get_by_id(user.id)
+        user = self.repo.create(self.session, username="getuser", email="get@example.com", password_hash="h")
+        fetched = self.repo.get_by_id(self.session, user.id)
         self.assertIsNotNone(fetched)
         self.assertEqual(fetched.username, "getuser")
 
     def test_get_by_id_missing_returns_none(self):
-        result = self.repo.get_by_id(99999)
+        result = self.repo.get_by_id(self.session, 99999)
         self.assertIsNone(result)
 
     def test_get_all_returns_list(self):
-        self.repo.create(username="a1", email="a1@x.com", password_hash="h")
-        self.repo.create(username="a2", email="a2@x.com", password_hash="h")
-        all_users = self.repo.get_all()
+        self.repo.create(self.session, username="a1", email="a1@x.com", password_hash="h")
+        self.repo.create(self.session, username="a2", email="a2@x.com", password_hash="h")
+        all_users = self.repo.get_all(self.session)
         self.assertGreaterEqual(len(all_users), 2)
+
+    def test_get_by_username_via_user_repository(self):
+        self.session.add(User(username="uniqueuser", email="u@x.com", password_hash="h"))
+        self.session.commit()
+        result = self.repo.get_by_username(self.session, "uniqueuser")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.email, "u@x.com")
