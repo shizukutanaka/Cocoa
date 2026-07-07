@@ -1083,6 +1083,54 @@ class TestPrometheusMetricsEndpoint(unittest.TestCase):
         mock_monitor.update_system_metrics.assert_not_called()
 
 
+class TestParseCorsOrigins(unittest.TestCase):
+    """_parse_cors_origins(): COCOA_CORS_ORIGINS parsing, with a fallback to
+    the dev-server defaults so local development is unaffected by this
+    change."""
+
+    def test_none_falls_back_to_dev_defaults(self):
+        self.assertEqual(
+            api_server._parse_cors_origins(None),
+            ["http://localhost:3000", "http://localhost:5173"],
+        )
+
+    def test_empty_string_falls_back_to_dev_defaults(self):
+        self.assertEqual(
+            api_server._parse_cors_origins(""),
+            ["http://localhost:3000", "http://localhost:5173"],
+        )
+
+    def test_whitespace_only_falls_back_to_dev_defaults(self):
+        self.assertEqual(
+            api_server._parse_cors_origins("   "),
+            ["http://localhost:3000", "http://localhost:5173"],
+        )
+
+    def test_single_origin(self):
+        self.assertEqual(
+            api_server._parse_cors_origins("https://cocoa.example.com"),
+            ["https://cocoa.example.com"],
+        )
+
+    def test_multiple_origins_with_surrounding_whitespace_trimmed(self):
+        self.assertEqual(
+            api_server._parse_cors_origins("https://a.example.com, https://b.example.com"),
+            ["https://a.example.com", "https://b.example.com"],
+        )
+
+    def test_trailing_comma_does_not_add_empty_origin(self):
+        self.assertEqual(
+            api_server._parse_cors_origins("https://a.example.com,"),
+            ["https://a.example.com"],
+        )
+
+    def test_only_commas_falls_back_to_dev_defaults(self):
+        self.assertEqual(
+            api_server._parse_cors_origins(",,,"),
+            ["http://localhost:3000", "http://localhost:5173"],
+        )
+
+
 class TestRequestEndpointLabel(unittest.TestCase):
     """_request_endpoint_label(): labels a request by its matched route
     TEMPLATE (bounded cardinality), never the raw path."""

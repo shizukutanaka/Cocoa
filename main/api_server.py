@@ -209,6 +209,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+_DEFAULT_CORS_ORIGINS = ["http://localhost:3000", "http://localhost:5173"]
+
+
+def _parse_cors_origins(env_value: Optional[str]) -> List[str]:
+    """Parse COCOA_CORS_ORIGINS (comma-separated) into an origin list.
+
+    Falls back to the dev-server defaults (Vite's :5173, CRA's :3000) when the
+    env var is unset or blank, so local development behaviour is unchanged.
+    A production deployment sets COCOA_CORS_ORIGINS to its real origin(s)
+    instead of the hardcoded localhost list this replaced.
+
+    Module-level (not inside `if FASTAPI_AVAILABLE:`) so it's unit-testable
+    without fastapi installed, matching _request_endpoint_label's pattern.
+    """
+    if not env_value or not env_value.strip():
+        return list(_DEFAULT_CORS_ORIGINS)
+    origins = [o.strip() for o in env_value.split(",") if o.strip()]
+    return origins or list(_DEFAULT_CORS_ORIGINS)
+
+
 # FastAPIアプリケーション作成
 if FASTAPI_AVAILABLE:
     app = FastAPI(
@@ -249,10 +269,12 @@ if FASTAPI_AVAILABLE:
     # セキュリティ設定
     security = HTTPBearer(auto_error=False)
 
-    # CORS設定
+    # CORS設定: 環境変数 COCOA_CORS_ORIGINS（カンマ区切り）で本番オリジンを指定可能。
+    # 未設定時は開発用のデフォルト（Vite/CRA の既定ポート）にフォールバックするので、
+    # ローカル開発の挙動は変わらない。
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://localhost:5173"],
+        allow_origins=_parse_cors_origins(os.environ.get("COCOA_CORS_ORIGINS")),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
