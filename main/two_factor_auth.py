@@ -328,7 +328,19 @@ class TwoFactorAuthManager:
             # than failing the whole setup (and losing the just-generated
             # secret/backup codes from the response) when the qrcode package
             # isn't installed.
-            qr_code_image = self.create_qr_code(username, secret) if QRCODE_AVAILABLE else None
+            #
+            # Encoded as a data: URI (base64), not raw bytes: this dict is
+            # returned directly as a FastAPI/Pydantic JSON response body, and
+            # raw PNG bytes are not valid JSON -- FastAPI's jsonable_encoder
+            # tries to UTF-8 decode bytes values and raises UnicodeDecodeError
+            # on real (non-UTF-8) binary data, so every setup call with
+            # QRCODE_AVAILABLE=True crashed with a 500 before this fix. A data
+            # URI also drops straight into an <img src="..."> with no
+            # separate base64-decode step on the client.
+            qr_code_image = None
+            if QRCODE_AVAILABLE:
+                png_bytes = self.create_qr_code(username, secret)
+                qr_code_image = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
 
             return {
                 'secret': secret,

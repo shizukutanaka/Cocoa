@@ -467,6 +467,38 @@ class TestTwoFactorLifecycleWithStore(unittest.TestCase):
             tfa.QRCODE_AVAILABLE = original
         self.assertIsNone(result['qr_code_image'])
         self.assertTrue(result['qr_code_uri'].startswith("otpauth://totp/"))
+
+    @unittest.skipUnless(
+        __import__("two_factor_auth").QRCODE_AVAILABLE, "qrcode package not installed"
+    )
+    def test_qr_code_image_is_a_json_serializable_data_uri(self):
+        """qr_code_image must be a data: URI string, not raw PNG bytes.
+
+        setup_2fa()'s return dict is returned directly as a FastAPI JSON
+        response body (POST /api/2fa/setup in api_server.py). Raw bytes are
+        not valid JSON -- FastAPI's jsonable_encoder tries to UTF-8-decode
+        bytes values and raises UnicodeDecodeError on real binary PNG data,
+        so every setup call crashed with a 500 whenever the qrcode package
+        was actually installed, until this was encoded as base64 here."""
+        import base64
+        mgr, _store = self._manager()
+        result = mgr.setup_2fa(1, "alice")
+        image = result['qr_code_image']
+        self.assertIsInstance(image, str)
+        self.assertTrue(image.startswith("data:image/png;base64,"))
+        # The payload must decode back to a real PNG.
+        payload = image.split(",", 1)[1]
+        png_bytes = base64.b64decode(payload)
+        self.assertTrue(png_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
+
+        # Must survive an actual FastAPI response encode + JSON dump, exactly
+        # as api_server.py's endpoint does with this dict.
+        try:
+            from fastapi.encoders import jsonable_encoder
+        except ImportError:
+            self.skipTest("fastapi not installed")
+        import json
+        json.dumps(jsonable_encoder(result))  # must not raise
         self.assertTrue(result['secret'])
 
 
