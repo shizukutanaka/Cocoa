@@ -1,15 +1,11 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import '@atlaskit/css-reset';
-import { setGlobalTheme } from '@atlaskit/tokens';
-import { cocoaTheme } from './styles/theme';
-import App from './App.tsx';
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { App } from "./App";
+import "./styles/global.css";
+import "./styles/components.css";
 
-// Apply the custom theme globally
-setGlobalTheme({ colorMode: 'light', ...cocoaTheme });
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
+ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>,
-)
+  </React.StrictMode>
+);

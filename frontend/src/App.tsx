@@ -1,31 +1,24 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from 'react-query';
-import { Toaster } from 'react-hot-toast';
-import {
-  PageLayout,
-  Content,
-  Main,
-  LeftSidebar,
-  TopBar,
-} from '@atlaskit/page-layout';
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { AuthProvider } from "./hooks/useAuth";
+import { ToastProvider } from "./hooks/useToast";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Layout } from "./components/Layout";
+import { RequireAuth } from "./components/RequireAuth";
+import { MyPageLayout } from "./components/MyPageLayout";
+import { Marketplace } from "./pages/Marketplace";
+import { ListingDetail } from "./pages/ListingDetail";
+import { Login } from "./pages/Login";
+import { Register } from "./pages/Register";
+import { CartPage } from "./pages/Cart";
+import { Collections } from "./pages/Collections";
+import { CollectionDetail } from "./pages/CollectionDetail";
+import { Profile } from "./pages/me/Profile";
+import { Orders } from "./pages/me/Orders";
+import { Credits } from "./pages/me/Credits";
+import { Notifications } from "./pages/me/Notifications";
+import { Security } from "./pages/me/Security";
 
-// スタイルインポート
-import './styles/index.css';
-
-// ページコンポーネント
-import Dashboard from '@/pages/Dashboard';
-import AvatarEditor from '@/pages/AvatarEditor';
-import AvatarList from '@/pages/AvatarList'; // 新しく追加
-import CollaborationRoom from '@/pages/CollaborationRoom';
-import AIGenerator from '@/pages/AIGenerator';
-import Monitoring from '@/pages/Monitoring';
-
-// 共通コンポーネント
-import Header from '@/components/Header';
-import Sidebar from '@/components/Sidebar';
-
-// クエリクライアント設定
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -33,36 +26,41 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
     },
   },
-})
+});
 
-function App() {
+export function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <Router>
-        <PageLayout>
-          <TopBar>
-            <Header />
-          </TopBar>
-          <Content>
-            <LeftSidebar>
-              <Sidebar />
-            </LeftSidebar>
-            <Main>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <AuthProvider>
+            <ToastProvider>
               <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/avatars" element={<AvatarList />} /> {/* 新しく追加 */}
-                <Route path="/avatars/:id" element={<AvatarEditor />} />
-                <Route path="/monitoring" element={<Monitoring />} />
-                <Route path="/collaboration/:sessionId" element={<CollaborationRoom />} />
-                <Route path="/ai-generator" element={<AIGenerator />} />
+                <Route element={<Layout />}>
+                  <Route index element={<Marketplace />} />
+                  <Route path="listings/:listingId" element={<ListingDetail />} />
+                  <Route path="login" element={<Login />} />
+                  <Route path="register" element={<Register />} />
+
+                  <Route path="cart" element={<RequireAuth><CartPage /></RequireAuth>} />
+                  <Route path="collections" element={<RequireAuth><Collections /></RequireAuth>} />
+                  <Route path="collections/:collectionId" element={<RequireAuth><CollectionDetail /></RequireAuth>} />
+
+                  <Route path="me" element={<RequireAuth><MyPageLayout /></RequireAuth>}>
+                    <Route index element={<Profile />} />
+                    <Route path="orders" element={<Orders />} />
+                    <Route path="credits" element={<Credits />} />
+                    <Route path="notifications" element={<Notifications />} />
+                    <Route path="security" element={<Security />} />
+                  </Route>
+
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Route>
               </Routes>
-            </Main>
-          </Content>
-        </PageLayout>
-        <Toaster position="top-right" />
-      </Router>
-    </QueryClientProvider>
+            </ToastProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
-
-export default App

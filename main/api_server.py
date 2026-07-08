@@ -16,6 +16,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
@@ -34,8 +35,9 @@ try:
     )
     from fastapi.concurrency import run_in_threadpool
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import JSONResponse, StreamingResponse
+    from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
     from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+    from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
     FASTAPI_AVAILABLE = True
 except ImportError:
@@ -49,6 +51,8 @@ except ImportError:
     CORSMiddleware = None
     run_in_threadpool = None
     JSONResponse = None
+    FileResponse = None
+    StaticFiles = None
     HTTPAuthorizationCredentials = None
     uvicorn = None
     Response = None
@@ -209,6 +213,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# frontend/ (Vite+React+TS SPA) built output. Optional: a deployment that
+# never ran `npm run build` still serves the API fine -- root() and the SPA
+# catch-all both fall back to the pre-existing JSON/404 behavior when this
+# doesn't exist, so this is purely additive.
+_FRONTEND_DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+_FRONTEND_INDEX_HTML = _FRONTEND_DIST_DIR / "index.html"
+
+# Top-level path prefixes the backend itself owns -- the SPA catch-all route
+# (registered last, after every real route) must never shadow these, even
+# for a typo'd/removed endpoint that would otherwise 404. Checked against the
+# first path segment only (e.g. "health" matches both /health and /health/x).
+_BACKEND_RESERVED_PREFIXES = (
+    "api", "docs", "redoc", "openapi.json", "health", "metrics",
+    "backups", "security", "ws", "assets",
+)
+
+
+def _is_frontend_dist_available() -> bool:
+    return _FRONTEND_INDEX_HTML.is_file()
+
+
+def _is_spa_route(path: str) -> bool:
+    """True if `path` (no leading slash) is safe for the SPA catch-all to
+    serve index.html for -- i.e. it isn't one of the backend's own
+    reserved top-level prefixes."""
+    first_segment = path.split("/", 1)[0]
+    return first_segment not in _BACKEND_RESERVED_PREFIXES
+
+
 _DEFAULT_CORS_ORIGINS = ["http://localhost:3000", "http://localhost:5173"]
 
 
@@ -279,6 +312,18 @@ if FASTAPI_AVAILABLE:
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
+
+    # Serve the built frontend (frontend/dist), if it exists, from this same
+    # process/port -- no separate static host or nginx needed for a single-
+    # server deployment. /assets is Vite's bundled JS/CSS output directory;
+    # index.html itself is served by root() and the SPA catch-all route
+    # (both registered further down) rather than StaticFiles, since those
+    # need to fall back to the pre-existing JSON/404 behavior when dist
+    # doesn't exist.
+    if _is_frontend_dist_available():
+        assets_dir = _FRONTEND_DIST_DIR / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets")
 else:
     app = _NullApp()
     security = None
@@ -542,7 +587,10 @@ def _verify_token(token: str) -> dict:
 # ルートエンドポイント
 @app.get("/")
 async def root():
-    """ルートエンドポイント"""
+    """ルートエンドポイント。frontend/dist がビルド済みならそのSPAを配信し、
+    未ビルドなら従来通りJSONステータスを返す（後方互換）。"""
+    if _is_frontend_dist_available():
+        return FileResponse(str(_FRONTEND_INDEX_HTML))
     return {
         "name": "Cocoa Avatar Management API",
         "version": "2.0.0",
@@ -5404,6 +5452,23 @@ async def general_exception_handler(request, exc):
         status_code=500,
         content={"detail": "内部サーバーエラー", "error_code": 500}
     )
+
+# SPA フォールバックルート。react-router はクライアントサイドルーティングを
+# 行うため、/login や /me/security のようなパスへブラウザが直接アクセス
+# （直接入力・リロード・ブックマーク）した場合、サーバー側にはそのパスに
+# 対応するルートが存在しない。この catch-all はファイル内で最後に登録された
+# ルートとして機能し（Starlette はルートを登録順に照合するため、先に登録
+# された /api/* 等の具体的なルートは常にこれより優先される）、それら以外の
+# 未知のパスに対して index.html を返して react-router に処理を委ねる。
+# _is_spa_route() が /api・/docs・/health 等バックエンド自身が所有する
+# プレフィックスを除外するため、typo した API パス等は本来通りの 404 になる。
+if FASTAPI_AVAILABLE:
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        if not _is_frontend_dist_available() or not _is_spa_route(full_path):
+            raise HTTPException(status_code=404, detail="Not Found")
+        return FileResponse(str(_FRONTEND_INDEX_HTML))
+
 
 # サーバー起動関数
 def start_api_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = False):

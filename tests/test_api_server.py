@@ -3,6 +3,7 @@ import asyncio
 import os
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "main"))
@@ -1191,6 +1192,63 @@ class TestPrometheusMetricsEndpoint(unittest.TestCase):
                 asyncio.run(api_server.get_prometheus_metrics())
         self.assertEqual(ctx.exception.status_code, 503)
         mock_monitor.update_system_metrics.assert_not_called()
+
+
+class TestSpaRouteHelpers(unittest.TestCase):
+    """_is_spa_route()/_is_frontend_dist_available(): the SPA catch-all
+    (registered last, after every real route) must never shadow the
+    backend's own reserved top-level prefixes -- a typo'd /api/* path must
+    still 404, not silently serve index.html."""
+
+    def test_backend_reserved_prefixes_are_not_spa_routes(self):
+        for path in ("api/marketplace", "api/nonexistent", "docs", "redoc",
+                     "openapi.json", "health", "metrics", "backups",
+                     "security", "ws", "assets/index.js"):
+            with self.subTest(path=path):
+                self.assertFalse(api_server._is_spa_route(path))
+
+    def test_client_routes_are_spa_routes(self):
+        for path in ("", "login", "register", "cart", "collections",
+                     "me", "me/security", "me/orders", "listings/abc123"):
+            with self.subTest(path=path):
+                self.assertTrue(api_server._is_spa_route(path))
+
+    def test_only_first_segment_is_checked(self):
+        # A client route that merely CONTAINS a reserved word later in the
+        # path must not be misclassified -- only the first segment counts.
+        self.assertTrue(api_server._is_spa_route("collections/api-tools"))
+
+    def test_dist_unavailable_when_no_index_html(self):
+        with patch.object(api_server, "_FRONTEND_INDEX_HTML", Path("/nonexistent/index.html")):
+            self.assertFalse(api_server._is_frontend_dist_available())
+
+    def test_dist_available_when_index_html_present(self):
+        with patch.object(api_server, "_FRONTEND_INDEX_HTML", Path(__file__)):  # any real file
+            self.assertTrue(api_server._is_frontend_dist_available())
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestSpaFallbackEndpoint(unittest.TestCase):
+    """spa_fallback(): the actual route handler, not just its helpers."""
+
+    def test_serves_index_html_for_client_route_when_dist_available(self):
+        with patch.object(api_server, "_is_frontend_dist_available", lambda: True), \
+             patch.object(api_server, "_FRONTEND_INDEX_HTML", Path(__file__)), \
+             patch.object(api_server, "FileResponse", lambda path: {"served": path}):
+            result = asyncio.run(api_server.spa_fallback("me/security"))
+        self.assertEqual(result, {"served": str(Path(__file__))})
+
+    def test_404s_for_reserved_prefix_even_when_dist_available(self):
+        with patch.object(api_server, "_is_frontend_dist_available", lambda: True):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.spa_fallback("api/nonexistent"))
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_404s_when_dist_unavailable(self):
+        with patch.object(api_server, "_is_frontend_dist_available", lambda: False):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.spa_fallback("login"))
+        self.assertEqual(ctx.exception.status_code, 404)
 
 
 class TestParseCorsOrigins(unittest.TestCase):
