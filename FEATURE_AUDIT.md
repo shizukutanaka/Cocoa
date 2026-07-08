@@ -40,6 +40,11 @@
 | 10 | Prometheus の実スクレイプ対象 | `/metrics` は JSON+認証必須で収集不能、本物のエクスポーターは独立プロセス設計で未統合だった。`get_prometheus_monitor()` シングルトンと `GET /metrics/prometheus`（未認証・Prometheusテキスト形式）を新設し `docker/prometheus.yml` から実際にスクレイプ可能に。`psutil.cpu_percent(interval=1)` の1秒ブロッキングは `run_in_threadpool` で回避 | `a6aa3f1` |
 | 12 | Prometheus リクエスト計装（#10 のフォローアップ） | `#10` 時点では http request カウンタ・レイテンシヒストグラムがゼロのままだった。`security_middleware` に `_record_request_metrics()` を配線し全リクエストで `record_request` + `observe_request_duration` を記録。ラベルは生パスではなくルートテンプレート（`request.scope["route"].path`）に限定して高カーディナリティを回避、ルート未マッチ（404・レート制限拒否）は `unmatched` に集約。計装は best-effort（例外はレスポンスに影響させず握りつぶす） | `41d3301` |
 | 11 | 非金銭データのアカウント削除カスケード（3-3 の一部） | 実装中に判明: `DELETE /api/auth/me` は**既に存在**していたが、パスワード確認なし（トークンのみでアカウント無効化可能というセキュリティ上の欠落）・ソフト削除のみ（`is_active=False`、ユーザー名/メール解放されず）・カスケードはリスティングのみという不完全な実装だった（当初の監査記述「セルフ削除APIが存在しない」は誤りだったため訂正）。パスワード確認必須の新実装に置き換え、`AuthManager.delete_own_account()` でハード削除（管理者削除と同じ`store.delete_user()`を使用しユーザー名/メールを解放）。カート・ウィッシュリスト・コレクション・保存検索・通知・2FA秘密鍵を横断削除する `_cascade_delete_user_data()` を新設し、管理者削除エンドポイントとも共有。クレジット残高・台帳・コミッション・紹介コード・会員ティア・ライセンスキーは会計/法務判断が必要なため意図的に対象外（3-3後半として下記に残す） | `37d7287` |
+| 13 | 決済系2エンドポイントの冪等性欠如 | gift/tip/gift-card購入/gift-card交換の4エンドポイントは`Idempotency-Key`ヘッダに対応済みだったが、最も金額の大きい`POST /api/cart/checkout`と`POST /api/bundles/{id}/purchase`だけ未対応。リトライで注文レコード重複・副作用（ティア加算等）の二重発火が起きる状態だった。既存4エンドポイントと同一パターンで統一 | `0ff3cc5` |
+| 14 | `/api/2fa/enable`が実際には有効化しない | `setup_2fa()`を再度呼び秘密鍵を上書きした上、検証成功時も有効化状態を永続化する処理が皆無で、レスポンスは常に`{"status":"enabled"}`という嘘を返していた。`TwoFactorAuthService.enable_user_2fa()`を呼ぶよう修正 | `47e4137` |
+| 15 | `/api/2fa/verify-backup`が常に例外 | エンドポイント関数名が`main/two_factor_auth.py`からインポートした同名の便利関数`verify_backup_code`と衝突（シャドーイング）。実行時に自分自身を誤って呼び出しシグネチャ不一致で必ず例外になっていた。関数名変更で解消 | `47e4137` |
+| 16 | `POST /api/2fa/setup`がqrcodeインストール環境で常に500 | `qr_code_image`が生PNGバイト列のままFastAPIのJSONレスポンスに直接返され、`jsonable_encoder`のUTF-8デコードでクラッシュしていた。base64の`data:image/png;base64,...`形式に変更 | `252bd22` |
+| 17 | Web フロントエンドが未接続・未ビルド | `frontend/`にVite+React+TSのSPAが存在したが、依存2つ欠落・lockfileなし・`tsconfig.node.json`不在で`tsc`が即失敗という**ビルド不能**な状態だった。さらに呼び出すAPI契約（`/api/v1/ai/generate-avatar`等）が実バックエンドに一切存在せず、ダッシュボードの統計は全てハードコードのダミー値。実際の221エンドポイント（認証+2FA・マーケットプレイス・カート決済・コレクション等）に対応する画面が皆無だった。依存を37→12パッケージに削減し、実APIに接続する7ページ（ログイン+2FA・登録・マーケットプレイス閲覧・詳細・カート決済・コレクション・マイページ5タブ）に全面再構築。`main/api_server.py`に`frontend/dist`を配信するStaticFilesマウント + SPAフォールバックルートを追加（`dist`未ビルド時は従来のJSON応答を維持し後方互換）。`npm run build`/`tsc --noEmit`/`eslint`が通ることを確認の上、実際に`uvicorn`を起動しPlaywrightで実ブラウザ検証（登録→ログイン→2FA設定でQRコード実際に表示→出品→カート追加→チェックアウト→注文履歴、コンソールエラー0件） | `dfff4e3` |
 
 ---
 
@@ -198,3 +203,6 @@ git rm main/preset_manager.py main/preset_diff_core.py main/preset_schema.py \
 ~~5. ログイン 2FA 強制~~ — `0b7c24a` で実装済み（セクション 2 参照）
 ~~6. Prometheus 実スクレイプ対象~~ — `a6aa3f1` で実装済み（セクション 2 参照）
 ~~7. 非金銭データのアカウント削除カスケード~~ — セクション 2 #11 で実装済み（金銭・契約データの扱いは 3-3 として残存）
+~~8. 決済系エンドポイントの冪等性統一~~ — `0ff3cc5` で実装済み（セクション 2 #13）
+~~9. legacy 2FA REST エンドポイントの実バグ3件~~ — `47e4137`/`252bd22` で実装済み（セクション 2 #14〜16）
+~~10. Web フロントエンドの再構築・接続~~ — `dfff4e3` で実装済み（セクション 2 #17）
