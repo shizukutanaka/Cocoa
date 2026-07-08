@@ -1,0 +1,25 @@
+# docker/Dockerfile's build context is the repo root (see docker-compose.yml's
+# `context: .`). Without this file, Docker sends the whole repo -- including
+# .git history and frontend/node_modules -- to the daemon before the
+# Dockerfile's own COPY lines get a chance to select just what's needed,
+# which is slow for no benefit (nothing here is actually copied into the
+# image otherwise).
+
+.git/
+.github/
+
+# Rebuilt fresh inside the image by the frontend-builder stage; sending the
+# host's own node_modules/dist would be stale and is wasted context anyway.
+frontend/node_modules/
+frontend/dist/
+
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Not needed at runtime; only requirements-ci.txt is (see Dockerfile).
+tests/
+docs/
+*.md

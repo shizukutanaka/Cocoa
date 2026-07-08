@@ -1,5 +1,5 @@
 services:
-  # Cocoa API
+  # Cocoa API + frontend
   #
   # main/api_server.py is a single FastAPI app serving all marketplace/auth/
   # avatar/security endpoints in one process -- there is no code-level split
@@ -7,24 +7,40 @@ services:
   # "microservices" (api-gateway, avatar-service, security-service,
   # collaboration-service, ai-service), each pointing at its own
   # docker/*.Dockerfile. None of those five Dockerfiles ever existed, so
-  # `docker-compose build` failed immediately for all of them. Even if they
-  # had existed, docker/Dockerfile's default CMD runs main/main.py, which is
-  # a tkinter GUI launcher -- it cannot run in a headless container at all.
-  # Consolidated to the one service that actually works.
+  # `docker-compose build` failed immediately for all of them. Consolidated
+  # to the one service that actually works.
+  #
+  # There used to also be a separate `frontend` service here, pointing at
+  # docker/frontend.Dockerfile -- which never existed either, so `build`
+  # would have failed for it the same way. It's gone now for a better reason
+  # than just "the Dockerfile is missing": docker/Dockerfile is a multi-stage
+  # build that compiles frontend/ (Vite+React+TS) in its first stage and
+  # copies the built frontend/dist into this same image, which
+  # main/api_server.py then serves directly (StaticFiles + a SPA fallback
+  # route) -- no second container, no separate port, one deployable image.
   api:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    command: ["python", "-m", "uvicorn", "main.api_server:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
     environment:
+      # Matches main/api_server.py + everything it imports -- see
+      # .env.example for the full list and where each one is actually read;
+      # anything not read by a reachable module is deliberately absent here.
       - ENVIRONMENT=production
-      - COCOA_SECRET_KEY=${COCOA_SECRET_KEY}
-      - COCOA_ENCRYPTION_KEY=${COCOA_ENCRYPTION_KEY}
+      - COCOA_JWT_SECRET=${COCOA_JWT_SECRET}
       - COCOA_2FA_SECRET=${COCOA_2FA_SECRET}
-      - DATABASE_URL=postgresql://cocoa:cocoa_password@db:5432/cocoa
-      - REDIS_URL=redis://redis:6379
+      - COCOA_CACHE_HMAC_KEY=${COCOA_CACHE_HMAC_KEY}
+      - COCOA_CORS_ORIGINS=${COCOA_CORS_ORIGINS}
+      - COCOA_ADMIN_PASSWORD=${COCOA_ADMIN_PASSWORD}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=cocoa
+      - DB_USER=cocoa
+      - DB_PASSWORD=${DB_PASSWORD:-cocoa_password}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
       - db
       - redis
@@ -38,31 +54,17 @@ services:
       retries: 3
       start_period: 40s
 
-  # Frontend
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: ../docker/frontend.Dockerfile
-    ports:
-      - "3000:3000"
-    environment:
-      # The frontend is Vite (import.meta.env.VITE_*), not Create React App --
-      # the REACT_APP_API_URL this used to set here was never read by any
-      # frontend code.
-      - VITE_API_BASE_URL=http://localhost:8000
-    depends_on:
-      - api
-    networks:
-      - cocoa-network
-    restart: unless-stopped
-
   # PostgreSQL Database
   db:
     image: postgres:15-alpine
     environment:
       - POSTGRES_DB=cocoa
       - POSTGRES_USER=cocoa
-      - POSTGRES_PASSWORD=cocoa_password
+      # Same variable + default as the api service's DB_PASSWORD above --
+      # kept as one source of truth rather than two hardcoded strings that
+      # could silently drift apart. Set DB_PASSWORD in your .env for
+      # anything beyond local/throwaway use.
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-cocoa_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -124,7 +126,14 @@ services:
   grafana:
     image: grafana/grafana:latest
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # No hardcoded default here on purpose (unlike DB_PASSWORD above) --
+      # Grafana's admin account is reachable on a published port (3001) with
+      # no other auth in front of it, so "cocoa" or "admin" is a much more
+      # dangerous default to ship than the DB password, which is only
+      # reachable from inside the compose network. Set GRAFANA_ADMIN_PASSWORD
+      # in your .env; compose fails fast with an empty/unset value rather
+      # than silently starting Grafana with a guessable password.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in your .env}
       - GF_USERS_ALLOW_SIGN_UP=false
     ports:
       - "3001:3000"
