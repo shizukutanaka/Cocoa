@@ -878,6 +878,12 @@ async def setup_two_factor_auth(username: str, current_user: dict = Depends(get_
                 "message": "2FAセットアップデータを生成しました"
             }
         raise HTTPException(status_code=404, detail="2FA機能が利用できません")
+    except HTTPException:
+        # Without this, the 404 just above (and any other intentional
+        # HTTPException raised inside this try) is itself an Exception
+        # subclass and falls into the except below, turning an accurate
+        # "feature unavailable" 404 into a misleading "setup failed" 500.
+        raise
     except Exception as e:
         logger.error(f"2FAセットアップエラー: {e}")
         raise HTTPException(status_code=500, detail="2FAセットアップに失敗しました") from e
@@ -885,17 +891,31 @@ async def setup_two_factor_auth(username: str, current_user: dict = Depends(get_
 
 @app.post("/api/2fa/enable")
 async def enable_two_factor_auth(username: str, token: str, current_user: dict = Depends(get_current_user)):
-    """2FAを有効化"""
-    try:
-        if setup_2fa:
-            user_id = current_user.get("user_id", 1)
-            setup_2fa(user_id, username)  # 実際には別途有効化関数が必要
+    """2FAを有効化する（POST /api/2fa/setup で発行された秘密鍵に対して
+    認証アプリの現在のTOTPコードを検証し、成功すれば有効化を永続化する）。
 
-            # トークン検証
-            if verify_2fa_token:
-                token_result = verify_2fa_token(user_id, token)
-                if not token_result.get("valid", False):
-                    raise HTTPException(status_code=400, detail="無効なトークンです")
+    以前の実装は setup_2fa() を再度呼んでいた -- これは POST /api/2fa/setup
+    で生成し認証アプリに登録済みの秘密鍵を「新しい秘密鍵で上書き」してしまい、
+    その後の検証は新しい（ユーザーの認証アプリと一致しない）秘密鍵に対して
+    行われるため実質的に常に失敗する。さらに verify_2fa_token() が成功しても
+    有効化状態を永続化する処理が一切無く、レスポンスが success を返しても
+    実際には何も有効化されていなかった。TwoFactorAuthService.enable_user_2fa()
+    は既存の秘密鍵に対して検証し、成功時のみ enabled=True を永続化する。
+    """
+    try:
+        if get_two_factor_service:
+            user_id = current_user.get("user_id", 1)
+            result = get_two_factor_service().enable_user_2fa(user_id, username, token)
+            if not result.get("success", False):
+                raise HTTPException(status_code=400, detail=result.get("error", "2FA有効化に失敗しました"))
+
+            if log_audit_event:
+                log_audit_event(
+                    action="enable_2fa",
+                    resource_type="user",
+                    user_id=user_id,
+                    details={"username": username}
+                )
 
             return {
                 "status": "enabled",
@@ -923,14 +943,25 @@ async def verify_two_factor_token(username: str, token: str, current_user: dict 
                 "message": "トークン検証結果"
             }
         raise HTTPException(status_code=404, detail="2FA機能が利用できません")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"2FAトークン検証エラー: {e}")
         raise HTTPException(status_code=500, detail="トークン検証に失敗しました") from e
 
 
 @app.post("/api/2fa/verify-backup")
-async def verify_backup_code(username: str, backup_code: str, current_user: dict = Depends(get_current_user)):
-    """バックアップコードを検証"""
+async def verify_two_factor_backup_code(username: str, backup_code: str, current_user: dict = Depends(get_current_user)):
+    """バックアップコードを検証
+
+    このエンドポイント関数は以前 verify_backup_code という名前で定義されて
+    おり、main/two_factor_auth.py からインポートした同名のモジュールレベル
+    便利関数を上書き（シャドーイング）していた。エンドポイント内部で
+    `verify_backup_code(user_id, backup_code)` を呼ぶと、実行時にはこの
+    エンドポイント関数自身を指す名前解決になり、シグネチャ不一致
+    （username/backup_code/current_user の3引数 vs 呼び出し側の2引数）で
+    必ず例外になっていた。関数名を変更してインポートとの衝突を解消。
+    """
     try:
         if verify_backup_code:
             user_id = current_user.get("user_id", 1)
@@ -941,6 +972,8 @@ async def verify_backup_code(username: str, backup_code: str, current_user: dict
                 "message": result.get("message", "バックアップコード検証結果")
             }
         raise HTTPException(status_code=404, detail="2FA機能が利用できません")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"バックアップコード検証エラー: {e}")
         raise HTTPException(status_code=500, detail="バックアップコード検証に失敗しました") from e
@@ -981,6 +1014,8 @@ async def get_two_factor_status(current_user: dict = Depends(get_current_user)):
                 "message": "2FAステータス情報"
             }
         raise HTTPException(status_code=404, detail="2FA機能が利用できません")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"2FAステータス取得エラー: {e}")
         raise HTTPException(status_code=500, detail="ステータス取得に失敗しました") from e

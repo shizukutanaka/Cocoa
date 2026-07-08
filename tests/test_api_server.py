@@ -513,6 +513,116 @@ class TestCheckoutReferralExceptionIsolation(unittest.TestCase):
         self.assertIn("purchased", result)
 
 
+class TestLegacyTwoFactorEndpoints(unittest.TestCase):
+    """POST /api/2fa/enable and /api/2fa/verify-backup, exercised against a
+    real TwoFactorAuthService (same pattern as tests/test_two_factor_auth.py)
+    rather than mocks, since both bugs fixed here were invisible to mocked
+    tests -- they were about the REAL underlying service/name resolution.
+    """
+
+    def setUp(self):
+        self._saved_secret = os.environ.get("COCOA_2FA_SECRET")
+        os.environ["COCOA_2FA_SECRET"] = "test-only-secret-not-for-production"
+        # Fresh singleton per test so state doesn't leak across tests.
+        import two_factor_auth as tfa_module
+        tfa_module._two_factor_service = None
+
+        # api_server.py imports setup_2fa/get_two_factor_service/etc via
+        # `from .two_factor_auth import ...` (relative). This test file
+        # bare-imports api_server (sys.path.insert + `import api_server`,
+        # no parent package -- same as every other test in this file), which
+        # makes that relative import fail and fall back to None for all of
+        # them -- a test-harness-only artifact (verified earlier this
+        # session: a proper `import main.api_server` package import resolves
+        # these correctly, matching how uvicorn loads it in production).
+        # Patch them directly to the real functions so these tests exercise
+        # the real 2FA logic instead of the None-fallback 404 path.
+        for name in ("setup_2fa", "get_two_factor_service", "verify_2fa_token", "verify_backup_code"):
+            patcher = patch.object(api_server, name, getattr(tfa_module, name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        if self._saved_secret is None:
+            os.environ.pop("COCOA_2FA_SECRET", None)
+        else:
+            os.environ["COCOA_2FA_SECRET"] = self._saved_secret
+        import two_factor_auth as tfa_module
+        tfa_module._two_factor_service = None
+
+    def test_enable_with_wrong_token_does_not_persist(self):
+        user = {"user_id": 501, "username": "alice"}
+        asyncio.run(api_server.setup_two_factor_auth("alice", user))
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(api_server.enable_two_factor_auth("alice", "000000", user))
+        self.assertEqual(ctx.exception.status_code, 400)
+        status = api_server.get_two_factor_service().get_user_2fa_status(501)
+        self.assertFalse(status.get("is_enabled"))
+
+    def test_enable_with_correct_token_persists(self):
+        from two_factor_auth import TOTPGenerator
+        user = {"user_id": 502, "username": "bob"}
+        setup_result = asyncio.run(api_server.setup_two_factor_auth("bob", user))
+        secret = setup_result["setup_data"]["secret"]
+        token = TOTPGenerator(secret).generate_token()
+
+        result = asyncio.run(api_server.enable_two_factor_auth("bob", token, user))
+        self.assertEqual(result["status"], "enabled")
+
+        status = api_server.get_two_factor_service().get_user_2fa_status(502)
+        self.assertTrue(status.get("is_enabled"))
+
+    def test_enable_does_not_regenerate_the_secret(self):
+        # The original bug called setup_2fa() again inside enable, silently
+        # replacing the secret the user already scanned into their
+        # authenticator app -- verifying against the ORIGINAL secret must
+        # still work after a successful enable.
+        from two_factor_auth import TOTPGenerator
+        user = {"user_id": 503, "username": "carol"}
+        setup_result = asyncio.run(api_server.setup_two_factor_auth("carol", user))
+        secret = setup_result["setup_data"]["secret"]
+        token = TOTPGenerator(secret).generate_token()
+        asyncio.run(api_server.enable_two_factor_auth("carol", token, user))
+
+        next_token = TOTPGenerator(secret).generate_token()
+        verify_result = asyncio.run(api_server.verify_two_factor_token("carol", next_token, user))
+        self.assertTrue(verify_result["valid"])
+
+    def test_verify_backup_code_accepts_real_code(self):
+        # Before the fix, calling this endpoint always raised (the function
+        # shadowed its own import), regardless of whether the code was valid.
+        from two_factor_auth import TOTPGenerator
+        user = {"user_id": 504, "username": "dave"}
+        setup_result = asyncio.run(api_server.setup_two_factor_auth("dave", user))
+        secret = setup_result["setup_data"]["secret"]
+        token = TOTPGenerator(secret).generate_token()
+        asyncio.run(api_server.enable_two_factor_auth("dave", token, user))
+
+        backup_code = setup_result["setup_data"]["backup_codes"][0]
+        result = asyncio.run(api_server.verify_two_factor_backup_code("dave", backup_code, user))
+        self.assertTrue(result["valid"])
+
+    def test_verify_backup_code_rejects_bogus_code(self):
+        user = {"user_id": 505, "username": "erin"}
+        asyncio.run(api_server.setup_two_factor_auth("erin", user))
+        result = asyncio.run(api_server.verify_two_factor_backup_code("erin", "not-a-real-code", user))
+        self.assertFalse(result["valid"])
+
+    def test_verify_backup_code_is_single_use(self):
+        from two_factor_auth import TOTPGenerator
+        user = {"user_id": 506, "username": "frank"}
+        setup_result = asyncio.run(api_server.setup_two_factor_auth("frank", user))
+        secret = setup_result["setup_data"]["secret"]
+        token = TOTPGenerator(secret).generate_token()
+        asyncio.run(api_server.enable_two_factor_auth("frank", token, user))
+
+        backup_code = setup_result["setup_data"]["backup_codes"][0]
+        first = asyncio.run(api_server.verify_two_factor_backup_code("frank", backup_code, user))
+        self.assertTrue(first["valid"])
+        second = asyncio.run(api_server.verify_two_factor_backup_code("frank", backup_code, user))
+        self.assertFalse(second["valid"])
+
+
 class TestCheckoutIdempotency(unittest.TestCase):
     """checkout_cart / purchase_bundle honour an Idempotency-Key so a retried
     request (e.g. after a network timeout) returns the ORIGINAL result instead
