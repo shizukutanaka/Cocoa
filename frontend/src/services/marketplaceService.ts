@@ -1,5 +1,5 @@
 import client from "./apiClient";
-import type { Listing, Paginated } from "../types/api";
+import type { Listing, Paginated, Review, ReviewsResponse } from "../types/api";
 
 export interface BrowseParams {
   q?: string;
@@ -37,5 +37,29 @@ export async function removeFavorite(listingId: string) {
 
 export async function listFavorites(): Promise<{ items: Listing[]; total: number }> {
   const { data } = await client.get("/api/marketplace/favorites");
+  return data;
+}
+
+export async function listReviews(
+  listingId: string,
+  sortBy: "newest" | "helpful" | "rating_high" | "rating_low" = "newest"
+): Promise<ReviewsResponse> {
+  const { data } = await client.get(`/api/marketplace/${listingId}/reviews`, {
+    params: { sort_by: sortBy, limit: 50, offset: 0 },
+  });
+  return data;
+}
+
+export async function postReview(listingId: string, stars: number, text: string) {
+  const { data } = await client.post(`/api/marketplace/${listingId}/reviews`, { stars, text });
+  return data as { listing_id: string; average_rating: number; review: Review };
+}
+
+export async function deleteMyReview(listingId: string) {
+  await client.delete(`/api/marketplace/${listingId}/reviews/mine`);
+}
+
+export async function voteReviewHelpful(reviewId: string, helpful: boolean) {
+  const { data } = await client.post(`/api/marketplace/reviews/${reviewId}/helpful`, { helpful });
   return data;
 }

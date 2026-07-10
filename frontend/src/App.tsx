@@ -15,7 +15,9 @@ import { Collections } from "./pages/Collections";
 import { CollectionDetail } from "./pages/CollectionDetail";
 import { Profile } from "./pages/me/Profile";
 import { Orders } from "./pages/me/Orders";
+import { OrderDetail } from "./pages/me/OrderDetail";
 import { Credits } from "./pages/me/Credits";
+import { GiftCards } from "./pages/me/GiftCards";
 import { Notifications } from "./pages/me/Notifications";
 import { Security } from "./pages/me/Security";
 
@@ -49,7 +51,9 @@ export function App() {
                   <Route path="me" element={<RequireAuth><MyPageLayout /></RequireAuth>}>
                     <Route index element={<Profile />} />
                     <Route path="orders" element={<Orders />} />
+                    <Route path="orders/:orderId" element={<OrderDetail />} />
                     <Route path="credits" element={<Credits />} />
+                    <Route path="gift-cards" element={<GiftCards />} />
                     <Route path="notifications" element={<Notifications />} />
                     <Route path="security" element={<Security />} />
                   </Route>

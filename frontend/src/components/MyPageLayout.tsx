@@ -4,6 +4,7 @@ const TABS = [
   { to: "/me", label: "プロフィール", end: true },
   { to: "/me/orders", label: "注文履歴", end: false },
   { to: "/me/credits", label: "クレジット", end: false },
+  { to: "/me/gift-cards", label: "ギフトカード", end: false },
   { to: "/me/notifications", label: "通知", end: false },
   { to: "/me/security", label: "セキュリティ", end: false },
 ];

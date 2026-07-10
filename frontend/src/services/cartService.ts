@@ -41,3 +41,8 @@ export async function getOrders(limit = 20, offset = 0): Promise<Paginated<Order
   const { data } = await client.get("/api/orders", { params: { limit, offset } });
   return data;
 }
+
+export async function getOrder(orderId: string): Promise<Order> {
+  const { data } = await client.get(`/api/orders/${orderId}`);
+  return data;
+}

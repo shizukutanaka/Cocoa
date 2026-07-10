@@ -184,3 +184,42 @@ export interface ApiErrorBody {
   detail?: string;
   error_code?: number;
 }
+
+export interface Review {
+  review_id: string;
+  listing_id: string;
+  user_id: string;
+  username: string;
+  stars: number;
+  text: string;
+  helpful_count: number;
+  unhelpful_count: number;
+  is_hidden: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReviewsResponse {
+  total: number;
+  items: Review[];
+}
+
+export interface GiftCard {
+  card_id: string;
+  code: string;
+  purchaser_id?: string; // omitted from the redeemer-facing to_public_dict()
+  amount: number;
+  is_redeemed: boolean;
+  redeemed_by: string | null;
+  message: string;
+  expires_at: string | null;
+  is_valid: boolean;
+  created_at: string;
+  redeemed_at: string | null;
+}
+
+export interface GiftCardRedeemResult {
+  card: GiftCard;
+  credits_received: number;
+  new_balance: number;
+}
