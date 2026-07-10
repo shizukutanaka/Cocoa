@@ -7,6 +7,7 @@ Global Edge Network Manager for Cocoa
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -104,12 +105,12 @@ class GlobalEdgeManager:
             "oceania": ["ap-southeast-2"]
         }
 
-        # CDN設定
-        self.cdn_domains = [
-            "cdn.cocoa-avatar.com",
-            "edge.cocoa-avatar.com",
-            "global.cocoa-avatar.com"
-        ]
+        # CDN設定: この project は cdn.cocoa-avatar.com 等のドメインを
+        # 所有・運用していないため、ハードコードされた架空ドメインではなく
+        # 環境変数 COCOA_CDN_DOMAINS（カンマ区切り）から読み込む。未設定なら
+        # 空リスト（CDN未設定）。
+        cdn_env = os.getenv("COCOA_CDN_DOMAINS", "").strip()
+        self.cdn_domains = [d.strip() for d in cdn_env.split(",") if d.strip()]
 
         # 最適化設定
         self.route_cache_ttl = 300  # 5分

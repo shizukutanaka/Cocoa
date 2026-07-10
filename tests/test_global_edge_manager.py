@@ -3,6 +3,7 @@
 Spec: docs/SPEC_GLOBAL_EDGE_MANAGER.md (REQ-GEM-01)
 Runnable without pytest:  python3 -m unittest tests.test_global_edge_manager -v
 """
+import os
 import sys
 import tempfile
 import unittest
@@ -52,10 +53,31 @@ class TestGlobalEdgeManagerInit(unittest.TestCase):
             self.assertIn("north_america", mgr.regions)
             self.assertIn("europe", mgr.regions)
 
-    def test_cdn_domains_not_empty(self):
-        with tempfile.TemporaryDirectory() as td:
-            mgr = _make_manager(td)
-            self.assertGreater(len(mgr.cdn_domains), 0)
+    def test_cdn_domains_empty_by_default(self):
+        # This project does not own/operate any cdn.*/edge.*/global.* domain
+        # -- cdn_domains must not silently default to a fictional, unowned
+        # one. Empty (unconfigured) is the honest default.
+        saved = os.environ.pop("COCOA_CDN_DOMAINS", None)
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                mgr = _make_manager(td)
+                self.assertEqual(mgr.cdn_domains, [])
+        finally:
+            if saved is not None:
+                os.environ["COCOA_CDN_DOMAINS"] = saved
+
+    def test_cdn_domains_populated_from_env_var(self):
+        saved = os.environ.get("COCOA_CDN_DOMAINS")
+        os.environ["COCOA_CDN_DOMAINS"] = "cdn.example.org, edge.example.org"
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                mgr = _make_manager(td)
+                self.assertEqual(mgr.cdn_domains, ["cdn.example.org", "edge.example.org"])
+        finally:
+            if saved is None:
+                os.environ.pop("COCOA_CDN_DOMAINS", None)
+            else:
+                os.environ["COCOA_CDN_DOMAINS"] = saved
 
 
 class TestGetGlobalEdgeStatus(unittest.TestCase):

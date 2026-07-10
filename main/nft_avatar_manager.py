@@ -50,7 +50,7 @@ class AvatarNFTMetadata:
 
     def to_ipfs_metadata(self) -> Dict:
         """IPFSメタデータフォーマットに変換"""
-        return {
+        metadata = {
             "name": self.name,
             "description": self.description,
             "image": f"ipfs://{self.ipfs_cid}",
@@ -58,9 +58,16 @@ class AvatarNFTMetadata:
                 {"trait_type": key, "value": value}
                 for key, value in self.attributes.items()
             ],
-            "external_url": f"https://cocoa-avatar.com/avatar/{self.avatar_hash}",
             "background_color": "000000"
         }
+        # external_url is optional in the NFT metadata spec (OpenSea etc.) --
+        # this project does not own/operate a public avatar-viewer domain, so
+        # only include it when COCOA_NFT_EXTERNAL_URL_BASE is explicitly
+        # configured, rather than pointing to a fictional/unowned domain.
+        base_url = os.getenv("COCOA_NFT_EXTERNAL_URL_BASE", "").rstrip("/")
+        if base_url:
+            metadata["external_url"] = f"{base_url}/avatar/{self.avatar_hash}"
+        return metadata
 
 class NFTAvatarManager:
     """
