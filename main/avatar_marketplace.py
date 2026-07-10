@@ -122,6 +122,11 @@ class MarketplaceListing:
             "stock_limit": self.stock_limit,
             "stock_remaining": self.stock_remaining,
             "is_sold_out": self.stock_remaining is not None and self.stock_remaining <= 0,
+            # Omitted until now -- get_user_listings_page(include_inactive=True)
+            # exists specifically to let a creator see BOTH their active and
+            # unpublished listings together, but without this field the
+            # response gave the caller no way to tell which is which.
+            "is_active": self.is_active,
         }
 
 

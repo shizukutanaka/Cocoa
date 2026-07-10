@@ -1,5 +1,5 @@
 import client from "./apiClient";
-import type { Listing, Paginated, Review, ReviewsResponse } from "../types/api";
+import type { Listing, Paginated, PublishListingInput, Review, ReviewsResponse, UpdateListingInput } from "../types/api";
 
 export interface BrowseParams {
   q?: string;
@@ -61,5 +61,31 @@ export async function deleteMyReview(listingId: string) {
 
 export async function voteReviewHelpful(reviewId: string, helpful: boolean) {
   const { data } = await client.post(`/api/marketplace/reviews/${reviewId}/helpful`, { helpful });
+  return data;
+}
+
+export async function myListings(includeInactive = true, limit = 50, offset = 0): Promise<Paginated<Listing>> {
+  const { data } = await client.get("/api/marketplace/mine", {
+    params: { include_inactive: includeInactive, limit, offset },
+  });
+  return data;
+}
+
+export async function publishListing(input: PublishListingInput): Promise<Listing> {
+  const { data } = await client.post("/api/marketplace/publish", input);
+  return data;
+}
+
+export async function updateListing(listingId: string, patch: UpdateListingInput): Promise<Listing> {
+  const { data } = await client.patch(`/api/marketplace/${listingId}`, patch);
+  return data;
+}
+
+export async function unpublishListing(listingId: string) {
+  await client.delete(`/api/marketplace/${listingId}`);
+}
+
+export async function getCategories(): Promise<{ items: Array<{ category: string; count: number }>; total: number }> {
+  const { data } = await client.get("/api/marketplace/categories");
   return data;
 }

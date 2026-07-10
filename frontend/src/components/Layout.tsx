@@ -22,6 +22,7 @@ export function Layout() {
               マーケットプレイス
             </NavLink>
             {user && <NavLink to="/collections">コレクション</NavLink>}
+            {user && <NavLink to="/me/wishlist">ウィッシュリスト</NavLink>}
             {user && <NavLink to="/cart">カート</NavLink>}
           </nav>
           <div className="app-header-actions">

@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import * as marketplaceService from "../services/marketplaceService";
 import { getListing } from "../services/marketplaceService";
 import { addToCart } from "../services/cartService";
+import * as wishlistService from "../services/wishlistService";
 import { CenterSpinner } from "../components/Spinner";
 import { StarRating } from "../components/StarRating";
 import { useAuth } from "../hooks/useAuth";
@@ -23,6 +24,12 @@ export function ListingDetail() {
     enabled: !!listingId,
   });
 
+  const { data: inWishlist } = useQuery({
+    queryKey: ["wishlist-check", listingId],
+    queryFn: () => wishlistService.checkWishlist(listingId!),
+    enabled: !!listingId && !!user,
+  });
+
   async function handleAddToCart() {
     if (!listing) return;
     setAddingToCart(true);
@@ -34,6 +41,22 @@ export function ListingDetail() {
       show(apiErrorMessage(err, "カートへの追加に失敗しました"), "error");
     } finally {
       setAddingToCart(false);
+    }
+  }
+
+  async function handleToggleWishlist() {
+    if (!listing) return;
+    try {
+      if (inWishlist) {
+        await wishlistService.removeFromWishlist(listing.listing_id);
+        show("ウィッシュリストから削除しました");
+      } else {
+        await wishlistService.addToWishlist(listing.listing_id);
+        show("ウィッシュリストに追加しました");
+      }
+      queryClient.invalidateQueries({ queryKey: ["wishlist-check", listingId] });
+    } catch (err) {
+      show(apiErrorMessage(err, "ウィッシュリストの更新に失敗しました"), "error");
     }
   }
 
@@ -83,10 +106,19 @@ export function ListingDetail() {
 
         {listing.is_sold_out && <div className="form-error-banner">在庫切れです</div>}
 
-        {!isOwnListing && !listing.is_sold_out && (
-          <button className="btn btn-primary" onClick={handleAddToCart} disabled={addingToCart}>
-            {addingToCart ? "追加中..." : "カートに追加"}
-          </button>
+        {!isOwnListing && (
+          <div style={{ display: "flex", gap: 8 }}>
+            {!listing.is_sold_out && (
+              <button className="btn btn-primary" onClick={handleAddToCart} disabled={addingToCart}>
+                {addingToCart ? "追加中..." : "カートに追加"}
+              </button>
+            )}
+            {user && (
+              <button className="btn btn-secondary" onClick={handleToggleWishlist}>
+                {inWishlist ? "★ ウィッシュリスト済み" : "☆ ウィッシュリストに追加"}
+              </button>
+            )}
+          </div>
         )}
         {isOwnListing && <p style={{ color: "var(--muted)" }}>これはあなたが出品したリスティングです。</p>}
       </div>

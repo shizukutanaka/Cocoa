@@ -20,6 +20,9 @@ import { Credits } from "./pages/me/Credits";
 import { GiftCards } from "./pages/me/GiftCards";
 import { Notifications } from "./pages/me/Notifications";
 import { Security } from "./pages/me/Security";
+import { MyListings } from "./pages/me/MyListings";
+import { CreateListing } from "./pages/me/CreateListing";
+import { Wishlist } from "./pages/me/Wishlist";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -50,6 +53,9 @@ export function App() {
 
                   <Route path="me" element={<RequireAuth><MyPageLayout /></RequireAuth>}>
                     <Route index element={<Profile />} />
+                    <Route path="listings" element={<MyListings />} />
+                    <Route path="listings/new" element={<CreateListing />} />
+                    <Route path="wishlist" element={<Wishlist />} />
                     <Route path="orders" element={<Orders />} />
                     <Route path="orders/:orderId" element={<OrderDetail />} />
                     <Route path="credits" element={<Credits />} />

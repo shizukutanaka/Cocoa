@@ -1000,6 +1000,15 @@ class TestSearch(unittest.TestCase):
         for key in ("listing_id", "name", "owner_username", "tags", "download_count", "average_rating"):
             self.assertIn(key, d)
 
+    def test_to_dict_includes_is_active(self):
+        # get_user_listings_page(include_inactive=True) exists specifically so
+        # a creator can see both live and taken-down listings together --
+        # without is_active in the serialized dict, the caller has no way to
+        # tell the two apart in that combined response.
+        self.assertTrue(self.l1.to_dict()["is_active"])
+        self.store.unpublish(self.l1.listing_id, "u1")
+        self.assertFalse(self.l1.to_dict()["is_active"])
+
     def test_filter_free_only(self):
         store = _store()
         store.publish("av_free", "u1", "alice", "Free", "free", [], "vrc", {}, is_free=True, price_credits=0)

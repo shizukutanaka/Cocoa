@@ -51,6 +51,7 @@ export interface Listing {
   stock_limit: number | null;
   stock_remaining: number | null;
   is_sold_out: boolean;
+  is_active: boolean;
 }
 
 export interface Paginated<T> {
@@ -222,4 +223,47 @@ export interface GiftCardRedeemResult {
   card: GiftCard;
   credits_received: number;
   new_balance: number;
+}
+
+export interface WishlistItem {
+  listing_id: string;
+  snapshot_price: number;
+  snapshot_name: string;
+  added_at: string;
+  // Only present when fetched with with_status=true.
+  is_active?: boolean;
+  is_sold_out?: boolean;
+  is_available?: boolean;
+  delisted?: boolean;
+  current_price?: number | null;
+  price_changed?: boolean;
+  price_dropped?: boolean;
+}
+
+export interface PublishListingInput {
+  avatar_id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  category?: string;
+  platform?: string;
+  parameters?: Record<string, unknown>;
+  thumbnail_url?: string;
+  is_free?: boolean;
+  price_credits?: number;
+  license_type?: string;
+  license_details?: string;
+}
+
+export interface UpdateListingInput {
+  name?: string;
+  description?: string;
+  tags?: string[];
+  parameters?: Record<string, unknown>;
+  thumbnail_url?: string;
+  is_free?: boolean;
+  price_credits?: number;
+  license_type?: string;
+  license_details?: string;
+  platform?: string;
 }
