@@ -1944,6 +1944,7 @@ class PublishRequest(BaseModel):
     price_credits: int = 0
     license_type: str = "personal"
     license_details: str = ""
+    is_ai_generated: bool = False
 
 
 class RatingRequest(BaseModel):
@@ -1982,6 +1983,7 @@ class UpdateListingRequest(BaseModel):
     license_type: Optional[str] = None
     license_details: Optional[str] = None
     platform: Optional[str] = None
+    is_ai_generated: Optional[bool] = None
 
 
 @app.post("/api/marketplace/publish", tags=["marketplace"])
@@ -2006,6 +2008,7 @@ async def publish_avatar(body: PublishRequest, current_user: dict = Depends(get_
             license_type=body.license_type,
             license_details=body.license_details,
             platform=body.platform,
+            is_ai_generated=body.is_ai_generated,
         )
         # Also index for search
         if get_search_index:
@@ -2530,6 +2533,7 @@ async def update_listing(listing_id: str, body: UpdateListingRequest, current_us
             license_type=body.license_type,
             license_details=body.license_details,
             platform=body.platform,
+            is_ai_generated=body.is_ai_generated,
         )
         # Re-index if name/description/tags/platform changed
         if get_search_index and any(v is not None for v in [body.name, body.description, body.tags, body.platform]):

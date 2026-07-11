@@ -52,6 +52,11 @@ export interface Listing {
   stock_remaining: number | null;
   is_sold_out: boolean;
   is_active: boolean;
+  is_ai_generated: boolean;
+  // Parameter VALUES stay hidden until purchase; only the count and a small
+  // sample of key NAMES are exposed so shoppers can gauge an avatar's richness.
+  parameter_count: number;
+  parameter_keys_preview: string[];
 }
 
 export interface Paginated<T> {
@@ -253,6 +258,7 @@ export interface PublishListingInput {
   price_credits?: number;
   license_type?: string;
   license_details?: string;
+  is_ai_generated?: boolean;
 }
 
 export interface UpdateListingInput {
@@ -266,4 +272,28 @@ export interface UpdateListingInput {
   license_type?: string;
   license_details?: string;
   platform?: string;
+  is_ai_generated?: boolean;
+}
+
+// Mirrors main/saved_searches.py SavedSearch.to_dict()
+export interface SavedSearchFilters {
+  category?: string;
+  platform?: string;
+  tags?: string[];
+  sort_by?: string;
+  is_free?: boolean;
+  min_price?: number;
+  max_price?: number;
+}
+
+export interface SavedSearch {
+  search_id: string;
+  user_id: string;
+  name: string;
+  query: string;
+  filters: SavedSearchFilters;
+  notify_on_match: boolean;
+  created_at: string;
+  last_used: string | null;
+  use_count: number;
 }

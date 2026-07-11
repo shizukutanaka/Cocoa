@@ -3,9 +3,11 @@ import { Link } from "react-router-dom";
 import * as marketplaceService from "../../services/marketplaceService";
 import { apiErrorMessage } from "../../services/apiClient";
 import { useToast } from "../../hooks/useToast";
+import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
 
 export function MyListings() {
+  usePageTitle("出品管理");
   const { show } = useToast();
   const queryClient = useQueryClient();
 

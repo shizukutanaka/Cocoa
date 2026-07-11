@@ -12,6 +12,9 @@ export function Layout() {
 
   return (
     <>
+      <a href="#main-content" className="skip-link">
+        本文へスキップ
+      </a>
       <header className="app-header">
         <div className="container app-header-inner">
           <NavLink to="/" className="app-logo">
@@ -48,7 +51,7 @@ export function Layout() {
           </div>
         </div>
       </header>
-      <main className="app-main">
+      <main className="app-main" id="main-content">
         <div className="container">
           <Outlet />
         </div>

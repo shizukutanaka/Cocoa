@@ -4,9 +4,11 @@ import * as wishlistService from "../../services/wishlistService";
 import { addToCart } from "../../services/cartService";
 import { apiErrorMessage } from "../../services/apiClient";
 import { useToast } from "../../hooks/useToast";
+import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
 
 export function Wishlist() {
+  usePageTitle("ウィッシュリスト");
   const { show } = useToast();
   const queryClient = useQueryClient();
 

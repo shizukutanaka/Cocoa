@@ -89,3 +89,13 @@ export async function getCategories(): Promise<{ items: Array<{ category: string
   const { data } = await client.get("/api/marketplace/categories");
   return data;
 }
+
+export async function getSuggestions(prefix: string, limit = 8): Promise<string[]> {
+  const { data } = await client.get("/api/search/suggest", { params: { prefix, limit } });
+  return data.suggestions ?? [];
+}
+
+export async function getRelated(listingId: string, limit = 6): Promise<Listing[]> {
+  const { data } = await client.get(`/api/marketplace/${listingId}/related`, { params: { limit } });
+  return data.items ?? [];
+}

@@ -1,14 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import * as marketplaceService from "../services/marketplaceService";
-import { getListing } from "../services/marketplaceService";
+import { getListing, getRelated } from "../services/marketplaceService";
 import { addToCart } from "../services/cartService";
 import * as wishlistService from "../services/wishlistService";
 import { CenterSpinner } from "../components/Spinner";
 import { StarRating } from "../components/StarRating";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { apiErrorMessage } from "../services/apiClient";
 
 export function ListingDetail() {
@@ -29,6 +30,14 @@ export function ListingDetail() {
     queryFn: () => wishlistService.checkWishlist(listingId!),
     enabled: !!listingId && !!user,
   });
+
+  const { data: related } = useQuery({
+    queryKey: ["related", listingId],
+    queryFn: () => getRelated(listingId!),
+    enabled: !!listingId,
+  });
+
+  usePageTitle(listing?.name);
 
   async function handleAddToCart() {
     if (!listing) return;
@@ -68,11 +77,18 @@ export function ListingDetail() {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32 }}>
       <div className="card listing-thumb" style={{ aspectRatio: "1", borderRadius: "var(--radius)" }}>
-        {listing.thumbnail_url ? <img src={listing.thumbnail_url} alt="" /> : "No Image"}
+        {listing.thumbnail_url ? <img src={listing.thumbnail_url} alt="" loading="lazy" /> : "No Image"}
       </div>
 
       <div>
-        <h1>{listing.name}</h1>
+        <h1 style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {listing.name}
+          {listing.is_ai_generated && (
+            <span className="badge badge-ai" title="AI生成コンテンツを含む">
+              AI生成
+            </span>
+          )}
+        </h1>
         <p style={{ color: "var(--muted)" }}>
           by {listing.owner_username} · {listing.platform || "汎用"}
         </p>
@@ -86,6 +102,28 @@ export function ListingDetail() {
         </div>
 
         <p>{listing.description}</p>
+
+        {listing.parameter_count > 0 && (
+          <div style={{ margin: "12px 0" }}>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>
+              パラメータ {listing.parameter_count} 件（購入するとすべての値が利用可能になります）
+            </div>
+            {listing.parameter_keys_preview.length > 0 && (
+              <div className="param-chips">
+                {listing.parameter_keys_preview.map((k) => (
+                  <span key={k} className="param-chip">
+                    {k}
+                  </span>
+                ))}
+                {listing.parameter_count > listing.parameter_keys_preview.length && (
+                  <span className="param-chip">
+                    +{listing.parameter_count - listing.parameter_keys_preview.length}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="stat-row">
           <div className="stat-tile">
@@ -114,7 +152,12 @@ export function ListingDetail() {
               </button>
             )}
             {user && (
-              <button className="btn btn-secondary" onClick={handleToggleWishlist}>
+              <button
+                className="btn btn-secondary"
+                onClick={handleToggleWishlist}
+                aria-pressed={!!inWishlist}
+                aria-label={inWishlist ? "ウィッシュリストから削除" : "ウィッシュリストに追加"}
+              >
                 {inWishlist ? "★ ウィッシュリスト済み" : "☆ ウィッシュリストに追加"}
               </button>
             )}
@@ -126,6 +169,30 @@ export function ListingDetail() {
       <div style={{ gridColumn: "1 / -1" }}>
         <ReviewsSection listingId={listing.listing_id} isOwnListing={isOwnListing} isLoggedIn={!!user} />
       </div>
+
+      {related && related.length > 0 && (
+        <div style={{ gridColumn: "1 / -1" }}>
+          <h2 style={{ fontSize: 18 }}>関連アバター</h2>
+          <div className="related-grid">
+            {related.map((r) => (
+              <Link key={r.listing_id} to={`/listings/${r.listing_id}`} className="card listing-card">
+                <div className="listing-thumb">
+                  {r.thumbnail_url ? <img src={r.thumbnail_url} alt="" loading="lazy" /> : "No Image"}
+                </div>
+                <div className="listing-body">
+                  <div className="listing-name">{r.name}</div>
+                  <div className="listing-meta">
+                    <span>{r.owner_username}</span>
+                    <span className={r.is_free ? "listing-price is-free" : "listing-price"}>
+                      {r.is_free ? "無料" : `${r.price_credits.toLocaleString()} cr`}
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import * as marketplaceService from "../../services/marketplaceService";
 import { apiErrorMessage } from "../../services/apiClient";
 import { useToast } from "../../hooks/useToast";
+import { usePageTitle } from "../../hooks/usePageTitle";
 
 export function CreateListing() {
+  usePageTitle("新規出品");
   const { show } = useToast();
   const navigate = useNavigate();
 
@@ -18,6 +20,7 @@ export function CreateListing() {
   const [priceCredits, setPriceCredits] = useState(0);
   const [licenseType, setLicenseType] = useState("personal");
   const [parametersText, setParametersText] = useState("{}");
+  const [isAiGenerated, setIsAiGenerated] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -47,6 +50,7 @@ export function CreateListing() {
         price_credits: isFree ? 0 : priceCredits,
         license_type: licenseType,
         parameters,
+        is_ai_generated: isAiGenerated,
       });
       show("出品しました");
       navigate(`/listings/${listing.listing_id}`);
@@ -118,6 +122,21 @@ export function CreateListing() {
               <option value="commercial">商用利用可</option>
               <option value="custom">カスタム</option>
             </select>
+          </div>
+
+          <div className="field">
+            <label>
+              <input
+                type="checkbox"
+                checked={isAiGenerated}
+                onChange={(e) => setIsAiGenerated(e.target.checked)}
+                style={{ marginRight: 6 }}
+              />
+              生成AIを用いて制作したコンテンツを含む
+            </label>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+              購入者に対して「AI生成」バッジで開示されます。
+            </div>
           </div>
 
           <div className="field">

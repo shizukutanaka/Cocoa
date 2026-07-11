@@ -85,6 +85,11 @@ class MarketplaceListing:
     is_active: bool = True
     stock_limit: Optional[int] = None      # None = unlimited copies
     stock_remaining: Optional[int] = None  # decremented on each download
+    # Creator self-declaration that the avatar was produced with generative AI.
+    # Kept as an honest, opt-in disclosure flag (EU AI Act Art. 50 transparency
+    # obligations take effect 2026-08-02); defaults False so existing listings
+    # and older callers are unaffected.
+    is_ai_generated: bool = False
 
     @property
     def average_rating(self) -> float:
@@ -127,6 +132,13 @@ class MarketplaceListing:
             # unpublished listings together, but without this field the
             # response gave the caller no way to tell which is which.
             "is_active": self.is_active,
+            "is_ai_generated": self.is_ai_generated,
+            # Buyers get no model file and the parameter VALUES stay hidden until
+            # purchase, but exposing the key COUNT and a small sample of key NAMES
+            # lets a shopper gauge how rich an avatar is before buying -- the
+            # closest analogue to VRChat's "try-on" for a parameter-only catalog.
+            "parameter_count": len(self.parameters),
+            "parameter_keys_preview": sorted(self.parameters.keys())[:10],
         }
 
 
@@ -784,6 +796,7 @@ class MarketplaceStore:
         license_type: str = "personal",
         license_details: str = "",
         platform: str = "",
+        is_ai_generated: bool = False,
     ) -> MarketplaceListing:
         # Normalize all string fields once before use so both the listing and the
         # initial version record store the same bounded values.
@@ -839,6 +852,7 @@ class MarketplaceStore:
                 price_credits=price_credits,
                 license_type=license_type,
                 license_details=license_details,
+                is_ai_generated=bool(is_ai_generated),
             )
             self._listings[listing.listing_id] = listing
             self._votes[listing.listing_id] = {}
@@ -882,6 +896,7 @@ class MarketplaceStore:
         license_type: Optional[str] = None,
         license_details: Optional[str] = None,
         platform: Optional[str] = None,
+        is_ai_generated: Optional[bool] = None,
     ) -> "MarketplaceListing":
         """Update a published listing. Only the owner may update it."""
         with self._lock:
@@ -922,6 +937,8 @@ class MarketplaceStore:
                 listing.license_details = license_details.strip()[:500]
             if platform is not None:
                 listing.platform = platform.strip().lower()[:50]
+            if is_ai_generated is not None:
+                listing.is_ai_generated = bool(is_ai_generated)
             listing.updated_at = datetime.now(timezone.utc)
             if price_changed:
                 self._price_history.setdefault(listing.listing_id, []).append({

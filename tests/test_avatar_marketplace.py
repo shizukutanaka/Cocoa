@@ -1009,6 +1009,37 @@ class TestSearch(unittest.TestCase):
         self.store.unpublish(self.l1.listing_id, "u1")
         self.assertFalse(self.l1.to_dict()["is_active"])
 
+    def test_to_dict_parameter_preview_hides_values(self):
+        # Buyers must not see parameter VALUES before purchase, but the key
+        # count and a sample of key NAMES are exposed so they can gauge how
+        # rich an avatar is (the parameter-catalog analogue of a try-on).
+        store = _store()
+        listing = store.publish(
+            "av_prev", "u1", "alice", "Preview", "desc", [], "vrc",
+            {f"param{i}": i for i in range(15)},
+        )
+        d = listing.to_dict()
+        self.assertEqual(d["parameter_count"], 15)
+        self.assertEqual(len(d["parameter_keys_preview"]), 10)  # capped at 10 names
+        # Only names, never the values, appear in the preview payload.
+        self.assertTrue(all(isinstance(k, str) for k in d["parameter_keys_preview"]))
+        self.assertNotIn("parameters", d)
+
+    def test_is_ai_generated_defaults_false_and_round_trips(self):
+        # EU AI Act Art. 50 disclosure flag: opt-in, default off so legacy
+        # listings and callers that never pass it are unaffected.
+        store = _store()
+        plain = _listing(store, avatar_id="av_plain")
+        self.assertFalse(plain.to_dict()["is_ai_generated"])
+        ai = store.publish(
+            "av_ai", "u1", "alice", "AI Avatar", "desc", [], "vrc", {},
+            is_ai_generated=True,
+        )
+        self.assertTrue(ai.to_dict()["is_ai_generated"])
+        # Owner can correct the flag via update_listing.
+        store.update_listing(ai.listing_id, "u1", is_ai_generated=False)
+        self.assertFalse(store.get_listing(ai.listing_id).is_ai_generated)
+
     def test_filter_free_only(self):
         store = _store()
         store.publish("av_free", "u1", "alice", "Free", "free", [], "vrc", {}, is_free=True, price_credits=0)
