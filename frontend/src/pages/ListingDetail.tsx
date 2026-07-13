@@ -273,7 +273,7 @@ function ReviewsSection({
           <div className="row-list">
             {reviews.items.map((r) => (
               <div key={r.review_id} className="row-item" style={{ alignItems: "flex-start" }}>
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <strong>{r.username}</strong>
                     <StarRating value={r.stars} />
@@ -282,6 +282,7 @@ function ReviewsSection({
                     </span>
                   </div>
                   {r.text && <p style={{ margin: "6px 0 0" }}>{r.text}</p>}
+                  <ReviewReplies reviewId={r.review_id} isLoggedIn={isLoggedIn} />
                 </div>
                 {isLoggedIn && (
                   <button className="btn btn-ghost btn-sm" onClick={() => handleHelpful(r.review_id, true)}>
@@ -294,5 +295,107 @@ function ReviewsSection({
         </div>
       )}
     </section>
+  );
+}
+
+function ReviewReplies({ reviewId, isLoggedIn }: { reviewId: string; isLoggedIn: boolean }) {
+  const { user } = useAuth();
+  const { show } = useToast();
+  const queryClient = useQueryClient();
+  const [replyText, setReplyText] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [posting, setPosting] = useState(false);
+
+  // The replies endpoint requires auth, so anonymous visitors just don't see
+  // the thread rather than triggering 401s on every review.
+  const { data: replies } = useQuery({
+    queryKey: ["review-replies", reviewId],
+    queryFn: () => marketplaceService.getReviewReplies(reviewId),
+    enabled: isLoggedIn,
+  });
+
+  async function handlePost(e: FormEvent) {
+    e.preventDefault();
+    if (!replyText.trim()) return;
+    setPosting(true);
+    try {
+      await marketplaceService.postReviewReply(reviewId, replyText);
+      setReplyText("");
+      setShowForm(false);
+      queryClient.invalidateQueries({ queryKey: ["review-replies", reviewId] });
+      show("返信を投稿しました");
+    } catch (err) {
+      show(apiErrorMessage(err, "返信の投稿に失敗しました"), "error");
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  async function handleDelete(replyId: string) {
+    try {
+      await marketplaceService.deleteReviewReply(reviewId, replyId);
+      queryClient.invalidateQueries({ queryKey: ["review-replies", reviewId] });
+    } catch (err) {
+      show(apiErrorMessage(err, "返信の削除に失敗しました"), "error");
+    }
+  }
+
+  if (!isLoggedIn) return null;
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      {replies && replies.items.length > 0 && (
+        <div style={{ borderLeft: "2px solid var(--border)", paddingLeft: 12, display: "grid", gap: 8 }}>
+          {replies.items.map((reply) => (
+            <div key={reply.reply_id} style={{ fontSize: 13 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <strong>{reply.username}</strong>
+                <span style={{ fontSize: 11, color: "var(--faint)" }}>
+                  {new Date(reply.created_at).toLocaleDateString("ja-JP")}
+                </span>
+                {user?.user_id === reply.user_id && (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: 11, padding: "1px 6px" }}
+                    onClick={() => handleDelete(reply.reply_id)}
+                    aria-label="この返信を削除"
+                  >
+                    削除
+                  </button>
+                )}
+              </div>
+              <p style={{ margin: "2px 0 0" }}>{reply.text}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {showForm ? (
+        <form onSubmit={handlePost} style={{ display: "flex", gap: 8, marginTop: 6 }}>
+          <input
+            type="text"
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            placeholder="返信を入力..."
+            maxLength={1000}
+            style={{ flex: 1, fontSize: 13, padding: "6px 10px" }}
+            aria-label="レビューへの返信"
+          />
+          <button type="submit" className="btn btn-secondary btn-sm" disabled={posting}>
+            {posting ? "送信中..." : "送信"}
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowForm(false)}>
+            キャンセル
+          </button>
+        </form>
+      ) : (
+        <button
+          className="btn btn-ghost btn-sm"
+          style={{ marginTop: 4, fontSize: 12 }}
+          onClick={() => setShowForm(true)}
+        >
+          返信する
+        </button>
+      )}
+    </div>
   );
 }

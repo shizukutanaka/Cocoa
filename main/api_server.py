@@ -1075,6 +1075,7 @@ class RegisterRequest(BaseModel):
     username: str
     email: str
     password: str
+    referral_code: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -1157,6 +1158,16 @@ async def register(body: RegisterRequest):
                 get_marketplace().credit(
                     user.user_id, _SIGNUP_BONUS_CREDITS, "signup_bonus", ref_id=user.user_id
                 )
+            except Exception:
+                pass
+        # Best-effort, same as the signup bonus above: registration has already
+        # succeeded and must not be rolled back over a referral hiccup. An
+        # invalid/unknown code is silently ignored (apply_referral_code()
+        # already returns None for that); self-referral raises ValueError,
+        # which we also treat as a no-op rather than surfacing to the caller.
+        if get_referral_manager and body.referral_code:
+            try:
+                get_referral_manager().apply_referral_code(user.user_id, body.referral_code)
             except Exception:
                 pass
         return {

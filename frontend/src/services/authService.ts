@@ -6,8 +6,15 @@ function isTokenPair(result: LoginResult): result is TokenPair {
   return "access_token" in result;
 }
 
-export async function register(username: string, email: string, password: string) {
-  const { data } = await client.post("/api/auth/register", { username, email, password });
+export async function register(username: string, email: string, password: string, referralCode?: string) {
+  const { data } = await client.post("/api/auth/register", {
+    username,
+    email,
+    password,
+    // Omit rather than send "" so the backend's `if body.referral_code` guard
+    // treats "no code" identically to older clients that never sent the field.
+    referral_code: referralCode?.trim() || undefined,
+  });
   return data as { user_id: string; username: string; status: string };
 }
 

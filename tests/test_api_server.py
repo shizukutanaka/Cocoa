@@ -955,11 +955,12 @@ class TestRegisterSignupBonus(unittest.TestCase):
     (previously the only ways to acquire a first credit were a gift card from
     someone who already had credits, or being someone else's referral)."""
 
-    def _body(self, username="alice", email="alice@example.com", password="hunter22"):
+    def _body(self, username="alice", email="alice@example.com", password="hunter22", referral_code=None):
         body = MagicMock()
         body.username = username
         body.email = email
         body.password = password
+        body.referral_code = referral_code
         return body
 
     def _fake_user(self, user_id="u1", username="alice", role="user"):
@@ -1023,6 +1024,70 @@ class TestRegisterSignupBonus(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 400)
         mock_mp.credit.assert_not_called()
+
+    def test_referral_code_applied_on_registration(self):
+        # Regression: ReferralManager.apply_referral_code() was fully
+        # implemented and covered its own unit tests, but register() never
+        # called it -- there was no way for a real signup to ever redeem a
+        # referral code, making the entire program dead in practice.
+        mock_auth = MagicMock()
+        mock_auth.register.return_value = self._fake_user()
+        mock_auth.create_email_verification_token.return_value = "tok123"
+        mock_mp = MagicMock()
+        mock_ref = MagicMock()
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "get_marketplace", lambda: mock_mp), \
+             patch.object(api_server, "get_referral_manager", lambda: mock_ref):
+            result = asyncio.run(api_server.register(self._body(referral_code="ABC123")))
+
+        self.assertEqual(result["status"], "created")
+        mock_ref.apply_referral_code.assert_called_once_with("u1", "ABC123")
+
+    def test_no_referral_code_skips_apply(self):
+        mock_auth = MagicMock()
+        mock_auth.register.return_value = self._fake_user()
+        mock_auth.create_email_verification_token.return_value = "tok123"
+        mock_mp = MagicMock()
+        mock_ref = MagicMock()
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "get_marketplace", lambda: mock_mp), \
+             patch.object(api_server, "get_referral_manager", lambda: mock_ref):
+            asyncio.run(api_server.register(self._body(referral_code=None)))
+
+        mock_ref.apply_referral_code.assert_not_called()
+
+    def test_registration_succeeds_even_if_referral_apply_fails(self):
+        # Same "already succeeded, must not roll back" guarantee as the
+        # signup-bonus credit grant: a self-referral ValueError or any other
+        # failure in apply_referral_code() must not fail the registration.
+        mock_auth = MagicMock()
+        mock_auth.register.return_value = self._fake_user()
+        mock_auth.create_email_verification_token.return_value = "tok123"
+        mock_mp = MagicMock()
+        mock_ref = MagicMock()
+        mock_ref.apply_referral_code.side_effect = ValueError("自分の招待コードは使用できません")
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "get_marketplace", lambda: mock_mp), \
+             patch.object(api_server, "get_referral_manager", lambda: mock_ref):
+            result = asyncio.run(api_server.register(self._body(referral_code="OWNCODE")))
+
+        self.assertEqual(result["status"], "created")
+
+    def test_registration_succeeds_when_referral_manager_unavailable(self):
+        mock_auth = MagicMock()
+        mock_auth.register.return_value = self._fake_user()
+        mock_auth.create_email_verification_token.return_value = "tok123"
+        mock_mp = MagicMock()
+
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "get_marketplace", lambda: mock_mp), \
+             patch.object(api_server, "get_referral_manager", None):
+            result = asyncio.run(api_server.register(self._body(referral_code="ABC123")))
+
+        self.assertEqual(result["status"], "created")
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")

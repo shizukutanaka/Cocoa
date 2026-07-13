@@ -210,6 +210,16 @@ export interface ReviewsResponse {
   items: Review[];
 }
 
+// Mirrors main/avatar_marketplace.py ReviewReply.to_dict()
+export interface ReviewReply {
+  reply_id: string;
+  review_id: string;
+  user_id: string;
+  username: string;
+  text: string;
+  created_at: string;
+}
+
 export interface GiftCard {
   card_id: string;
   code: string;
@@ -273,6 +283,27 @@ export interface UpdateListingInput {
   license_details?: string;
   platform?: string;
   is_ai_generated?: boolean;
+}
+
+// Mirrors main/referral_manager.py ReferralRecord.to_dict()
+export interface ReferralRecord {
+  referral_id: string;
+  referrer_id: string;
+  referred_id: string;
+  referral_code: string;
+  status: "pending" | "converted";
+  bonus_awarded: number;
+  created_at: string;
+  converted_at: string | null;
+}
+
+// Mirrors ReferralStore.get_referral_stats()
+export interface ReferralStats {
+  referrer_id: string;
+  total_referrals: number;
+  converted: number;
+  pending: number;
+  total_bonus_earned: number;
 }
 
 // Mirrors main/saved_searches.py SavedSearch.to_dict()

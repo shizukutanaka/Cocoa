@@ -29,6 +29,7 @@ const MyListings = lazy(() => import("./pages/me/MyListings").then((m) => ({ def
 const CreateListing = lazy(() => import("./pages/me/CreateListing").then((m) => ({ default: m.CreateListing })));
 const Wishlist = lazy(() => import("./pages/me/Wishlist").then((m) => ({ default: m.Wishlist })));
 const SavedSearches = lazy(() => import("./pages/me/SavedSearches").then((m) => ({ default: m.SavedSearches })));
+const Referrals = lazy(() => import("./pages/me/Referrals").then((m) => ({ default: m.Referrals })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -64,6 +65,7 @@ export function App() {
                       <Route path="listings/new" element={<CreateListing />} />
                       <Route path="wishlist" element={<Wishlist />} />
                       <Route path="saved-searches" element={<SavedSearches />} />
+                      <Route path="referrals" element={<Referrals />} />
                       <Route path="orders" element={<Orders />} />
                       <Route path="orders/:orderId" element={<OrderDetail />} />
                       <Route path="credits" element={<Credits />} />

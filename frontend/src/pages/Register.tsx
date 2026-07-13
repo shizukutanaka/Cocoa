@@ -1,13 +1,18 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import * as authService from "../services/authService";
 import { apiErrorMessage } from "../services/apiClient";
 import { useAuth } from "../hooks/useAuth";
+import { usePageTitle } from "../hooks/usePageTitle";
 
 export function Register() {
+  usePageTitle("新規登録");
+  const [params] = useSearchParams();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // Pre-fill from an invite link (/register?ref=CODE) but keep it editable.
+  const [referralCode, setReferralCode] = useState(params.get("ref") ?? "");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -19,7 +24,7 @@ export function Register() {
     setError("");
     setBusy(true);
     try {
-      await authService.register(username, email, password);
+      await authService.register(username, email, password, referralCode);
       await authService.login(username, password);
       await refresh();
       navigate("/", { replace: true });
@@ -48,6 +53,16 @@ export function Register() {
           <label htmlFor="password">パスワード</label>
           <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
           <span style={{ fontSize: 12, color: "var(--faint)" }}>8文字以上、数字と文字を含めてください</span>
+        </div>
+        <div className="field">
+          <label htmlFor="referral-code">招待コード（任意）</label>
+          <input
+            id="referral-code"
+            value={referralCode}
+            onChange={(e) => setReferralCode(e.target.value)}
+            placeholder="友達から受け取ったコード"
+            autoComplete="off"
+          />
         </div>
         <button type="submit" className="btn btn-primary" disabled={busy} style={{ width: "100%" }}>
           {busy ? "登録中..." : "登録する"}

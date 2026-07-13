@@ -1,5 +1,13 @@
 import client from "./apiClient";
-import type { Listing, Paginated, PublishListingInput, Review, ReviewsResponse, UpdateListingInput } from "../types/api";
+import type {
+  Listing,
+  Paginated,
+  PublishListingInput,
+  Review,
+  ReviewReply,
+  ReviewsResponse,
+  UpdateListingInput,
+} from "../types/api";
 
 export interface BrowseParams {
   q?: string;
@@ -62,6 +70,20 @@ export async function deleteMyReview(listingId: string) {
 export async function voteReviewHelpful(reviewId: string, helpful: boolean) {
   const { data } = await client.post(`/api/marketplace/reviews/${reviewId}/helpful`, { helpful });
   return data;
+}
+
+export async function getReviewReplies(reviewId: string): Promise<{ items: ReviewReply[]; total: number }> {
+  const { data } = await client.get(`/api/marketplace/reviews/${reviewId}/replies`);
+  return data;
+}
+
+export async function postReviewReply(reviewId: string, text: string): Promise<ReviewReply> {
+  const { data } = await client.post(`/api/marketplace/reviews/${reviewId}/replies`, { text });
+  return data;
+}
+
+export async function deleteReviewReply(reviewId: string, replyId: string) {
+  await client.delete(`/api/marketplace/reviews/${reviewId}/replies/${replyId}`);
 }
 
 export async function myListings(includeInactive = true, limit = 50, offset = 0): Promise<Paginated<Listing>> {
