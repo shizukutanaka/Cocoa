@@ -5,6 +5,7 @@ import {
   browseMarketplace,
   getCategories,
   getSuggestions,
+  getTrending,
 } from "../services/marketplaceService";
 import { createSavedSearch } from "../services/savedSearchService";
 import { CenterSpinner } from "../components/Spinner";
@@ -106,6 +107,15 @@ export function Marketplace() {
 
   const hasFilters = Boolean(q || category || tags);
 
+  // Discovery strip for the default landing view only -- once the user is
+  // actively filtering/searching, the main grid IS the answer and the strip
+  // would just push results below the fold.
+  const { data: trending } = useQuery({
+    queryKey: ["trending"],
+    queryFn: () => getTrending(6),
+    enabled: !hasFilters && offset === 0,
+  });
+
   return (
     <div>
       <h1>マーケットプレイス</h1>
@@ -178,6 +188,30 @@ export function Marketplace() {
           </button>
         )}
       </form>
+
+      {!hasFilters && offset === 0 && trending && trending.length > 0 && (
+        <section style={{ marginBottom: 28 }}>
+          <h2 style={{ fontSize: 17 }}>🔥 トレンド</h2>
+          <div className="related-grid">
+            {trending.map((listing) => (
+              <Link key={listing.listing_id} to={`/listings/${listing.listing_id}`} className="card listing-card">
+                <div className="listing-thumb">
+                  {listing.thumbnail_url ? <img src={listing.thumbnail_url} alt="" loading="lazy" /> : "No Image"}
+                </div>
+                <div className="listing-body">
+                  <div className="listing-name">{listing.name}</div>
+                  <div className="listing-meta">
+                    <span>{listing.download_count.toLocaleString()} DL</span>
+                    <span className={listing.is_free ? "listing-price is-free" : "listing-price"}>
+                      {listing.is_free ? "無料" : `${listing.price_credits.toLocaleString()} cr`}
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {isLoading && <CenterSpinner />}
       {isError && <div className="empty-state">読み込みに失敗しました。</div>}

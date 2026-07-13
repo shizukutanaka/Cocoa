@@ -285,6 +285,35 @@ export interface UpdateListingInput {
   is_ai_generated?: boolean;
 }
 
+// Mirrors main/auth_manager.py User.public_profile() (+followers_count where
+// the endpoint adds it, e.g. /api/users/{id}/profile and storefront.profile)
+export interface PublicProfile {
+  user_id: string;
+  username: string;
+  display_name: string;
+  bio: string;
+  avatar_url: string;
+  website_url: string;
+  social_links: Record<string, string>;
+  role: string;
+  is_email_verified: boolean;
+  is_creator_verified: boolean;
+  created_at: string;
+  followers_count?: number;
+}
+
+export interface Storefront {
+  profile: PublicProfile;
+  listings: Paginated<Listing>;
+  // Creator dashboard stats (main/avatar_marketplace.py get_creator_analytics);
+  // only the fields the storefront page actually renders are typed here.
+  analytics: {
+    total_downloads?: number;
+    active_listings?: number;
+    total_reviews?: number;
+  } | null;
+}
+
 // Mirrors main/referral_manager.py ReferralRecord.to_dict()
 export interface ReferralRecord {
   referral_id: string;

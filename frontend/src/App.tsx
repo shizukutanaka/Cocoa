@@ -30,6 +30,8 @@ const CreateListing = lazy(() => import("./pages/me/CreateListing").then((m) => 
 const Wishlist = lazy(() => import("./pages/me/Wishlist").then((m) => ({ default: m.Wishlist })));
 const SavedSearches = lazy(() => import("./pages/me/SavedSearches").then((m) => ({ default: m.SavedSearches })));
 const Referrals = lazy(() => import("./pages/me/Referrals").then((m) => ({ default: m.Referrals })));
+const Creator = lazy(() => import("./pages/Creator").then((m) => ({ default: m.Creator })));
+const Following = lazy(() => import("./pages/me/Following").then((m) => ({ default: m.Following })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,6 +54,7 @@ export function App() {
                   <Route element={<Layout />}>
                     <Route index element={<Marketplace />} />
                     <Route path="listings/:listingId" element={<ListingDetail />} />
+                    <Route path="users/:userId" element={<Creator />} />
                     <Route path="login" element={<Login />} />
                     <Route path="register" element={<Register />} />
 
@@ -66,6 +69,7 @@ export function App() {
                       <Route path="wishlist" element={<Wishlist />} />
                       <Route path="saved-searches" element={<SavedSearches />} />
                       <Route path="referrals" element={<Referrals />} />
+                      <Route path="following" element={<Following />} />
                       <Route path="orders" element={<Orders />} />
                       <Route path="orders/:orderId" element={<OrderDetail />} />
                       <Route path="credits" element={<Credits />} />

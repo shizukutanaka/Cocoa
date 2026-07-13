@@ -121,3 +121,8 @@ export async function getRelated(listingId: string, limit = 6): Promise<Listing[
   const { data } = await client.get(`/api/marketplace/${listingId}/related`, { params: { limit } });
   return data.items ?? [];
 }
+
+export async function getTrending(limit = 6, days = 7): Promise<Listing[]> {
+  const { data } = await client.get("/api/marketplace/trending", { params: { limit, days } });
+  return data.items ?? [];
+}

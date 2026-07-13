@@ -1,0 +1,24 @@
+import client from "./apiClient";
+import type { PublicProfile, Storefront } from "../types/api";
+
+export async function getStorefront(userId: string, listingLimit = 20): Promise<Storefront> {
+  const { data } = await client.get(`/api/users/${userId}/storefront`, {
+    params: { listing_limit: listingLimit },
+  });
+  return data;
+}
+
+export async function getMyFollowing(): Promise<PublicProfile[]> {
+  const { data } = await client.get("/api/auth/following");
+  return data.following ?? [];
+}
+
+export async function followCreator(creatorId: string) {
+  const { data } = await client.post(`/api/auth/following/${creatorId}`);
+  return data as { following_count: number; followed: string };
+}
+
+export async function unfollowCreator(creatorId: string) {
+  const { data } = await client.delete(`/api/auth/following/${creatorId}`);
+  return data as { following_count: number; unfollowed: string };
+}

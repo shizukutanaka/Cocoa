@@ -90,7 +90,7 @@ export function ListingDetail() {
           )}
         </h1>
         <p style={{ color: "var(--muted)" }}>
-          by {listing.owner_username} · {listing.platform || "汎用"}
+          by <Link to={`/users/${listing.owner_id}`}>{listing.owner_username}</Link> · {listing.platform || "汎用"}
         </p>
 
         <div style={{ display: "flex", gap: 8, margin: "12px 0" }}>

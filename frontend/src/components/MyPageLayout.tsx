@@ -5,6 +5,7 @@ const TABS = [
   { to: "/me/listings", label: "出品管理", end: false },
   { to: "/me/wishlist", label: "ウィッシュリスト", end: false },
   { to: "/me/saved-searches", label: "保存した検索", end: false },
+  { to: "/me/following", label: "フォロー中", end: false },
   { to: "/me/orders", label: "注文履歴", end: false },
   { to: "/me/credits", label: "クレジット", end: false },
   { to: "/me/gift-cards", label: "ギフトカード", end: false },
