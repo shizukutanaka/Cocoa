@@ -21,6 +21,7 @@ import secrets
 import threading
 import unicodedata
 import time
+from urllib.parse import urlparse
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -82,6 +83,27 @@ ROLES = ("user", "moderator", "admin")
 
 
 _ALLOWED_SOCIAL_KEYS = frozenset({"twitter", "vrchat", "github", "website", "youtube", "twitch"})
+
+
+def _sanitize_public_url(raw: str) -> str:
+    """Strip a self-service URL field down to '' unless it's a plain http(s)
+    link. website_url/avatar_url are rendered verbatim as <a href>/<img src>
+    on the public, unauthenticated creator storefront page (see
+    frontend/src/pages/Creator.tsx) -- without this, a 'javascript:' or
+    'data:' scheme survives storage and executes in any visitor's browser on
+    click, including an admin's, with their session token sitting in
+    localStorage. Empty stays empty (== "no link"); any non-http(s) scheme is
+    dropped rather than raising, so a bad value never blocks the rest of a
+    profile update.
+    """
+    raw = raw.strip()
+    if not raw:
+        return ""
+    try:
+        scheme = urlparse(raw).scheme.lower()
+    except ValueError:
+        return ""
+    return raw if scheme in ("http", "https") else ""
 
 _MAX_BOOKMARKS = int(os.getenv("MAX_BOOKMARKS", "1000"))
 _MAX_FOLLOWING = int(os.getenv("MAX_FOLLOWING", "2000"))
@@ -889,10 +911,15 @@ class AuthManager:
         if bio is not None:
             user.bio = bio[:500].strip()
         if avatar_url is not None:
-            user.avatar_url = avatar_url[:512].strip()
+            user.avatar_url = _sanitize_public_url(avatar_url[:512])
         if website_url is not None:
-            user.website_url = website_url[:512].strip()
+            user.website_url = _sanitize_public_url(website_url[:512])
         if social_links is not None:
+            # Values here are per-platform handles (e.g. "@alice",
+            # "alice_vrc"), not full URLs -- they are combined with a
+            # platform-specific base URL wherever they're eventually
+            # rendered, so _sanitize_public_url's http(s)-only allowlist
+            # does not apply to them.
             sanitized = {
                 k: str(v)[:200].strip()
                 for k, v in social_links.items()

@@ -1252,6 +1252,43 @@ class TestSocialLinks(unittest.TestCase):
         user = self.auth.update_profile(self.uid, website_url="https://example.com")
         self.assertEqual(user.website_url, "https://example.com")
 
+    def test_website_url_http_allowed(self):
+        user = self.auth.update_profile(self.uid, website_url="http://example.com")
+        self.assertEqual(user.website_url, "http://example.com")
+
+    def test_website_url_javascript_scheme_stripped(self):
+        # Regression: website_url is rendered as a live <a href> on the
+        # public, unauthenticated creator storefront (frontend Creator.tsx).
+        # A stored "javascript:" URI would execute in any visitor's browser
+        # on click, including an admin's -- with their JWT sitting in
+        # localStorage.
+        user = self.auth.update_profile(self.uid, website_url="javascript:alert(document.cookie)")
+        self.assertEqual(user.website_url, "")
+
+    def test_website_url_data_scheme_stripped(self):
+        user = self.auth.update_profile(self.uid, website_url="data:text/html,<script>alert(1)</script>")
+        self.assertEqual(user.website_url, "")
+
+    def test_website_url_schemeless_stripped(self):
+        # No scheme at all resolves as a same-origin relative link when
+        # rendered, not the external site the user intended -- reject rather
+        # than silently store something broken.
+        user = self.auth.update_profile(self.uid, website_url="example.com")
+        self.assertEqual(user.website_url, "")
+
+    def test_avatar_url_javascript_scheme_stripped(self):
+        user = self.auth.update_profile(self.uid, avatar_url="javascript:alert(1)")
+        self.assertEqual(user.avatar_url, "")
+
+    def test_bad_website_url_does_not_block_rest_of_update(self):
+        # A rejected URL must not raise -- it silently clears to "no link"
+        # so the rest of a multi-field profile update still succeeds.
+        user = self.auth.update_profile(
+            self.uid, display_name="Alice", website_url="javascript:alert(1)"
+        )
+        self.assertEqual(user.display_name, "Alice")
+        self.assertEqual(user.website_url, "")
+
     def test_social_links_saved(self):
         user = self.auth.update_profile(self.uid, social_links={"twitter": "@alice"})
         self.assertEqual(user.social_links["twitter"], "@alice")

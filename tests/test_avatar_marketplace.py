@@ -2879,6 +2879,39 @@ class TestListingTransfer(unittest.TestCase):
         reviews = self.store.get_reviews(self.listing_id)
         self.assertEqual(reviews["total"], 1)
 
+    def test_transfer_reassigns_listing_scoped_promo_code(self):
+        # Regression: transfer_listing() used to only reassign the listing's
+        # owner_id, leaving PromoCode.creator_id pinned to the seller. Any
+        # active code scoped to this listing would then become permanently
+        # unresolvable (lookup_promo_code requires BOTH the code's creator_id
+        # AND listing_id to match), while the OLD owner could still
+        # deactivate it and the new owner had no way to reclaim it.
+        self.store.create_promo_code("owner1", "MOVEME", 10, listing_id=self.listing_id)
+        self.store.transfer_listing(self.listing_id, "owner1", "owner2", "newuser")
+
+        info = self.store.lookup_promo_code("MOVEME", self.listing_id)
+        self.assertIsNotNone(info)
+
+        # The new owner can now manage it...
+        [pc] = [p for p in self.store.list_promo_codes("owner2") if p["code"] == "MOVEME"]
+        deactivated = self.store.deactivate_promo_code(pc["code_id"], "owner2")
+        self.assertFalse(deactivated.is_active)
+
+    def test_transfer_does_not_reassign_creators_general_promo_codes(self):
+        # A code with listing_id=None applies to ALL of the creator's
+        # listings, not just the transferred one -- it must stay with the
+        # original creator.
+        self.store.create_promo_code("owner1", "GENERAL", 15)
+        self.store.transfer_listing(self.listing_id, "owner1", "owner2", "newuser")
+        [general] = [p for p in self.store.list_promo_codes("owner1") if p["code"] == "GENERAL"]
+        self.assertEqual(general["creator_id"], "owner1")
+
+    def test_old_owner_cannot_deactivate_transferred_listings_promo_code(self):
+        pc = self.store.create_promo_code("owner1", "TRANSFERRED", 10, listing_id=self.listing_id)
+        self.store.transfer_listing(self.listing_id, "owner1", "owner2", "newuser")
+        with self.assertRaises(PermissionError):
+            self.store.deactivate_promo_code(pc.code_id, "owner1")
+
 
 class TestTagFeed(unittest.TestCase):
     def setUp(self):
@@ -3064,6 +3097,25 @@ class TestPromoCodes(unittest.TestCase):
         self.store.create_promo_code("creator1", "SAVE20", 20)
         with self.assertRaises(ValueError):
             self.store.create_promo_code("creator1", "SAVE20", 30)
+
+    def test_quota_counts_only_active_codes(self):
+        # Regression: the per-creator cap used to count every code ever
+        # created (deactivate_promo_code never deletes records), so a
+        # creator who cycled through 50 codes over time -- deactivating old
+        # ones as they made new ones -- would be permanently locked out even
+        # with zero currently-live codes.
+        for i in range(self.store._MAX_PROMO_CODES_PER_CREATOR):
+            pc = self.store.create_promo_code("creator1", f"OLD{i}", 10)
+            self.store.deactivate_promo_code(pc.code_id, "creator1")
+        # All 50 are deactivated -- a new one must still be creatable.
+        pc = self.store.create_promo_code("creator1", "FRESH", 10)
+        self.assertTrue(pc.is_active)
+
+    def test_quota_blocks_at_max_active_codes(self):
+        for i in range(self.store._MAX_PROMO_CODES_PER_CREATOR):
+            self.store.create_promo_code("creator1", f"CODE{i}", 10)
+        with self.assertRaises(ValueError):
+            self.store.create_promo_code("creator1", "ONEMORE", 10)
 
     def test_download_with_valid_promo_applies_discount(self):
         self.store.create_promo_code("creator1", "SAVE20", 20, listing_id=self.listing_id)

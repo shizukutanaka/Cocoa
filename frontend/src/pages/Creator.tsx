@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
+import { isSafeHttpUrl } from "../utils/url";
 import * as userService from "../services/userService";
 import { CenterSpinner } from "../components/Spinner";
 import { useAuth } from "../hooks/useAuth";
@@ -61,7 +62,7 @@ export function Creator() {
           className="listing-thumb"
           style={{ width: 88, height: 88, borderRadius: "50%", flexShrink: 0, overflow: "hidden" }}
         >
-          {profile.avatar_url ? (
+          {profile.avatar_url && isSafeHttpUrl(profile.avatar_url) ? (
             <img src={profile.avatar_url} alt="" style={{ borderRadius: "50%" }} />
           ) : (
             profile.display_name.slice(0, 2)
@@ -81,7 +82,7 @@ export function Creator() {
             {new Date(profile.created_at).toLocaleDateString("ja-JP")} から活動
           </p>
           {profile.bio && <p style={{ marginTop: 8 }}>{profile.bio}</p>}
-          {profile.website_url && (
+          {profile.website_url && isSafeHttpUrl(profile.website_url) && (
             <a href={profile.website_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>
               {profile.website_url}
             </a>

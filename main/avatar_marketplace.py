@@ -1977,6 +1977,17 @@ class MarketplaceStore:
                 raise PermissionError("このリスティングの所有者のみが譲渡できます")
             listing.owner_id = new_owner_id
             listing.owner_username = new_owner_username
+            # Listing-scoped promo codes are keyed by creator_id too (so
+            # deactivate_promo_code's ownership check and _resolve_promo's
+            # creator match both work) -- without this, any active code tied
+            # to this listing would become permanently unresolvable the
+            # instant the listing changed hands, while the OLD owner could
+            # still deactivate it and the new owner had no way to reclaim it.
+            # Codes with listing_id=None are the creator's general-purpose
+            # codes and intentionally stay with the original creator.
+            for pc in self._promo_codes.values():
+                if pc.listing_id == listing_id:
+                    pc.creator_id = new_owner_id
         logger.info("Listing %s transferred from %s to %s", listing_id, requester_id, new_owner_id)
         return listing
 
@@ -2441,7 +2452,14 @@ class MarketplaceStore:
                 if listing.owner_id != creator_id:
                     raise PermissionError("このリスティングのオーナーのみがプロモコードを作成できます")
             creator_codes = [pc for pc in self._promo_codes.values() if pc.creator_id == creator_id]
-            if len(creator_codes) >= self._MAX_PROMO_CODES_PER_CREATOR:
+            # The cap is meant to bound how many LIVE codes a creator juggles
+            # at once, not a lifetime total -- deactivate_promo_code() never
+            # deletes records, so counting all-time codes here would
+            # permanently lock out any creator who deactivates and recreates
+            # codes over time (e.g. seasonal promos) well before they ever
+            # have 50 simultaneously active.
+            active_creator_codes = [pc for pc in creator_codes if pc.is_active]
+            if len(active_creator_codes) >= self._MAX_PROMO_CODES_PER_CREATOR:
                 raise ValueError(f"プロモコードは最大{self._MAX_PROMO_CODES_PER_CREATOR}個まで作成できます")
             # Prevent duplicate active codes for the same creator
             for pc in creator_codes:
