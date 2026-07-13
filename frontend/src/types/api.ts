@@ -285,6 +285,30 @@ export interface UpdateListingInput {
   is_ai_generated?: boolean;
 }
 
+// Mirrors main/license_manager.py LicenseActivation.to_dict()
+export interface LicenseActivation {
+  activation_id: string;
+  note: string;
+  activated_at: string;
+}
+
+// Mirrors main/license_manager.py LicenseKey.to_dict()
+export interface LicenseKey {
+  key_id: string;
+  key: string;
+  listing_id: string;
+  owner_id: string;
+  holder_id: string;
+  max_activations: number | null;
+  activation_count: number;
+  is_revoked: boolean;
+  revoked_by: string;
+  revoked_reason: string;
+  activations: LicenseActivation[];
+  issued_at: string;
+  revoked_at: string | null;
+}
+
 // Mirrors main/avatar_marketplace.py PromoCode.to_dict()
 export interface PromoCode {
   code_id: string;

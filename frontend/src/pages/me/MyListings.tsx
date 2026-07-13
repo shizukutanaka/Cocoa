@@ -57,6 +57,13 @@ export function MyListings() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span className="listing-price">{listing.is_free ? "無料" : `${listing.price_credits.toLocaleString()} cr`}</span>
+                  <Link
+                    to={`/me/listings/${listing.listing_id}/licenses`}
+                    className="btn btn-ghost btn-sm"
+                    aria-label={`「${listing.name}」のライセンス管理`}
+                  >
+                    ライセンス
+                  </Link>
                   {listing.is_active && (
                     <button className="btn btn-ghost btn-sm" onClick={() => handleUnpublish(listing.listing_id)}>
                       取り下げ

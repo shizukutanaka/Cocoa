@@ -33,6 +33,8 @@ const Referrals = lazy(() => import("./pages/me/Referrals").then((m) => ({ defau
 const Creator = lazy(() => import("./pages/Creator").then((m) => ({ default: m.Creator })));
 const Following = lazy(() => import("./pages/me/Following").then((m) => ({ default: m.Following })));
 const PromoCodes = lazy(() => import("./pages/me/PromoCodes").then((m) => ({ default: m.PromoCodes })));
+const Licenses = lazy(() => import("./pages/me/Licenses").then((m) => ({ default: m.Licenses })));
+const ListingLicenses = lazy(() => import("./pages/me/ListingLicenses").then((m) => ({ default: m.ListingLicenses })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -68,6 +70,8 @@ export function App() {
                       <Route path="listings" element={<MyListings />} />
                       <Route path="listings/new" element={<CreateListing />} />
                       <Route path="promo-codes" element={<PromoCodes />} />
+                      <Route path="licenses" element={<Licenses />} />
+                      <Route path="listings/:listingId/licenses" element={<ListingLicenses />} />
                       <Route path="wishlist" element={<Wishlist />} />
                       <Route path="saved-searches" element={<SavedSearches />} />
                       <Route path="referrals" element={<Referrals />} />
