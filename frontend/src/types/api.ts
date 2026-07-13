@@ -285,6 +285,30 @@ export interface UpdateListingInput {
   is_ai_generated?: boolean;
 }
 
+// Mirrors main/avatar_marketplace.py PromoCode.to_dict()
+export interface PromoCode {
+  code_id: string;
+  code: string;
+  creator_id: string;
+  discount_percent: number;
+  listing_id: string | null;
+  max_uses: number | null;
+  uses_count: number;
+  expires_at: string | null;
+  is_active: boolean;
+  is_valid: boolean;
+  created_at: string;
+}
+
+// GET /api/marketplace/{listing_id}/promo/{code} (lookup_promo_code)
+export interface PromoLookup {
+  code: string;
+  discount_percent: number;
+  original_price: number;
+  discounted_price: number;
+  listing_id: string;
+}
+
 // Mirrors main/auth_manager.py User.public_profile() (+followers_count where
 // the endpoint adds it, e.g. /api/users/{id}/profile and storefront.profile)
 export interface PublicProfile {

@@ -2,6 +2,8 @@ import client from "./apiClient";
 import type {
   Listing,
   Paginated,
+  PromoCode,
+  PromoLookup,
   PublishListingInput,
   Review,
   ReviewReply,
@@ -125,4 +127,30 @@ export async function getRelated(listingId: string, limit = 6): Promise<Listing[
 export async function getTrending(limit = 6, days = 7): Promise<Listing[]> {
   const { data } = await client.get("/api/marketplace/trending", { params: { limit, days } });
   return data.items ?? [];
+}
+
+export async function createPromoCode(input: {
+  code: string;
+  discount_percent: number;
+  listing_id?: string | null;
+  max_uses?: number | null;
+  expires_at?: string | null;
+}): Promise<PromoCode> {
+  const { data } = await client.post("/api/marketplace/promo-codes", input);
+  return data;
+}
+
+export async function listMyPromoCodes(): Promise<{ items: PromoCode[]; total: number }> {
+  const { data } = await client.get("/api/marketplace/promo-codes/mine");
+  return data;
+}
+
+export async function deactivatePromoCode(codeId: string): Promise<PromoCode> {
+  const { data } = await client.delete(`/api/marketplace/promo-codes/${codeId}`);
+  return data;
+}
+
+export async function lookupPromoCode(listingId: string, code: string): Promise<PromoLookup> {
+  const { data } = await client.get(`/api/marketplace/${listingId}/promo/${encodeURIComponent(code)}`);
+  return data;
 }

@@ -23,3 +23,13 @@ export async function markAllRead() {
 export async function deleteNotification(notificationId: string) {
   await client.delete(`/api/notifications/${notificationId}`);
 }
+
+export async function getMutedKinds(): Promise<string[]> {
+  const { data } = await client.get("/api/notifications/preferences");
+  return data.muted_kinds ?? [];
+}
+
+export async function setMutedKinds(mutedKinds: string[]): Promise<string[]> {
+  const { data } = await client.put("/api/notifications/preferences", { muted_kinds: mutedKinds });
+  return data.muted_kinds ?? [];
+}

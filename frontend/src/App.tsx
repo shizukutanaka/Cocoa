@@ -32,6 +32,7 @@ const SavedSearches = lazy(() => import("./pages/me/SavedSearches").then((m) => 
 const Referrals = lazy(() => import("./pages/me/Referrals").then((m) => ({ default: m.Referrals })));
 const Creator = lazy(() => import("./pages/Creator").then((m) => ({ default: m.Creator })));
 const Following = lazy(() => import("./pages/me/Following").then((m) => ({ default: m.Following })));
+const PromoCodes = lazy(() => import("./pages/me/PromoCodes").then((m) => ({ default: m.PromoCodes })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,6 +67,7 @@ export function App() {
                       <Route index element={<Profile />} />
                       <Route path="listings" element={<MyListings />} />
                       <Route path="listings/new" element={<CreateListing />} />
+                      <Route path="promo-codes" element={<PromoCodes />} />
                       <Route path="wishlist" element={<Wishlist />} />
                       <Route path="saved-searches" element={<SavedSearches />} />
                       <Route path="referrals" element={<Referrals />} />
