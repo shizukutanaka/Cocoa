@@ -1,6 +1,11 @@
 import client from "./apiClient";
 import type { PublicProfile, Storefront } from "../types/api";
 
+export async function getPublicProfile(userId: string): Promise<PublicProfile> {
+  const { data } = await client.get(`/api/users/${userId}/profile`);
+  return data;
+}
+
 export async function getStorefront(userId: string, listingLimit = 20): Promise<Storefront> {
   const { data } = await client.get(`/api/users/${userId}/storefront`, {
     params: { listing_limit: listingLimit },

@@ -1,7 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { isSafeHttpUrl } from "../utils/url";
 import * as userService from "../services/userService";
+import * as tipService from "../services/tipService";
 import { CenterSpinner } from "../components/Spinner";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
@@ -13,6 +15,10 @@ export function Creator() {
   const { user } = useAuth();
   const { show } = useToast();
   const queryClient = useQueryClient();
+  const [showTipForm, setShowTipForm] = useState(false);
+  const [tipAmount, setTipAmount] = useState(10);
+  const [tipMessage, setTipMessage] = useState("");
+  const [sendingTip, setSendingTip] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["storefront", userId],
@@ -47,6 +53,21 @@ export function Creator() {
       queryClient.invalidateQueries({ queryKey: ["storefront", userId] });
     } catch (err) {
       show(apiErrorMessage(err, "フォロー状態の更新に失敗しました"), "error");
+    }
+  }
+
+  async function handleSendTip() {
+    if (!userId || tipAmount <= 0) return;
+    setSendingTip(true);
+    try {
+      await tipService.sendTip(userId, tipAmount, tipMessage);
+      show(`${tipAmount} クレジットのチップを送りました`);
+      setShowTipForm(false);
+      setTipMessage("");
+    } catch (err) {
+      show(apiErrorMessage(err, "チップの送信に失敗しました"), "error");
+    } finally {
+      setSendingTip(false);
     }
   }
 
@@ -89,13 +110,48 @@ export function Creator() {
           )}
         </div>
         {user && !isSelf && (
-          <button
-            className={isFollowing ? "btn btn-secondary" : "btn btn-primary"}
-            onClick={handleToggleFollow}
-            aria-pressed={isFollowing}
-          >
-            {isFollowing ? "フォロー中" : "フォローする"}
-          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className={isFollowing ? "btn btn-secondary" : "btn btn-primary"}
+                onClick={handleToggleFollow}
+                aria-pressed={isFollowing}
+              >
+                {isFollowing ? "フォロー中" : "フォローする"}
+              </button>
+              <button className="btn btn-secondary" onClick={() => setShowTipForm((v) => !v)}>
+                チップを送る
+              </button>
+            </div>
+            {showTipForm && (
+              <div className="card card-pad" style={{ width: 260 }}>
+                <div className="field">
+                  <label htmlFor="tip-amount">金額（クレジット）</label>
+                  <input
+                    id="tip-amount"
+                    type="number"
+                    min={1}
+                    max={10000}
+                    value={tipAmount}
+                    onChange={(e) => setTipAmount(Number(e.target.value))}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="tip-message">メッセージ（任意）</label>
+                  <input
+                    id="tip-message"
+                    value={tipMessage}
+                    onChange={(e) => setTipMessage(e.target.value)}
+                    maxLength={300}
+                    placeholder="応援しています！"
+                  />
+                </div>
+                <button id="tip-submit" className="btn btn-primary btn-sm" onClick={handleSendTip} disabled={sendingTip}>
+                  {sendingTip ? "送信中..." : "送る"}
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 

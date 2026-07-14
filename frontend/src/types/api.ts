@@ -285,6 +285,17 @@ export interface UpdateListingInput {
   is_ai_generated?: boolean;
 }
 
+// Mirrors main/avatar_marketplace.py Tip.to_dict() / to_public_dict()
+export interface Tip {
+  tip_id: string;
+  sender_id?: string; // omitted from the public view (GET /api/users/{id}/tips)
+  sender_username: string;
+  recipient_id?: string;
+  amount: number;
+  message?: string; // omitted from the public view
+  created_at: string;
+}
+
 // Mirrors main/license_manager.py LicenseActivation.to_dict()
 export interface LicenseActivation {
   activation_id: string;
