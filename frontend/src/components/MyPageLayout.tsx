@@ -7,6 +7,7 @@ const TABS = [
   { to: "/me/bundles", label: "バンドル管理", end: false },
   { to: "/me/licenses", label: "マイライセンス", end: false },
   { to: "/me/tips", label: "チップ", end: false },
+  { to: "/me/commissions", label: "コミッション", end: false },
   { to: "/me/wishlist", label: "ウィッシュリスト", end: false },
   { to: "/me/saved-searches", label: "保存した検索", end: false },
   { to: "/me/following", label: "フォロー中", end: false },

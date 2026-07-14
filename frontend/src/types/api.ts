@@ -285,6 +285,23 @@ export interface UpdateListingInput {
   is_ai_generated?: boolean;
 }
 
+// Mirrors main/commissions.py CommissionRequest.to_dict()
+export interface CommissionRequest {
+  request_id: string;
+  requester_id: string;
+  requester_username: string;
+  creator_id: string;
+  title: string;
+  description: string;
+  budget_credits: number;
+  status: "pending" | "accepted" | "declined" | "delivered" | "closed";
+  creator_note: string;
+  delivery_note: string;
+  delivery_listing_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // Mirrors main/bundle_manager.py Bundle.to_dict()
 export interface Bundle {
   bundle_id: string;

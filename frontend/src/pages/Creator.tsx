@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { isSafeHttpUrl } from "../utils/url";
 import * as userService from "../services/userService";
 import * as tipService from "../services/tipService";
+import * as commissionService from "../services/commissionService";
 import { CenterSpinner } from "../components/Spinner";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
@@ -14,11 +15,17 @@ export function Creator() {
   const { userId } = useParams<{ userId: string }>();
   const { user } = useAuth();
   const { show } = useToast();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showTipForm, setShowTipForm] = useState(false);
   const [tipAmount, setTipAmount] = useState(10);
   const [tipMessage, setTipMessage] = useState("");
   const [sendingTip, setSendingTip] = useState(false);
+  const [showCommissionForm, setShowCommissionForm] = useState(false);
+  const [commissionTitle, setCommissionTitle] = useState("");
+  const [commissionDescription, setCommissionDescription] = useState("");
+  const [commissionBudget, setCommissionBudget] = useState(0);
+  const [sendingCommission, setSendingCommission] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["storefront", userId],
@@ -68,6 +75,24 @@ export function Creator() {
       show(apiErrorMessage(err, "チップの送信に失敗しました"), "error");
     } finally {
       setSendingTip(false);
+    }
+  }
+
+  async function handleSendCommission() {
+    if (!userId || !commissionTitle.trim() || !commissionDescription.trim()) return;
+    setSendingCommission(true);
+    try {
+      await commissionService.createCommission(userId, commissionTitle, commissionDescription, commissionBudget);
+      show("コミッションを依頼しました");
+      setShowCommissionForm(false);
+      setCommissionTitle("");
+      setCommissionDescription("");
+      setCommissionBudget(0);
+      navigate("/me/commissions");
+    } catch (err) {
+      show(apiErrorMessage(err, "コミッションの依頼に失敗しました"), "error");
+    } finally {
+      setSendingCommission(false);
     }
   }
 
@@ -122,6 +147,9 @@ export function Creator() {
               <button className="btn btn-secondary" onClick={() => setShowTipForm((v) => !v)}>
                 チップを送る
               </button>
+              <button className="btn btn-secondary" onClick={() => setShowCommissionForm((v) => !v)}>
+                コミッションを依頼する
+              </button>
             </div>
             {showTipForm && (
               <div className="card card-pad" style={{ width: 260 }}>
@@ -148,6 +176,51 @@ export function Creator() {
                 </div>
                 <button id="tip-submit" className="btn btn-primary btn-sm" onClick={handleSendTip} disabled={sendingTip}>
                   {sendingTip ? "送信中..." : "送る"}
+                </button>
+              </div>
+            )}
+            {showCommissionForm && (
+              <div className="card card-pad" style={{ width: 300 }}>
+                <div className="field">
+                  <label htmlFor="commission-title">タイトル</label>
+                  <input
+                    id="commission-title"
+                    value={commissionTitle}
+                    onChange={(e) => setCommissionTitle(e.target.value)}
+                    maxLength={100}
+                    placeholder="オリジナルアバターの制作"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="commission-description">依頼内容</label>
+                  <textarea
+                    id="commission-description"
+                    value={commissionDescription}
+                    onChange={(e) => setCommissionDescription(e.target.value)}
+                    rows={3}
+                    maxLength={2000}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="commission-budget">予算（クレジット、任意）</label>
+                  <input
+                    id="commission-budget"
+                    type="number"
+                    min={0}
+                    value={commissionBudget}
+                    onChange={(e) => setCommissionBudget(Number(e.target.value))}
+                  />
+                  <span style={{ fontSize: 12, color: "var(--faint)" }}>
+                    参考情報です。実際の支払いはマーケットプレイス経由で別途行います。
+                  </span>
+                </div>
+                <button
+                  id="commission-submit"
+                  className="btn btn-primary btn-sm"
+                  onClick={handleSendCommission}
+                  disabled={sendingCommission}
+                >
+                  {sendingCommission ? "送信中..." : "依頼する"}
                 </button>
               </div>
             )}
