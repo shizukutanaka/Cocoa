@@ -4666,6 +4666,38 @@ async def delete_bundle(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
+@app.post("/api/bundles/{bundle_id}/deactivate", tags=["bundles"])
+async def deactivate_bundle(
+    bundle_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """バンドルを一時停止する（作成者専用）。削除と異なり後で再開できる"""
+    if not get_bundle_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_bundle_manager().deactivate_bundle(bundle_id, current_user["user_id"])
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.post("/api/bundles/{bundle_id}/activate", tags=["bundles"])
+async def activate_bundle(
+    bundle_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """一時停止中のバンドルを再開する（作成者専用）"""
+    if not get_bundle_manager:
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
+    try:
+        return get_bundle_manager().activate_bundle(bundle_id, current_user["user_id"])
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @app.post("/api/bundles/{bundle_id}/purchase", tags=["bundles"], status_code=201)
 async def purchase_bundle(
     bundle_id: str,

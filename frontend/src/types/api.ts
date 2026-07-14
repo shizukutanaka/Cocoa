@@ -285,6 +285,40 @@ export interface UpdateListingInput {
   is_ai_generated?: boolean;
 }
 
+// Mirrors main/bundle_manager.py Bundle.to_dict()
+export interface Bundle {
+  bundle_id: string;
+  creator_id: string;
+  creator_username: string;
+  name: string;
+  description: string;
+  listing_ids: string[];
+  listing_count: number;
+  discount_percent: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// BundleManager.purchase_bundle() receipt
+export interface BundlePurchaseResult {
+  bundle_id: string;
+  buyer_id: string;
+  discount_percent: number;
+  purchased: Array<{
+    listing_id: string;
+    name: string;
+    owner_id: string;
+    owner_username: string;
+    unit_price: number;
+    final_price: number;
+    discount_percent: number;
+  }>;
+  skipped: Array<{ listing_id: string; reason: string }>;
+  total_charged: number;
+  order_id: string | null;
+}
+
 // Mirrors main/refund_manager.py RefundRequest.to_dict()
 export interface RefundRequestRecord {
   request_id: string;

@@ -12,6 +12,7 @@ import { CenterSpinner } from "./components/Spinner";
 // Route-level code splitting: each page becomes its own chunk so the initial
 // load only ships the marketplace landing, not every authenticated screen.
 const Marketplace = lazy(() => import("./pages/Marketplace").then((m) => ({ default: m.Marketplace })));
+const Bundles = lazy(() => import("./pages/Bundles").then((m) => ({ default: m.Bundles })));
 const ListingDetail = lazy(() => import("./pages/ListingDetail").then((m) => ({ default: m.ListingDetail })));
 const Login = lazy(() => import("./pages/Login").then((m) => ({ default: m.Login })));
 const Register = lazy(() => import("./pages/Register").then((m) => ({ default: m.Register })));
@@ -37,6 +38,7 @@ const Licenses = lazy(() => import("./pages/me/Licenses").then((m) => ({ default
 const ListingLicenses = lazy(() => import("./pages/me/ListingLicenses").then((m) => ({ default: m.ListingLicenses })));
 const Tips = lazy(() => import("./pages/me/Tips").then((m) => ({ default: m.Tips })));
 const Refunds = lazy(() => import("./pages/me/Refunds").then((m) => ({ default: m.Refunds })));
+const MyBundles = lazy(() => import("./pages/me/Bundles").then((m) => ({ default: m.Bundles })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -60,6 +62,7 @@ export function App() {
                     <Route index element={<Marketplace />} />
                     <Route path="listings/:listingId" element={<ListingDetail />} />
                     <Route path="users/:userId" element={<Creator />} />
+                    <Route path="bundles" element={<Bundles />} />
                     <Route path="login" element={<Login />} />
                     <Route path="register" element={<Register />} />
 
@@ -76,6 +79,7 @@ export function App() {
                       <Route path="listings/:listingId/licenses" element={<ListingLicenses />} />
                       <Route path="tips" element={<Tips />} />
                       <Route path="refunds" element={<Refunds />} />
+                      <Route path="bundles" element={<MyBundles />} />
                       <Route path="wishlist" element={<Wishlist />} />
                       <Route path="saved-searches" element={<SavedSearches />} />
                       <Route path="referrals" element={<Referrals />} />

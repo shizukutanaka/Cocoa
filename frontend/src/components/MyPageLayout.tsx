@@ -4,6 +4,7 @@ const TABS = [
   { to: "/me", label: "プロフィール", end: true },
   { to: "/me/listings", label: "出品管理", end: false },
   { to: "/me/promo-codes", label: "プロモコード", end: false },
+  { to: "/me/bundles", label: "バンドル管理", end: false },
   { to: "/me/licenses", label: "マイライセンス", end: false },
   { to: "/me/tips", label: "チップ", end: false },
   { to: "/me/wishlist", label: "ウィッシュリスト", end: false },

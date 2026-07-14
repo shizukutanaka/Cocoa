@@ -514,6 +514,46 @@ class TestCheckoutReferralExceptionIsolation(unittest.TestCase):
         self.assertIn("purchased", result)
 
 
+class TestBundleActivateDeactivateEndpoints(unittest.TestCase):
+    """POST /api/bundles/{id}/activate and /deactivate. BundleManager.activate_bundle()/
+    deactivate_bundle() were fully implemented and unit-tested at the store layer, but
+    no HTTP endpoint ever called them -- a creator had no way to pause a bundle short
+    of permanently deleting it, and list_my_bundles' include_inactive flag had nothing
+    to ever return."""
+
+    def test_deactivate_bundle_calls_manager(self):
+        mock_bm = MagicMock()
+        mock_bm.deactivate_bundle.return_value = {"bundle_id": "b1", "is_active": False}
+        with patch.object(api_server, "get_bundle_manager", lambda: mock_bm):
+            result = asyncio.run(api_server.deactivate_bundle("b1", {"user_id": "creator1"}))
+        mock_bm.deactivate_bundle.assert_called_once_with("b1", "creator1")
+        self.assertFalse(result["is_active"])
+
+    def test_activate_bundle_calls_manager(self):
+        mock_bm = MagicMock()
+        mock_bm.activate_bundle.return_value = {"bundle_id": "b1", "is_active": True}
+        with patch.object(api_server, "get_bundle_manager", lambda: mock_bm):
+            result = asyncio.run(api_server.activate_bundle("b1", {"user_id": "creator1"}))
+        mock_bm.activate_bundle.assert_called_once_with("b1", "creator1")
+        self.assertTrue(result["is_active"])
+
+    def test_deactivate_non_owner_raises_403(self):
+        mock_bm = MagicMock()
+        mock_bm.deactivate_bundle.side_effect = PermissionError("このバンドルの作成者のみが操作できます")
+        with patch.object(api_server, "get_bundle_manager", lambda: mock_bm):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.deactivate_bundle("b1", {"user_id": "not-owner"}))
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_activate_unknown_bundle_raises_404(self):
+        mock_bm = MagicMock()
+        mock_bm.activate_bundle.side_effect = ValueError("バンドルが見つかりません")
+        with patch.object(api_server, "get_bundle_manager", lambda: mock_bm):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.activate_bundle("no-such-id", {"user_id": "creator1"}))
+        self.assertEqual(ctx.exception.status_code, 404)
+
+
 class TestLegacyTwoFactorEndpoints(unittest.TestCase):
     """POST /api/2fa/enable and /api/2fa/verify-backup, exercised against a
     real TwoFactorAuthService (same pattern as tests/test_two_factor_auth.py)
