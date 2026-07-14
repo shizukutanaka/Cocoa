@@ -6,6 +6,11 @@ export async function myCollections(limit = 50, offset = 0): Promise<Paginated<C
   return data;
 }
 
+export async function browsePublicCollections(q = "", limit = 20, offset = 0): Promise<Paginated<Collection>> {
+  const { data } = await client.get("/api/collections/public", { params: { q, limit, offset } });
+  return data;
+}
+
 export async function createCollection(name: string, description = "", isPublic = false): Promise<Collection> {
   const { data } = await client.post("/api/collections", { name, description, is_public: isPublic });
   return data;

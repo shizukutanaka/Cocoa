@@ -41,6 +41,7 @@ const Refunds = lazy(() => import("./pages/me/Refunds").then((m) => ({ default: 
 const MyBundles = lazy(() => import("./pages/me/Bundles").then((m) => ({ default: m.Bundles })));
 const Commissions = lazy(() => import("./pages/me/Commissions").then((m) => ({ default: m.Commissions })));
 const CreatorDashboard = lazy(() => import("./pages/me/CreatorDashboard").then((m) => ({ default: m.CreatorDashboard })));
+const Feed = lazy(() => import("./pages/me/Feed").then((m) => ({ default: m.Feed })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -84,6 +85,7 @@ export function App() {
                       <Route path="bundles" element={<MyBundles />} />
                       <Route path="commissions" element={<Commissions />} />
                       <Route path="dashboard" element={<CreatorDashboard />} />
+                      <Route path="feed" element={<Feed />} />
                       <Route path="wishlist" element={<Wishlist />} />
                       <Route path="saved-searches" element={<SavedSearches />} />
                       <Route path="referrals" element={<Referrals />} />
