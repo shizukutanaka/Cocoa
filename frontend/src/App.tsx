@@ -36,6 +36,7 @@ const PromoCodes = lazy(() => import("./pages/me/PromoCodes").then((m) => ({ def
 const Licenses = lazy(() => import("./pages/me/Licenses").then((m) => ({ default: m.Licenses })));
 const ListingLicenses = lazy(() => import("./pages/me/ListingLicenses").then((m) => ({ default: m.ListingLicenses })));
 const Tips = lazy(() => import("./pages/me/Tips").then((m) => ({ default: m.Tips })));
+const Refunds = lazy(() => import("./pages/me/Refunds").then((m) => ({ default: m.Refunds })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -74,6 +75,7 @@ export function App() {
                       <Route path="licenses" element={<Licenses />} />
                       <Route path="listings/:listingId/licenses" element={<ListingLicenses />} />
                       <Route path="tips" element={<Tips />} />
+                      <Route path="refunds" element={<Refunds />} />
                       <Route path="wishlist" element={<Wishlist />} />
                       <Route path="saved-searches" element={<SavedSearches />} />
                       <Route path="referrals" element={<Referrals />} />

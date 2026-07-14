@@ -285,6 +285,20 @@ export interface UpdateListingInput {
   is_ai_generated?: boolean;
 }
 
+// Mirrors main/refund_manager.py RefundRequest.to_dict()
+export interface RefundRequestRecord {
+  request_id: string;
+  order_id: string;
+  user_id: string;
+  total_credits: number;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  admin_notes: string;
+  resolved_by: string;
+  created_at: string;
+  resolved_at: string | null;
+}
+
 // Mirrors main/avatar_marketplace.py Tip.to_dict() / to_public_dict()
 export interface Tip {
   tip_id: string;
