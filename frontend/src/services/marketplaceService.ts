@@ -1,5 +1,7 @@
 import client from "./apiClient";
 import type {
+  CreatorAnalytics,
+  EarningsSummary,
   Listing,
   Paginated,
   PriceHistoryEntry,
@@ -133,6 +135,16 @@ export async function getTrending(limit = 6, days = 7): Promise<Listing[]> {
 export async function getPriceHistory(listingId: string): Promise<PriceHistoryEntry[]> {
   const { data } = await client.get(`/api/marketplace/${listingId}/price-history`);
   return data.items ?? [];
+}
+
+export async function getMyCreatorAnalytics(): Promise<CreatorAnalytics> {
+  const { data } = await client.get("/api/marketplace/analytics/me");
+  return data;
+}
+
+export async function getMyEarnings(days = 30): Promise<EarningsSummary> {
+  const { data } = await client.get("/api/marketplace/earnings/me", { params: { days } });
+  return data;
 }
 
 export async function createPromoCode(input: {

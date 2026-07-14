@@ -285,6 +285,45 @@ export interface UpdateListingInput {
   is_ai_generated?: boolean;
 }
 
+// Mirrors main/auth_manager.py CreatorApplication.to_dict()
+export interface CreatorApplication {
+  application_id: string;
+  user_id: string;
+  username: string;
+  reason: string;
+  portfolio_url: string;
+  status: "pending" | "approved" | "rejected";
+  reviewed_by: string;
+  review_note: string;
+  created_at: string;
+  reviewed_at: string | null;
+}
+
+// Mirrors main/avatar_marketplace.py MarketplaceStore.get_creator_analytics()
+export interface CreatorAnalytics {
+  owner_id: string;
+  total_listings: number;
+  active_listings: number;
+  total_downloads: number;
+  total_reviews: number;
+  total_credits_earned: number;
+  rating_distribution: Record<string, number>;
+  downloads_by_day: Record<string, number>;
+  downloads_by_tag: Record<string, number>;
+  downloads_by_category: Record<string, number>;
+  top_listing: Listing | null;
+}
+
+// Mirrors main/avatar_marketplace.py MarketplaceStore.get_earnings_summary()
+export interface EarningsSummary {
+  user_id: string;
+  period_days: number;
+  total_earned: number;
+  sales: number;
+  tips_and_gifts_received: number;
+  by_day: Record<string, number>;
+}
+
 // Mirrors main/auth_manager.py AuthStore.create_api_key()/list_api_keys() entries
 export interface ApiKey {
   key_id: string;

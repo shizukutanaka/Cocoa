@@ -1,6 +1,7 @@
+import axios from "axios";
 import client from "./apiClient";
 import { clearTokens, setTokens } from "./tokenStore";
-import type { ApiKey, CurrentUser, LoginResult, PendingTwoFactor, TokenPair, TwoFactorSetupData, TwoFactorStatus } from "../types/api";
+import type { ApiKey, CreatorApplication, CurrentUser, LoginResult, PendingTwoFactor, TokenPair, TwoFactorSetupData, TwoFactorStatus } from "../types/api";
 
 function isTokenPair(result: LoginResult): result is TokenPair {
   return "access_token" in result;
@@ -107,4 +108,25 @@ export async function listApiKeys(): Promise<{ items: ApiKey[]; total: number }>
 
 export async function revokeApiKey(keyId: string) {
   await client.delete(`/api/auth/api-keys/${keyId}`);
+}
+
+// --- Creator verification application ---
+
+export async function submitCreatorApplication(reason: string, portfolioUrl = ""): Promise<CreatorApplication> {
+  const { data } = await client.post("/api/auth/creator-application", {
+    reason,
+    portfolio_url: portfolioUrl,
+  });
+  return data;
+}
+
+// Returns null if the user has never applied (backend 404s in that case).
+export async function getMyCreatorApplication(): Promise<CreatorApplication | null> {
+  try {
+    const { data } = await client.get("/api/auth/creator-application/me");
+    return data;
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.status === 404) return null;
+    throw err;
+  }
 }

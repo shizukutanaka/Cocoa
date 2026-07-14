@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 
 const TABS = [
   { to: "/me", label: "プロフィール", end: true },
+  { to: "/me/dashboard", label: "ダッシュボード", end: false },
   { to: "/me/listings", label: "出品管理", end: false },
   { to: "/me/promo-codes", label: "プロモコード", end: false },
   { to: "/me/bundles", label: "バンドル管理", end: false },
