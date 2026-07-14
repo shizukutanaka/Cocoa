@@ -6,6 +6,11 @@ export async function getPublicProfile(userId: string): Promise<PublicProfile> {
   return data;
 }
 
+export async function searchUsers(q: string, limit = 10): Promise<{ items: PublicProfile[]; total: number }> {
+  const { data } = await client.get("/api/users/search", { params: { q, limit } });
+  return data;
+}
+
 export async function getStorefront(userId: string, listingLimit = 20): Promise<Storefront> {
   const { data } = await client.get(`/api/users/${userId}/storefront`, {
     params: { listing_limit: listingLimit },

@@ -173,6 +173,19 @@ export async function reportReview(reviewId: string, reason: string, details = "
   return data;
 }
 
+export async function transferListing(listingId: string, newOwnerId: string, newOwnerUsername: string): Promise<Listing> {
+  const { data } = await client.post(`/api/marketplace/${listingId}/transfer`, {
+    new_owner_id: newOwnerId,
+    new_owner_username: newOwnerUsername,
+  });
+  return data;
+}
+
+export async function setStockLimit(listingId: string, stockLimit: number | null): Promise<Listing> {
+  const { data } = await client.put(`/api/marketplace/${listingId}/stock`, { stock_limit: stockLimit });
+  return data;
+}
+
 export async function createPromoCode(input: {
   code: string;
   discount_percent: number;
