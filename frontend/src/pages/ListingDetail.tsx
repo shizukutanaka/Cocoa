@@ -31,6 +31,12 @@ export function ListingDetail() {
     enabled: !!listingId && !!user,
   });
 
+  const { data: priceHistory } = useQuery({
+    queryKey: ["price-history", listingId],
+    queryFn: () => marketplaceService.getPriceHistory(listingId!),
+    enabled: !!listingId,
+  });
+
   const { data: related } = useQuery({
     queryKey: ["related", listingId],
     queryFn: () => getRelated(listingId!),
@@ -123,6 +129,25 @@ export function ListingDetail() {
               </div>
             )}
           </div>
+        )}
+
+        {priceHistory && priceHistory.length > 1 && (
+          <details style={{ margin: "8px 0" }}>
+            <summary style={{ cursor: "pointer", fontSize: 13, color: "var(--muted)" }}>価格の変更履歴</summary>
+            <div style={{ marginTop: 6, display: "grid", gap: 4 }}>
+              {priceHistory
+                .slice()
+                .reverse()
+                .map((entry, i) => (
+                  <div key={i} style={{ fontSize: 13, display: "flex", gap: 8 }}>
+                    <span style={{ color: "var(--faint)" }}>
+                      {new Date(entry.changed_at).toLocaleDateString("ja-JP")}
+                    </span>
+                    <span>{entry.is_free ? "無料" : `${entry.price_credits.toLocaleString()} cr`}</span>
+                  </div>
+                ))}
+            </div>
+          </details>
         )}
 
         <div className="stat-row">

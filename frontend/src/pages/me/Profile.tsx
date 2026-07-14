@@ -1,8 +1,48 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../hooks/useToast";
 import * as authService from "../../services/authService";
+import * as membershipService from "../../services/membershipService";
 import { apiErrorMessage } from "../../services/apiClient";
+
+const TIER_LABEL_JA: Record<string, string> = {
+  bronze: "ブロンズ",
+  silver: "シルバー",
+  gold: "ゴールド",
+  diamond: "ダイヤモンド",
+};
+
+function MembershipCard() {
+  const { data: membership } = useQuery({
+    queryKey: ["my-membership"],
+    queryFn: membershipService.getMyMembership,
+  });
+
+  if (!membership) return null;
+
+  return (
+    <div className="card card-pad" style={{ maxWidth: 480, marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 13, color: "var(--muted)" }}>会員ランク</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>
+            {TIER_LABEL_JA[membership.tier] ?? membership.tier_label}
+          </div>
+        </div>
+        {membership.fee_discount_percent > 0 && (
+          <span className="badge badge-success">手数料 {membership.fee_discount_percent}% 割引</span>
+        )}
+      </div>
+      <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 8 }}>
+        累計購入 {membership.lifetime_credits.toLocaleString()} cr
+        {membership.credits_to_next_tier != null && (
+          <> · 次のランクまであと {membership.credits_to_next_tier.toLocaleString()} cr</>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function Profile() {
   const { user, refresh } = useAuth();
@@ -30,6 +70,7 @@ export function Profile() {
   return (
     <div>
       <h1>プロフィール</h1>
+      <MembershipCard />
       <div className="card card-pad" style={{ maxWidth: 480 }}>
         <form onSubmit={handleSubmit}>
           <div className="field">

@@ -1,6 +1,6 @@
 import client from "./apiClient";
 import { clearTokens, setTokens } from "./tokenStore";
-import type { CurrentUser, LoginResult, PendingTwoFactor, TokenPair, TwoFactorSetupData, TwoFactorStatus } from "../types/api";
+import type { ApiKey, CurrentUser, LoginResult, PendingTwoFactor, TokenPair, TwoFactorSetupData, TwoFactorStatus } from "../types/api";
 
 function isTokenPair(result: LoginResult): result is TokenPair {
   return "access_token" in result;
@@ -91,4 +91,20 @@ export async function getTwoFactorStatus(): Promise<TwoFactorStatus> {
 export async function disableTwoFactor(password: string) {
   const { data } = await client.post("/api/2fa/disable", null, { params: { password } });
   return data;
+}
+
+// --- API keys ---
+
+export async function createApiKey(name: string): Promise<ApiKey> {
+  const { data } = await client.post("/api/auth/api-keys", { name });
+  return data;
+}
+
+export async function listApiKeys(): Promise<{ items: ApiKey[]; total: number }> {
+  const { data } = await client.get("/api/auth/api-keys");
+  return data;
+}
+
+export async function revokeApiKey(keyId: string) {
+  await client.delete(`/api/auth/api-keys/${keyId}`);
 }

@@ -285,6 +285,36 @@ export interface UpdateListingInput {
   is_ai_generated?: boolean;
 }
 
+// Mirrors main/auth_manager.py AuthStore.create_api_key()/list_api_keys() entries
+export interface ApiKey {
+  key_id: string;
+  user_id: string;
+  name: string;
+  key_prefix: string;
+  created_at: string;
+  last_used: string | null;
+  raw_key?: string; // only present in the create response, shown once
+}
+
+// Mirrors main/membership_manager.py MembershipRecord.to_dict()
+export interface Membership {
+  user_id: string;
+  lifetime_credits: number;
+  tier: "bronze" | "silver" | "gold" | "diamond";
+  tier_label: string;
+  fee_discount_percent: number;
+  next_tier_threshold: number | null;
+  credits_to_next_tier: number | null;
+  updated_at: string;
+}
+
+// Mirrors the dicts appended in MarketplaceStore.publish()/update_listing()
+export interface PriceHistoryEntry {
+  price_credits: number;
+  is_free: boolean;
+  changed_at: string;
+}
+
 // Mirrors main/commissions.py CommissionRequest.to_dict()
 export interface CommissionRequest {
   request_id: string;

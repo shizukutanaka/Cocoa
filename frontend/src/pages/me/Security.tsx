@@ -6,7 +6,7 @@ import { apiErrorMessage } from "../../services/apiClient";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../hooks/useToast";
 import { CenterSpinner } from "../../components/Spinner";
-import type { TwoFactorSetupData } from "../../types/api";
+import type { ApiKey, TwoFactorSetupData } from "../../types/api";
 
 export function Security() {
   const { user, logout } = useAuth();
@@ -26,6 +26,7 @@ export function Security() {
       <h1>セキュリティ</h1>
       <TwoFactorSection enabled={!!status?.is_enabled} username={user!.username} onChanged={() => queryClient.invalidateQueries({ queryKey: ["2fa-status"] })} />
       <ChangePasswordSection />
+      <ApiKeysSection />
       <DangerZoneSection
         onDeleted={async () => {
           await logout();
@@ -188,6 +189,107 @@ function ChangePasswordSection() {
           変更する
         </button>
       </form>
+    </section>
+  );
+}
+
+function ApiKeysSection() {
+  const { show } = useToast();
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  // The raw key is only ever returned once, at creation -- held in local
+  // state only, never persisted, never refetched.
+  const [justCreated, setJustCreated] = useState<ApiKey | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["api-keys"],
+    queryFn: authService.listApiKeys,
+  });
+
+  async function handleCreate(e: FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      const key = await authService.createApiKey(name);
+      setJustCreated(key);
+      setName("");
+      queryClient.invalidateQueries({ queryKey: ["api-keys"] });
+    } catch (err) {
+      show(apiErrorMessage(err, "APIキーの作成に失敗しました"), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRevoke(keyId: string) {
+    if (!window.confirm("このAPIキーを無効化しますか？（元に戻せません）")) return;
+    try {
+      await authService.revokeApiKey(keyId);
+      queryClient.invalidateQueries({ queryKey: ["api-keys"] });
+    } catch (err) {
+      show(apiErrorMessage(err, "無効化に失敗しました"), "error");
+    }
+  }
+
+  return (
+    <section className="card card-pad" style={{ marginBottom: 20 }}>
+      <h2 style={{ fontSize: 16 }}>APIキー</h2>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>
+        外部ツールからAPIを呼び出すための認証キーです。キーは作成時に一度だけ表示されます。
+      </p>
+
+      {justCreated && (
+        <div className="form-error-banner" style={{ background: "var(--surface-2)", color: "var(--ink)" }}>
+          <strong>{justCreated.name}</strong> を作成しました。このキーは二度と表示されません:
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, marginTop: 6, wordBreak: "break-all" }}>
+            {justCreated.raw_key}
+          </div>
+          <button className="btn btn-ghost btn-sm" style={{ marginTop: 6 }} onClick={() => setJustCreated(null)}>
+            閉じる
+          </button>
+        </div>
+      )}
+
+      <form onSubmit={handleCreate} style={{ display: "flex", gap: 8, maxWidth: 360, marginTop: 12 }}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="キーの名前（例: CLIツール）"
+          maxLength={64}
+          aria-label="APIキーの名前"
+        />
+        <button type="submit" className="btn btn-secondary btn-sm" disabled={busy}>
+          {busy ? "作成中..." : "作成"}
+        </button>
+      </form>
+
+      {isLoading ? (
+        <CenterSpinner />
+      ) : data && data.items.length > 0 ? (
+        <div className="row-list" style={{ marginTop: 12 }}>
+          {data.items.map((key) => (
+            <div key={key.key_id} className="row-item">
+              <div>
+                <strong>{key.name}</strong>
+                <div style={{ fontSize: 12, color: "var(--faint)", fontFamily: "var(--font-mono)" }}>
+                  {key.key_prefix}...
+                </div>
+                <div style={{ fontSize: 12, color: "var(--faint)" }}>
+                  作成日 {new Date(key.created_at).toLocaleDateString("ja-JP")}
+                  {key.last_used && ` · 最終利用 ${new Date(key.last_used).toLocaleDateString("ja-JP")}`}
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => handleRevoke(key.key_id)}>
+                無効化
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p style={{ fontSize: 13, color: "var(--faint)", marginTop: 12 }}>まだAPIキーがありません。</p>
+      )}
     </section>
   );
 }

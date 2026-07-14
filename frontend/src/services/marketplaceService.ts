@@ -2,6 +2,7 @@ import client from "./apiClient";
 import type {
   Listing,
   Paginated,
+  PriceHistoryEntry,
   PromoCode,
   PromoLookup,
   PublishListingInput,
@@ -126,6 +127,11 @@ export async function getRelated(listingId: string, limit = 6): Promise<Listing[
 
 export async function getTrending(limit = 6, days = 7): Promise<Listing[]> {
   const { data } = await client.get("/api/marketplace/trending", { params: { limit, days } });
+  return data.items ?? [];
+}
+
+export async function getPriceHistory(listingId: string): Promise<PriceHistoryEntry[]> {
+  const { data } = await client.get(`/api/marketplace/${listingId}/price-history`);
   return data.items ?? [];
 }
 
