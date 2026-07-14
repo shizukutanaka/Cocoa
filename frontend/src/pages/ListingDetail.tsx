@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import * as marketplaceService from "../services/marketplaceService";
 import { getListing, getRelated } from "../services/marketplaceService";
 import { addToCart } from "../services/cartService";
@@ -16,12 +16,14 @@ export function ListingDetail() {
   const { listingId } = useParams<{ listingId: string }>();
   const { user } = useAuth();
   const { show } = useToast();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [addingToCart, setAddingToCart] = useState(false);
   const [showReportForm, setShowReportForm] = useState(false);
   const [reportReason, setReportReason] = useState<string>(marketplaceService.LISTING_REPORT_REASONS[0].value);
   const [reportDetails, setReportDetails] = useState("");
   const [reportingListing, setReportingListing] = useState(false);
+  const [cloning, setCloning] = useState(false);
 
   const { data: listing, isLoading, isError } = useQuery({
     queryKey: ["listing", listingId],
@@ -76,6 +78,20 @@ export function ListingDetail() {
       queryClient.invalidateQueries({ queryKey: ["wishlist-check", listingId] });
     } catch (err) {
       show(apiErrorMessage(err, "ウィッシュリストの更新に失敗しました"), "error");
+    }
+  }
+
+  async function handleClone() {
+    if (!listing) return;
+    setCloning(true);
+    try {
+      const cloned = await marketplaceService.cloneListing(listing.listing_id);
+      show("クローンして公開しました");
+      navigate(`/listings/${cloned.listing_id}`);
+    } catch (err) {
+      show(apiErrorMessage(err, "クローンに失敗しました"), "error");
+    } finally {
+      setCloning(false);
     }
   }
 
@@ -208,6 +224,17 @@ export function ListingDetail() {
           </div>
         )}
         {isOwnListing && <p style={{ color: "var(--muted)" }}>これはあなたが出品したリスティングです。</p>}
+
+        {user && marketplaceService.CLONEABLE_LICENSES.includes(listing.license_type) && (
+          <div style={{ marginTop: 10 }}>
+            <button className="btn btn-secondary btn-sm" onClick={handleClone} disabled={cloning}>
+              {cloning ? "クローン中..." : "クローンして自分の作品として公開"}
+            </button>
+            <p style={{ fontSize: 12, color: "var(--faint)", marginTop: 4 }}>
+              CC BY / CC BY-SA ライセンスのため、パラメータをコピーして新しいリスティングとして公開できます。
+            </p>
+          </div>
+        )}
 
         {user && !isOwnListing && (
           <div style={{ marginTop: 10 }}>

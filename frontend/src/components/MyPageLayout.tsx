@@ -13,6 +13,7 @@ const TABS = [
   { to: "/me/saved-searches", label: "保存した検索", end: false },
   { to: "/me/following", label: "フォロー中", end: false },
   { to: "/me/orders", label: "注文履歴", end: false },
+  { to: "/me/downloads", label: "ダウンロード履歴", end: false },
   { to: "/me/refunds", label: "払い戻し", end: false },
   { to: "/me/credits", label: "クレジット", end: false },
   { to: "/me/gift-cards", label: "ギフトカード", end: false },

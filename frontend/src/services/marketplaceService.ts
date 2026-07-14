@@ -186,6 +186,28 @@ export async function setStockLimit(listingId: string, stockLimit: number | null
   return data;
 }
 
+// Only CC BY / CC BY-SA listings can be cloned -- check listing.license_type
+// before showing a clone action, matching the server-side gate.
+export const CLONEABLE_LICENSES = ["cc_by", "cc_by_sa"];
+
+export async function cloneListing(listingId: string): Promise<Listing> {
+  const { data } = await client.post(`/api/marketplace/${listingId}/clone`);
+  return data.listing;
+}
+
+export interface DownloadHistoryEntry {
+  listing_id: string;
+  downloaded_at: string;
+  name?: string;
+  owner_username?: string;
+  is_active?: boolean;
+}
+
+export async function getDownloadHistory(limit = 20, offset = 0): Promise<Paginated<DownloadHistoryEntry>> {
+  const { data } = await client.get("/api/marketplace/downloads/history", { params: { limit, offset } });
+  return data;
+}
+
 export async function createPromoCode(input: {
   code: string;
   discount_percent: number;
