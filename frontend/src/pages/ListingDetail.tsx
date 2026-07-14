@@ -18,6 +18,10 @@ export function ListingDetail() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const [addingToCart, setAddingToCart] = useState(false);
+  const [showReportForm, setShowReportForm] = useState(false);
+  const [reportReason, setReportReason] = useState<string>(marketplaceService.LISTING_REPORT_REASONS[0].value);
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportingListing, setReportingListing] = useState(false);
 
   const { data: listing, isLoading, isError } = useQuery({
     queryKey: ["listing", listingId],
@@ -72,6 +76,21 @@ export function ListingDetail() {
       queryClient.invalidateQueries({ queryKey: ["wishlist-check", listingId] });
     } catch (err) {
       show(apiErrorMessage(err, "ウィッシュリストの更新に失敗しました"), "error");
+    }
+  }
+
+  async function handleReportListing() {
+    if (!listing) return;
+    setReportingListing(true);
+    try {
+      await marketplaceService.reportListing(listing.listing_id, reportReason, reportDetails);
+      show("通報を受け付けました");
+      setShowReportForm(false);
+      setReportDetails("");
+    } catch (err) {
+      show(apiErrorMessage(err, "通報に失敗しました"), "error");
+    } finally {
+      setReportingListing(false);
     }
   }
 
@@ -189,6 +208,47 @@ export function ListingDetail() {
           </div>
         )}
         {isOwnListing && <p style={{ color: "var(--muted)" }}>これはあなたが出品したリスティングです。</p>}
+
+        {user && !isOwnListing && (
+          <div style={{ marginTop: 10 }}>
+            {!showReportForm ? (
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowReportForm(true)}>
+                このリスティングを通報する
+              </button>
+            ) : (
+              <div className="card card-pad" style={{ maxWidth: 360 }}>
+                <div className="field">
+                  <label htmlFor="report-reason">理由</label>
+                  <select id="report-reason" value={reportReason} onChange={(e) => setReportReason(e.target.value)}>
+                    {marketplaceService.LISTING_REPORT_REASONS.map((r) => (
+                      <option key={r.value} value={r.value}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="report-details">詳細（任意）</label>
+                  <textarea
+                    id="report-details"
+                    value={reportDetails}
+                    onChange={(e) => setReportDetails(e.target.value)}
+                    rows={2}
+                    maxLength={1000}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="btn btn-secondary btn-sm" onClick={handleReportListing} disabled={reportingListing}>
+                    {reportingListing ? "送信中..." : "通報する"}
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setShowReportForm(false)}>
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={{ gridColumn: "1 / -1" }}>
@@ -310,9 +370,12 @@ function ReviewsSection({
                   <ReviewReplies reviewId={r.review_id} isLoggedIn={isLoggedIn} />
                 </div>
                 {isLoggedIn && (
-                  <button className="btn btn-ghost btn-sm" onClick={() => handleHelpful(r.review_id, true)}>
-                    役に立った（{r.helpful_count}）
-                  </button>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => handleHelpful(r.review_id, true)}>
+                      役に立った（{r.helpful_count}）
+                    </button>
+                    <ReportReviewButton reviewId={r.review_id} />
+                  </div>
                 )}
               </div>
             ))}
@@ -320,6 +383,57 @@ function ReviewsSection({
         </div>
       )}
     </section>
+  );
+}
+
+function ReportReviewButton({ reviewId }: { reviewId: string }) {
+  const { show } = useToast();
+  const [showForm, setShowForm] = useState(false);
+  const [reason, setReason] = useState<string>(marketplaceService.REVIEW_REPORT_REASONS[0].value);
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit() {
+    setBusy(true);
+    try {
+      await marketplaceService.reportReview(reviewId, reason);
+      show("通報を受け付けました");
+      setShowForm(false);
+    } catch (err) {
+      show(apiErrorMessage(err, "通報に失敗しました"), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!showForm) {
+    return (
+      <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => setShowForm(true)}>
+        通報
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+      <select
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        style={{ fontSize: 11, padding: "2px 4px" }}
+        aria-label="レビューの通報理由"
+      >
+        {marketplaceService.REVIEW_REPORT_REASONS.map((r) => (
+          <option key={r.value} value={r.value}>
+            {r.label}
+          </option>
+        ))}
+      </select>
+      <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={handleSubmit} disabled={busy}>
+        送信
+      </button>
+      <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => setShowForm(false)}>
+        取消
+      </button>
+    </div>
   );
 }
 

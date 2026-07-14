@@ -147,6 +147,32 @@ export async function getMyEarnings(days = 30): Promise<EarningsSummary> {
   return data;
 }
 
+export const LISTING_REPORT_REASONS = [
+  { value: "inappropriate", label: "不適切なコンテンツ" },
+  { value: "spam", label: "スパム" },
+  { value: "copyright", label: "著作権侵害" },
+  { value: "misleading", label: "誤解を招く説明" },
+  { value: "malware", label: "マルウェアの疑い" },
+  { value: "other", label: "その他" },
+] as const;
+
+export const REVIEW_REPORT_REASONS = [
+  { value: "spam", label: "スパム" },
+  { value: "offensive", label: "不快な内容" },
+  { value: "false_info", label: "誤った情報" },
+  { value: "other", label: "その他" },
+] as const;
+
+export async function reportListing(listingId: string, reason: string, details = "") {
+  const { data } = await client.post(`/api/marketplace/${listingId}/report`, { reason, details });
+  return data;
+}
+
+export async function reportReview(reviewId: string, reason: string, details = "") {
+  const { data } = await client.post(`/api/marketplace/reviews/${reviewId}/report`, { reason, details });
+  return data;
+}
+
 export async function createPromoCode(input: {
   code: string;
   discount_percent: number;
