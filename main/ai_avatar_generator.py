@@ -4,20 +4,40 @@ AI Avatar Generator Module for Cocoa
 生産グレードのAIアバター生成システム
 """
 
-import os
 import asyncio
+import time
 import logging
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Union
-from dataclasses import dataclass
-from datetime import datetime
 
-import torch
-from PIL import Image
-from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
-from transformers import CLIPProcessor, CLIPModel
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
 
-from .integrated_security import get_security_manager
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+try:
+    from diffusers import StableDiffusionImg2ImgPipeline, StableDiffusionPipeline
+    DIFFUSERS_AVAILABLE = True
+except ImportError:
+    DIFFUSERS_AVAILABLE = False
+
+try:
+    from transformers import CLIPModel, CLIPProcessor
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -107,7 +127,7 @@ class AIAvatarGenerator:
     def _determine_device(self, device: str) -> str:
         """計算デバイスを決定"""
         if device == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
+            return "cuda" if (TORCH_AVAILABLE and torch and torch.cuda.is_available()) else "cpu"
         return device
 
     def _load_style_prompts(self) -> Dict[str, str]:
@@ -165,7 +185,7 @@ class AIAvatarGenerator:
         Returns:
             生成結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # セキュリティチェック
@@ -186,7 +206,7 @@ class AIAvatarGenerator:
             processed_result = await self._post_process_result(result, request)
 
             # 生成時間を記録
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
             processed_result.generation_time = end_time - start_time
 
             # 監査ログ
@@ -196,7 +216,7 @@ class AIAvatarGenerator:
 
         except Exception as e:
             logger.error(f"Avatar generation failed: {e}")
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
 
             return AvatarGenerationResult(
                 success=False,
@@ -212,7 +232,7 @@ class AIAvatarGenerator:
 
         # 入力データチェック
         if request.source_image_path:
-            if not Path(request.source_image_path).exists():
+            if not Path(request.source_image_path).exists():  # noqa: ASYNC240
                 raise FileNotFoundError(f"Source image not found: {request.source_image_path}")
 
             # 画像サイズ・形式チェック
@@ -227,7 +247,7 @@ class AIAvatarGenerator:
         try:
             with Image.open(image_path) as img:
                 # サイズチェック（最大10MB）
-                if os.path.getsize(image_path) > 10 * 1024 * 1024:
+                if os.path.getsize(image_path) > 10 * 1024 * 1024:  # noqa: ASYNC240
                     raise ValueError("Image file too large (max 10MB)")
 
                 # フォーマットチェック
@@ -239,7 +259,7 @@ class AIAvatarGenerator:
                     raise ValueError("Image too small (minimum 256x256)")
 
         except Exception as e:
-            raise ValueError(f"Invalid image file: {e}")
+            raise ValueError(f"Invalid image file: {e}") from e
 
     def _build_prompt(self, request: AvatarGenerationRequest) -> str:
         """生成プロンプトを構築"""
@@ -317,7 +337,7 @@ class AIAvatarGenerator:
         image = generation_result["image"]
 
         # ファイルパス生成
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.cache_dir / request.user_id
         user_dir.mkdir(exist_ok=True)
 
@@ -343,8 +363,8 @@ class AIAvatarGenerator:
             "prompt": request.prompt,
             "customizations": request.customizations,
             "image_size": image.size,
-            "file_size": os.path.getsize(avatar_path),
-            "created_at": datetime.now().isoformat()
+            "file_size": os.path.getsize(avatar_path),  # noqa: ASYNC240
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
 
         return AvatarGenerationResult(
@@ -382,9 +402,9 @@ class AIAvatarGenerator:
             if metadata_file.exists():
                 try:
                     import json
-                    with open(metadata_file, 'r', encoding='utf-8') as f:
+                    with open(metadata_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         metadata = json.load(f)
-                except (IOError, json.JSONDecodeError) as e:
+                except (OSError, json.JSONDecodeError) as e:
                     logger.warning(f"Failed to load metadata from {metadata_file}: {e}")
 
             avatars.append({
@@ -428,13 +448,16 @@ class AIAvatarGenerator:
 
 # グローバルインスタンス管理
 _avatar_generator_instance = None
+_avatar_generator_instance_lock = asyncio.Lock()
 
 async def get_ai_avatar_generator() -> AIAvatarGenerator:
     """AIアバター生成器のインスタンスを取得"""
     global _avatar_generator_instance
 
     if _avatar_generator_instance is None:
-        _avatar_generator_instance = AIAvatarGenerator()
-        await _avatar_generator_instance.initialize_models()
+        async with _avatar_generator_instance_lock:
+            if _avatar_generator_instance is None:
+                _avatar_generator_instance = AIAvatarGenerator()
+                await _avatar_generator_instance.initialize_models()
 
     return _avatar_generator_instance

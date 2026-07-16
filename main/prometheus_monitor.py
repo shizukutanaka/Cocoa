@@ -9,17 +9,37 @@ Prometheus/Grafana 2025ベストプラクティス統合
 - TechCloudUp: "7 Essential Prometheus Monitoring Best Practices"
 """
 
-from prometheus_client import (
-    Counter, Gauge, Histogram, Summary,
-    CollectorRegistry, push_to_gateway, generate_latest,
-    CONTENT_TYPE_LATEST
-)
-from typing import Optional
+try:
+    from prometheus_client import (
+        CONTENT_TYPE_LATEST,
+        CollectorRegistry,
+        Counter,
+        Gauge,
+        Histogram,
+        Summary,
+        generate_latest,
+        push_to_gateway,
+    )
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
+    Counter = Gauge = Histogram = Summary = None
+    CollectorRegistry = push_to_gateway = generate_latest = None
+    CONTENT_TYPE_LATEST = None
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    psutil = None
+
+import logging
+import threading
+import time
 from dataclasses import dataclass
 from enum import Enum
-import time
-import psutil
-import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +86,7 @@ class EnhancedPrometheusMonitor:
         """
         self.config = config or MetricConfig()
         self.environment = environment
-        self.registry = CollectorRegistry()
+        self.registry = CollectorRegistry() if CollectorRegistry is not None else None
 
         # メトリクス初期化
         self._init_counters()
@@ -351,7 +371,7 @@ class EnhancedPrometheusMonitor:
         """処理時間測定デコレーター"""
         def decorator(func):
             def wrapper(*args, **kwargs):
-                start = time.time()
+                start = time.monotonic()
                 try:
                     result = func(*args, **kwargs)
                     self.record_operation(operation_type, 'success')
@@ -361,7 +381,7 @@ class EnhancedPrometheusMonitor:
                     self.record_error(type(e).__name__, 'error')
                     raise
                 finally:
-                    duration = time.time() - start
+                    duration = time.monotonic() - start
                     self.observe_request_duration(operation_type, duration)
             return wrapper
         return decorator
@@ -370,11 +390,11 @@ class EnhancedPrometheusMonitor:
         """暗号化処理時間測定デコレーター"""
         def decorator(func):
             def wrapper(*args, **kwargs):
-                start = time.time()
+                start = time.monotonic()
                 try:
                     return func(*args, **kwargs)
                 finally:
-                    duration = time.time() - start
+                    duration = time.monotonic() - start
                     self.encryption_duration_seconds.labels(
                         env=self.environment.value
                     ).observe(duration)
@@ -423,7 +443,7 @@ class MetricsServer:
 
     def start(self):
         """メトリクスサーバーを起動"""
-        from http.server import HTTPServer, BaseHTTPRequestHandler
+        from http.server import BaseHTTPRequestHandler, HTTPServer
 
         class MetricsHandler(BaseHTTPRequestHandler):
             def do_GET(self_handler):
@@ -456,6 +476,29 @@ class MetricsServer:
             server.shutdown()
 
 
+# ---------------------------------------------------------------------------
+# Singleton
+# ---------------------------------------------------------------------------
+_prometheus_monitor: Optional[EnhancedPrometheusMonitor] = None
+_prometheus_monitor_lock = threading.Lock()
+
+
+def get_prometheus_monitor() -> EnhancedPrometheusMonitor:
+    """Lazily construct and cache the process-wide monitor.
+
+    Lets api_server.py expose GET /metrics/prometheus in-process instead of
+    requiring MetricsServer to run as a separate standalone process on its
+    own port -- the registry (and therefore every counter/gauge previously
+    recorded) is shared across every caller of this function.
+    """
+    global _prometheus_monitor
+    if _prometheus_monitor is None:
+        with _prometheus_monitor_lock:
+            if _prometheus_monitor is None:
+                _prometheus_monitor = EnhancedPrometheusMonitor()
+    return _prometheus_monitor
+
+
 def example_usage():
     """使用例"""
     # モニター初期化
@@ -485,7 +528,7 @@ def example_usage():
         time.sleep(0.1)
         return "processed"
 
-    result = process_data()
+    process_data()
 
     # メトリクスをテキスト形式で出力
     metrics_text = monitor.expose_metrics().decode('utf-8')

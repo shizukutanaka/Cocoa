@@ -2,26 +2,26 @@
 包括的テストスイート - 本番レベルの品質保証
 単体テスト、統合テスト、パフォーマンステスト、セキュリティテストを含む
 """
-import sys
-import unittest
 import json
-import tempfile
-import shutil
-import time
 import logging
-from typing import Dict, Any
+import shutil
+import sys
+import tempfile
+import time
+import unittest
 from pathlib import Path
+from typing import Any, Dict
 
 # テスト対象のモジュールをインポート
 sys.path.append(str(Path(__file__).parent.parent / "main"))
 
 try:
-    from security_manager import SecurityManager, SecurityPolicy, ThreatLevel
-    from performance_manager import PerformanceMonitor, MetricType, HealthStatus
-    from error_recovery_system import ErrorRecoverySystem, ErrorSeverity, CircuitBreaker
-    from database_manager import DatabaseManager, DatabaseConfig, DatabaseType
-    from advanced_logging import AdvancedLogger, LogLevel, LogCategory, EventType
+    from advanced_logging import AdvancedLogger, EventType, LogCategory, LogLevel
     from backup_recovery_system import BackupManager, BackupType, StorageType
+    from database_manager import DatabaseConfig, DatabaseManager, DatabaseType
+    from error_recovery_system import ErrorRecoverySystem
+    from performance_manager import HealthStatus, MetricType, PerformanceMonitor
+    from security_manager import SecurityManager
 except ImportError as e:
     print(f"テスト対象モジュールのインポートエラー: {e}")
     sys.exit(1)
@@ -122,7 +122,7 @@ class TestSecurityManager(TestBase):
         self.assertTrue(can_login)
 
         # 失敗試行を記録
-        for i in range(3):  # max_login_attempts = 3
+        for _i in range(3):  # max_login_attempts = 3
             self.security_manager.record_failed_attempt(username, ip_address)
 
         # ロックアウト後はログイン不可
@@ -241,7 +241,7 @@ class TestPerformanceManager(TestBase):
         self.assertTrue(export_path.exists())
 
         # エクスポートファイルの内容検証
-        with open(export_path, 'r', encoding='utf-8') as f:
+        with open(export_path, encoding='utf-8') as f:
             data = json.load(f)
             self.assertIn("exported_at", data)
             self.assertIn("metrics", data)
@@ -283,12 +283,12 @@ class TestErrorRecoverySystem(TestBase):
             raise Exception("Test failure")
 
         # 連続失敗でサーキットブレーカーが作動
-        for i in range(3):
-            with self.assertRaises(Exception):
+        for _i in range(3):
+            with self.assertRaises(Exception):  # noqa: B017
                 failing_function()
 
         # 4回目はサーキットブレーカーが作動
-        with self.assertRaises(Exception) as cm:
+        with self.assertRaises(Exception):  # noqa: B017
             failing_function()
 
         # サーキットブレーカーの状態確認
@@ -346,10 +346,9 @@ class TestDatabaseManager(TestBase):
 
     def tearDown(self):
         super().tearDown()
-        try:
+        import contextlib
+        with contextlib.suppress(Exception):
             self.db_manager.close()
-        except:
-            pass
 
     def test_database_connection(self):
         """データベース接続テスト"""
@@ -390,12 +389,12 @@ class TestDatabaseManager(TestBase):
         self.assertEqual(users[0]["name"], "Test User")
 
         # UPDATE
-        affected = self.db_manager.update("test_users", {"name": "Updated User"}, "id = ?", [user_id])
+        self.db_manager.update("test_users", {"name": "Updated User"}, "id = ?", [user_id])
         users = self.db_manager.select("test_users", where="id = ?", params=[user_id])
         self.assertEqual(users[0]["name"], "Updated User")
 
         # DELETE
-        deleted = self.db_manager.delete("test_users", "id = ?", [user_id])
+        self.db_manager.delete("test_users", "id = ?", [user_id])
         users = self.db_manager.select("test_users", where="id = ?", params=[user_id])
         self.assertEqual(len(users), 0)
 
@@ -450,10 +449,9 @@ class TestAdvancedLogger(TestBase):
 
     def tearDown(self):
         super().tearDown()
-        try:
+        import contextlib
+        with contextlib.suppress(Exception):
             self.logger.shutdown()
-        except:
-            pass
 
     def test_structured_logging(self):
         """構造化ログテスト"""
@@ -506,7 +504,7 @@ class TestAdvancedLogger(TestBase):
 
     def test_metrics_tracking(self):
         """メトリクス追跡テスト"""
-        initial_metrics = self.logger.get_metrics()
+        self.assertIsNotNone(self.logger.get_metrics())
 
         # ログを追加
         self.logger.log(
@@ -518,9 +516,8 @@ class TestAdvancedLogger(TestBase):
 
         time.sleep(0.2)
 
-        final_metrics = self.logger.get_metrics()
-        # エラーカウントが増加しているかチェック
-        # 実装によってはメトリクス更新にタイムラグがある可能性
+        # get_metrics() は常にdictを返す（実装によってはエラーカウントにタイムラグあり）
+        self.assertIsNotNone(self.logger.get_metrics())
 
 class TestBackupSystem(TestBase):
     """バックアップシステムテスト"""
@@ -544,7 +541,7 @@ class TestBackupSystem(TestBase):
         super().tearDown()
         try:
             self.backup_manager.shutdown()
-        except:
+        except Exception:
             pass
         finally:
             BackupManager._instance = None
@@ -611,7 +608,7 @@ class TestIntegration(TestBase):
 
         # 1. セキュリティマネージャーとログシステムの連携
         security_config = self.create_test_config("security.json", {})
-        security_manager = SecurityManager(security_config)
+        SecurityManager(security_config)
 
         log_config = self.create_test_config("logging.json", {
             "log_directory": str(self.temp_dir / "logs"),

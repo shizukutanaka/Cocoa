@@ -4,18 +4,24 @@ Internationalization Manager for Cocoa
 140言語以上の多言語サポートシステム
 """
 
-import os
-import json
 import asyncio
+import contextlib
+import hashlib
+import json
 import logging
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
-from dataclasses import dataclass
-from datetime import datetime
-import hashlib
-import aiohttp
 
-from .integrated_security import get_security_manager
+try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
+
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -198,7 +204,7 @@ class TranslationService:
 
     async def initialize(self):
         """初期化"""
-        if not self.session:
+        if not self.session and AIOHTTP_AVAILABLE:
             self.session = aiohttp.ClientSession()
 
     async def close(self):
@@ -222,13 +228,12 @@ class TranslationService:
             # Google Translate APIを優先
             if self.api_keys["google"]:
                 return await self._translate_google(request)
-            elif self.api_keys["deepl"]:
+            if self.api_keys["deepl"]:
                 return await self._translate_deepl(request)
-            elif self.api_keys["microsoft"]:
+            if self.api_keys["microsoft"]:
                 return await self._translate_microsoft(request)
-            else:
-                # フォールバック：ローカル辞書ベース
-                return await self._translate_local(request)
+            # フォールバック：ローカル辞書ベース
+            return await self._translate_local(request)
 
         except Exception as e:
             logger.error(f"Translation failed: {e}")
@@ -262,8 +267,7 @@ class TranslationService:
                     target_lang=request.target_lang,
                     confidence=0.9
                 )
-            else:
-                raise Exception(f"Google Translate API error: {response.status}")
+            raise Exception(f"Google Translate API error: {response.status}")
 
     async def _translate_deepl(self, request: TranslationRequest) -> TranslationResult:
         """DeepL APIを使用"""
@@ -288,8 +292,7 @@ class TranslationService:
                     target_lang=request.target_lang,
                     confidence=0.95
                 )
-            else:
-                raise Exception(f"DeepL API error: {response.status}")
+            raise Exception(f"DeepL API error: {response.status}")
 
     async def _translate_microsoft(self, request: TranslationRequest) -> TranslationResult:
         """Microsoft Translator APIを使用"""
@@ -376,7 +379,7 @@ class I18NManager:
         for lang_file in self.locales_dir.glob("*.json"):
             lang_code = lang_file.stem
             try:
-                with open(lang_file, 'r', encoding='utf-8') as f:
+                with open(lang_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     self.translations[lang_code] = json.load(f)
                 logger.info(f"Loaded translations for {lang_code}")
             except Exception as e:
@@ -396,9 +399,8 @@ class I18NManager:
             self.current_language = language_code
             logger.info(f"Language set to {language_code}")
             return True
-        else:
-            logger.warning(f"Unsupported language: {language_code}")
-            return False
+        logger.warning(f"Unsupported language: {language_code}")
+        return False
 
     def get_available_languages(self) -> List[Dict]:
         """利用可能な言語一覧を取得"""
@@ -446,10 +448,9 @@ class I18NManager:
 
         # フォーマット適用
         if isinstance(value, str) and kwargs:
-            try:
+            # フォーマット失敗時はそのまま
+            with contextlib.suppress(KeyError, ValueError):
                 value = value.format(**kwargs)
-            except (KeyError, ValueError):
-                pass  # フォーマット失敗時はそのまま
 
         return value
 
@@ -498,7 +499,7 @@ class I18NManager:
             # キャッシュ保存
             self.translation_cache[cache_key] = {
                 "translated_text": result.translated_text,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
             # 定期的にキャッシュをクリーンアップ
@@ -506,9 +507,8 @@ class I18NManager:
                 await self._cleanup_cache()
 
             return result.translated_text
-        else:
-            logger.warning(f"Translation failed: {result.error_message}")
-            return text
+        logger.warning(f"Translation failed: {result.error_message}")
+        return text
 
     def _get_cache_key(self, text: str, source_lang: str, target_lang: str) -> str:
         """キャッシュキーを生成"""
@@ -517,13 +517,15 @@ class I18NManager:
 
     async def _cleanup_cache(self):
         """古いキャッシュをクリーンアップ"""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         to_remove = []
 
         for key, data in self.translation_cache.items():
             timestamp = data.get("timestamp")
             if timestamp:
                 cache_time = datetime.fromisoformat(timestamp)
+                if cache_time.tzinfo is None:
+                    cache_time = cache_time.replace(tzinfo=timezone.utc)
                 if (current_time - cache_time).days > 7:  # 7日以上経過
                     to_remove.append(key)
 
@@ -562,7 +564,7 @@ class I18NManager:
                 # ファイルに保存
                 lang_file = self.locales_dir / f"{lang_code}.json"
                 try:
-                    with open(lang_file, 'w', encoding='utf-8') as f:
+                    with open(lang_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                         json.dump(expanded, f, ensure_ascii=False, indent=2)
                     logger.info(f"Saved expanded translations for {lang_code}")
                 except Exception as e:
@@ -627,14 +629,17 @@ class I18NManager:
 
 # グローバルインスタンス管理
 _i18n_manager = None
+_i18n_manager_lock = asyncio.Lock()
 
 async def get_i18n_manager() -> I18NManager:
     """I18Nマネージャーのインスタンスを取得"""
     global _i18n_manager
 
     if _i18n_manager is None:
-        _i18n_manager = I18NManager()
-        await _i18n_manager.initialize()
+        async with _i18n_manager_lock:
+            if _i18n_manager is None:
+                _i18n_manager = I18NManager()
+                await _i18n_manager.initialize()
 
     return _i18n_manager
 

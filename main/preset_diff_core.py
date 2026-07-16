@@ -1,11 +1,11 @@
 """Core utilities for preset diff tools."""
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import webbrowser
-import difflib
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -56,7 +56,7 @@ def load_preset(path: str) -> Dict:
     except PermissionError as exc:
         logging.error("[ERROR] ファイルアクセス権限エラー %s: %s", path, exc)
         raise
-    except Exception as exc:  # noqa: BLE001 - surface unknown I/O issues
+    except Exception as exc:
         logging.error("[ERROR] ファイル読み込みエラー %s: %s", path, exc)
         raise
 
@@ -123,7 +123,7 @@ def generate_html_diff(
         "</head>\n"
         "<body>\n"
         f"    <h2>プリセット差分: {name1} vs {name2}</h2>\n"
-        f"    <p>比較日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>\n"
+        f"    <p>比較日時: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC</p>\n"
         f"    {html_table}\n"
         "</body>\n"
         "</html>\n"
@@ -144,10 +144,10 @@ def save_diff_html(
     if output_path:
         destination = Path(output_path)
         if destination.is_dir():
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             destination = destination / f"diff_{timestamp}.html"
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         destination = directory / f"diff_{timestamp}.html"
 
     with destination.open("w", encoding="utf-8") as handle:
@@ -156,7 +156,7 @@ def save_diff_html(
     if open_in_browser:
         try:
             webbrowser.open(f"file://{destination.resolve()}")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logging.warning("ブラウザで開けませんでした: %s", exc)
 
     return str(destination)

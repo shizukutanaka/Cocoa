@@ -4,21 +4,35 @@ Interactive AI Agent Module for Cocoa
 会話可能なAIアバター機能を提供
 """
 
-import os
 import asyncio
-import logging
+import time
 import json
-from pathlib import Path
-from typing import Dict, List, Any
-from dataclasses import dataclass, field
-from datetime import datetime
+import logging
+import os
 import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List
 
-import openai
-from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
-import torch
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
-from .integrated_security import get_security_manager
+try:
+    from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -100,7 +114,7 @@ class KnowledgeBaseManager:
             kb_file = self.knowledge_dir / f"{user_id}_knowledge.json"
 
             if kb_file.exists():
-                with open(kb_file, 'r', encoding='utf-8') as f:
+                with open(kb_file, encoding='utf-8') as f:
                     existing_data = json.load(f)
                     existing_knowledge = existing_data.get('knowledge', [])
             else:
@@ -116,7 +130,7 @@ class KnowledgeBaseManager:
                 json.dump({
                     'user_id': user_id,
                     'knowledge': existing_knowledge,
-                    'updated_at': datetime.now().isoformat()
+                    'updated_at': datetime.now(timezone.utc).isoformat()
                 }, f, ensure_ascii=False, indent=2)
 
             return True
@@ -133,7 +147,7 @@ class KnowledgeBaseManager:
             if not kb_file.exists():
                 return ""
 
-            with open(kb_file, 'r', encoding='utf-8') as f:
+            with open(kb_file, encoding='utf-8') as f:
                 data = json.load(f)
                 knowledge_items = data.get('knowledge', [])
 
@@ -275,7 +289,7 @@ class InteractiveAIAgent:
         Returns:
             AIエージェントの応答
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # 会話コンテキストを取得
@@ -314,7 +328,7 @@ class InteractiveAIAgent:
             context.conversation_history.append({
                 "user": user_message,
                 "agent": processed_response.response_text,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
             # 履歴が長くなりすぎないよう制限
@@ -322,7 +336,7 @@ class InteractiveAIAgent:
                 context.conversation_history = context.conversation_history[-30:]
 
             # 応答時間を計算
-            response_time = asyncio.get_event_loop().time() - start_time
+            response_time = time.monotonic() - start_time
 
             final_response = AgentResponse(
                 response_text=processed_response.response_text,
@@ -356,7 +370,7 @@ class InteractiveAIAgent:
 
         except Exception as e:
             logger.error(f"Response generation failed: {e}")
-            response_time = asyncio.get_event_loop().time() - start_time
+            response_time = time.monotonic() - start_time
 
             return AgentResponse(
                 response_text="申し訳ありませんが、エラーが発生しました。もう一度お試しください。",
@@ -463,9 +477,7 @@ class InteractiveAIAgent:
 
         # 過度な繰り返しの除去
         import re
-        cleaned = re.sub(r'(.)\1{3,}', r'\1\1', cleaned)
-
-        return cleaned
+        return re.sub(r'(.)\1{3,}', r'\1\1', cleaned)
 
     def _analyze_emotion(self, response: str) -> str:
         """応答から感情を分析（簡易版）"""
@@ -476,10 +488,9 @@ class InteractiveAIAgent:
 
         if any(word in response_lower for word in positive_words):
             return "positive"
-        elif any(word in response_lower for word in negative_words):
+        if any(word in response_lower for word in negative_words):
             return "negative"
-        else:
-            return "neutral"
+        return "neutral"
 
     def _calculate_confidence(self, response: str, context: ConversationContext) -> float:
         """応答の信頼度を計算（簡易版）"""
@@ -571,16 +582,18 @@ class InteractiveAIAgent:
 
 # グローバルインスタンス管理
 _ai_agent_instance = None
+_ai_agent_instance_lock = asyncio.Lock()
 
 async def get_interactive_ai_agent() -> InteractiveAIAgent:
     """インタラクティブAIエージェントのインスタンスを取得"""
     global _ai_agent_instance
 
     if _ai_agent_instance is None:
-        use_openai = bool(os.getenv('OPENAI_API_KEY'))
-        _ai_agent_instance = InteractiveAIAgent(use_openai=use_openai)
-
-        if not await _ai_agent_instance.initialize_model():
-            logger.warning("Failed to initialize AI model, using fallback mode")
+        async with _ai_agent_instance_lock:
+            if _ai_agent_instance is None:
+                use_openai = bool(os.getenv('OPENAI_API_KEY'))
+                _ai_agent_instance = InteractiveAIAgent(use_openai=use_openai)
+                if not await _ai_agent_instance.initialize_model():
+                    logger.warning("Failed to initialize AI model, using fallback mode")
 
     return _ai_agent_instance

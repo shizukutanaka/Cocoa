@@ -3,12 +3,12 @@
 全サービスで共有される設定を管理
 """
 
-import os
 import json
-from pathlib import Path
-from typing import Dict, Any, Optional
-from dataclasses import dataclass
 import logging
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 
 @dataclass
@@ -48,7 +48,7 @@ class ConfigManager:
             if not Path(self.config_path).exists():
                 self._create_default_config()
 
-            with open(self.config_path, 'r', encoding='utf-8') as f:
+            with open(self.config_path, encoding='utf-8') as f:
                 data = json.load(f)
 
             # 環境変数でオーバーライド
@@ -64,7 +64,7 @@ class ConfigManager:
     def _create_default_config(self):
         """デフォルト設定ファイル作成"""
         config_dir = Path(self.config_path).parent
-        config_dir.mkdir(exist_ok=True)
+        config_dir.mkdir(parents=True, exist_ok=True)
 
         default_config = {
             "environment": os.getenv("ENVIRONMENT", "development"),
@@ -136,8 +136,11 @@ class ConfigManager:
         """環境変数で設定をオーバーライド"""
         # サービス設定のオーバーライド
         for service_name, service_config in data.get("services", {}).items():
+            # サービス名のハイフンは env 変数名のアンダースコアに正規化
+            # (例: "api-gateway" -> "API_GATEWAY_PORT")
+            normalized_name = service_name.upper().replace("-", "_")
             for key in ["port", "host", "debug"]:
-                env_key = f"{service_name.upper()}_{key.upper()}"
+                env_key = f"{normalized_name}_{key.upper()}"
                 if env_key in os.environ:
                     if key == "port":
                         service_config[key] = int(os.environ[env_key])

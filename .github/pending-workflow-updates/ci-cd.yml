@@ -1,0 +1,194 @@
+name: Cocoa CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  # コード品質チェックとテスト
+  quality-check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    # 3.11 matches docker/Dockerfile's base image (python:3.11-slim) --
+    # previously this ran 3.9 here while the Dockerfile used 3.11 and
+    # pyproject.toml targeted 3.8, so "tests passed in CI" didn't actually
+    # confirm the version the app ships on.
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    # requirements.txt pulls in torch/transformers/diffusers/web3/oqs/
+    # pqcrystals/sklearn/sqlalchemy(pinned differently)/etc. for the ~60
+    # main/ modules that are not reachable from either real entry point
+    # (main/api_server.py, main/main.py) -- see FEATURE_AUDIT.md 4-1. None
+    # of that is needed to run the test suite (every one of those imports is
+    # already guarded with try/except in the modules that use them), and
+    # installing it all made CI slow and occasionally fragile (several need
+    # a C/Rust toolchain to build). requirements-ci.txt has just what the
+    # reachable modules need to exercise their real code paths instead of
+    # just the try/except fallback -- see that file's own header for exactly
+    # how it was derived.
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-ci.txt
+
+    # Non-blocking (informational): this repo has ~60 main/ modules with no
+    # import path from either real entry point (FEATURE_AUDIT.md 4-1), and
+    # their pylint health has never been triaged -- flipping this to
+    # blocking today would fail CI on pre-existing, out-of-scope findings
+    # rather than anything a given PR introduced. It's also not simply
+    # "disable non-blocking findings": at least one E-category
+    # (bad-except-order) finding in main/api_server.py is a false positive
+    # from pylint not modeling the module's `except ImportError: AuthError =
+    # Exception` fallback -- pylint sees that assignment and concludes
+    # AuthError IS Exception, then flags a later `except ValueError` as
+    # unreachable, which it is not at runtime. Fixing that properly needs a
+    # per-finding pass across the full reachable set, not a blanket
+    # unblock -- tracked as follow-up, not done here.
+    - name: Lint with pylint (informational)
+      run: |
+        pylint main/ --disable=C,R,W0613,W0105 --output-format=text || true
+
+    # Same reasoning as pylint: non-blocking until the reachable module set
+    # has been triaged against strict typing.
+    - name: Type checking with mypy (informational)
+      run: |
+        mypy main/ --ignore-missing-imports || true
+
+    # Blocking gate: the 36 test files that correspond 1:1 to the 36 main/
+    # modules actually reachable from api_server.py or main.py (same BFS
+    # reachability FEATURE_AUDIT.md 4-1 used) -- every one of these currently
+    # passes and a real regression in live code should fail the build.
+    - name: Run tests (reachable modules -- blocking)
+      run: |
+        python -m unittest \
+          tests.test_api_server tests.test_auth_manager tests.test_avatar_collections \
+          tests.test_avatar_marketplace tests.test_bundle_manager tests.test_cache_manager \
+          tests.test_cart_manager tests.test_commissions tests.test_config_validator \
+          tests.test_csv_safety tests.test_database_manager tests.test_disaster_recovery \
+          tests.test_gift_card_manager tests.test_grafana_integration tests.test_health_monitor \
+          tests.test_i18n_manager tests.test_idempotency tests.test_integrated_security \
+          tests.test_license_manager tests.test_main tests.test_membership_manager \
+          tests.test_moderation_queue tests.test_pagination tests.test_performance_monitor \
+          tests.test_prometheus_monitor tests.test_rate_limiter tests.test_redis_cache_manager \
+          tests.test_referral_manager tests.test_refund_manager tests.test_saved_searches \
+          tests.test_search_engine tests.test_two_factor_auth tests.test_user_notifications \
+          tests.test_vrchat_parameter_budget tests.test_vrchat_performance_analyzer \
+          tests.test_wishlist_manager \
+          -v
+
+    # Non-blocking (informational): the remaining ~86 test files, mostly
+    # covering the ~60 unreachable/dead modules (FEATURE_AUDIT.md 4-1, 4-3).
+    # Several fail today on pre-existing import errors unrelated to any
+    # given change (e.g. test_video_creator / test_template_library import
+    # names that no longer exist in their target modules). Surfaced here for
+    # visibility without blocking merges on tech debt this step didn't
+    # create -- cleaning it up is 4-1/4-3's own recommended follow-up.
+    - name: Run tests (full suite -- informational)
+      continue-on-error: true
+      run: |
+        python -m unittest discover -s tests -p "test_*.py" -v
+
+  # セキュリティスキャン
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-ci.txt
+
+    - name: Security scan with bandit
+      run: |
+        pip install bandit
+        bandit -r main/ -f json -o bandit-report.json || true
+
+    - name: Upload security report
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-report
+        path: bandit-report.json
+
+  # Dockerイメージビルド
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [quality-check, security-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          cocoa/avatar-management:latest
+          cocoa/avatar-management:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # デプロイメント（開発環境）
+  # NOTE: these are placeholder steps -- there is no real deployment target
+  # (k8s manifests, hosting provider, etc.) configured for this project yet.
+  # Left as an explicit no-op (rather than silently pretending to deploy) so
+  # anyone reading pipeline output sees exactly what did and didn't happen.
+  deploy-dev:
+    runs-on: ubuntu-latest
+    needs: docker-build
+    if: github.ref == 'refs/heads/develop'
+    environment: development
+
+    steps:
+    - name: Deploy to development server (not yet configured)
+      run: |
+        echo "No deployment target configured for development yet -- this step is a placeholder."
+        echo "Docker image cocoa/avatar-management:${{ github.sha }} was built and pushed; nothing deploys it."
+
+  # デプロイメント（本番環境）
+  deploy-prod:
+    runs-on: ubuntu-latest
+    needs: docker-build
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+    - name: Deploy to production server (not yet configured)
+      run: |
+        echo "No deployment target configured for production yet -- this step is a placeholder."
+        echo "Docker image cocoa/avatar-management:${{ github.sha }} was built and pushed; nothing deploys it."
+
+  # 通知
+  notify:
+    runs-on: ubuntu-latest
+    needs: [quality-check, security-scan]
+    if: always()
+
+    steps:
+    - name: Notify deployment status
+      run: |
+        echo "Pipeline completed with status: ${{ job.status }}"

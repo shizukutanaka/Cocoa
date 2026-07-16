@@ -3,14 +3,14 @@
 全サービスで共有されるログ設定
 """
 
-import os
+import json
 import logging
 import logging.handlers
+import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-import json
-from datetime import datetime
 
 from .config import get_config
 
@@ -20,7 +20,7 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -34,13 +34,14 @@ class JSONFormatter(logging.Formatter):
             log_entry["exception"] = self.formatException(record.exc_info)
 
         # 追加のフィールドがあれば追加
-        for key, value in record.__dict__.items():
-            if key not in ['name', 'msg', 'args', 'levelname', 'levelno', 'pathname',
-                          'filename', 'module', 'exc_info', 'exc_text', 'stack_info',
-                          'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
-                          'thread', 'threadName', 'processName', 'process', 'getMessage',
-                          'format', 'formatMessage', 'formatException']:
-                log_entry[key] = value
+        _exclude = {
+            'name', 'msg', 'args', 'levelname', 'levelno', 'pathname',
+            'filename', 'module', 'exc_info', 'exc_text', 'stack_info',
+            'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
+            'thread', 'threadName', 'processName', 'process', 'getMessage',
+            'format', 'formatMessage', 'formatException',
+        }
+        log_entry.update({k: v for k, v in record.__dict__.items() if k not in _exclude})
 
         return json.dumps(log_entry, ensure_ascii=False, default=str)
 

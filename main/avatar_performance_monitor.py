@@ -5,19 +5,19 @@ Avatar Performance Monitor Module for Cocoa
 """
 
 import asyncio
-import logging
 import json
+import logging
 import sqlite3
+import statistics
 import threading
 import time
-from pathlib import Path
-from typing import Dict, List, Optional, Union, Any
-from dataclasses import dataclass
-from datetime import datetime, timedelta
 from collections import deque
-import statistics
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ class PerformanceStats:
 
     def __post_init__(self):
         if self.last_updated is None:
-            self.last_updated = datetime.now()
+            self.last_updated = datetime.now(timezone.utc)
 
 @dataclass
 class PerformanceAlert:
@@ -207,7 +207,7 @@ class AvatarPerformanceMonitor:
 
     def _check_operation_timeouts(self):
         """アクティブな操作のタイムアウトをチェック"""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         timeout_operations = []
 
         for operation_id, metrics in self.active_operations.items():
@@ -244,7 +244,7 @@ class AvatarPerformanceMonitor:
     async def _update_performance_stats(self):
         """パフォーマンス統計を更新"""
         # 最近24時間のデータを集計
-        cutoff_time = datetime.now() - timedelta(hours=24)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
 
         with sqlite3.connect(str(self.db_path)) as conn:
             cursor = conn.cursor()
@@ -274,7 +274,7 @@ class AvatarPerformanceMonitor:
                     min_duration=min_duration or 0.0,
                     max_duration=max_duration or 0.0,
                     success_rate=success_rate,
-                    last_updated=datetime.now()
+                    last_updated=datetime.now(timezone.utc)
                 )
 
                 self.stats_cache[operation_type] = stats
@@ -288,14 +288,14 @@ class AvatarPerformanceMonitor:
                 ''', (
                     operation_type, total, successful, failed,
                     avg_duration, min_duration, max_duration, success_rate,
-                    datetime.now().isoformat()
+                    datetime.now(timezone.utc).isoformat()
                 ))
 
             conn.commit()
 
     async def _check_alert_conditions(self):
         """アラート条件をチェック"""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
 
         for operation_type, stats in self.stats_cache.items():
             # 成功率チェック
@@ -353,7 +353,7 @@ class AvatarPerformanceMonitor:
 
     def _cleanup_old_data(self):
         """古いデータをクリーンアップ"""
-        cutoff_time = datetime.now() - timedelta(days=30)  # 30日以上前のデータ
+        cutoff_time = datetime.now(timezone.utc) - timedelta(days=30)  # 30日以上前のデータ
 
         with sqlite3.connect(str(self.db_path)) as conn:
             cursor = conn.cursor()
@@ -389,22 +389,23 @@ class AvatarPerformanceMonitor:
         metrics = AvatarPerformanceMetrics(
             operation_type=operation_type,
             user_id=user_id,
-            start_time=datetime.now(),
+            start_time=datetime.now(timezone.utc),
             metadata=metadata or {}
         )
 
         self.active_operations[operation_id] = metrics
 
         # セキュリティログ
-        await self.security_manager.log_security_event(
-            event_type="avatar_performance_tracking_start",
-            user_id=user_id,
-            details={
-                "operation_id": operation_id,
-                "operation_type": operation_type
-            },
-            ip_address="system"
-        )
+        try:
+            from integrated_security import SecurityEvent
+            self.security_manager.auditor.log_event(SecurityEvent(
+                event_type="avatar_performance_tracking_start",
+                user_id=user_id,
+                resource=operation_type,
+                details={"operation_id": operation_id},
+            ))
+        except Exception:
+            pass
 
         return operation_id
 
@@ -430,7 +431,7 @@ class AvatarPerformanceMonitor:
             return False
 
         metrics = self.active_operations.pop(operation_id)
-        metrics.end_time = datetime.now()
+        metrics.end_time = datetime.now(timezone.utc)
         metrics.duration = (metrics.end_time - metrics.start_time).total_seconds()
         metrics.success = success
         metrics.error_message = error_message
@@ -486,7 +487,7 @@ class AvatarPerformanceMonitor:
         Returns:
             パフォーマンス統計
         """
-        cutoff_time = datetime.now() - timedelta(hours=hours)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
 
         with sqlite3.connect(str(self.db_path)) as conn:
             cursor = conn.cursor()
@@ -517,11 +518,9 @@ class AvatarPerformanceMonitor:
                             "period_hours": hours
                         }
                     }
-                else:
-                    return {}
-            else:
-                # 全操作タイプ
-                cursor.execute('''
+                return {}
+            # 全操作タイプ
+            cursor.execute('''
                     SELECT operation_type, COUNT(*), SUM(success), SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END),
                            AVG(duration), MIN(duration), MAX(duration)
                     FROM avatar_performance
@@ -529,23 +528,23 @@ class AvatarPerformanceMonitor:
                     GROUP BY operation_type
                 ''', (cutoff_time.isoformat(),))
 
-                results = {}
-                for row in cursor.fetchall():
-                    op_type, total, successful, failed, avg_duration, min_duration, max_duration = row
-                    success_rate = successful / total if total > 0 else 0.0
+            results = {}
+            for row in cursor.fetchall():
+                op_type, total, successful, failed, avg_duration, min_duration, max_duration = row
+                success_rate = successful / total if total > 0 else 0.0
 
-                    results[op_type] = {
-                        "total_operations": total,
-                        "successful_operations": successful,
-                        "failed_operations": failed,
-                        "average_duration": avg_duration or 0.0,
-                        "min_duration": min_duration or 0.0,
-                        "max_duration": max_duration or 0.0,
-                        "success_rate": success_rate,
-                        "period_hours": hours
-                    }
+                results[op_type] = {
+                    "total_operations": total,
+                    "successful_operations": successful,
+                    "failed_operations": failed,
+                    "average_duration": avg_duration or 0.0,
+                    "min_duration": min_duration or 0.0,
+                    "max_duration": max_duration or 0.0,
+                    "success_rate": success_rate,
+                    "period_hours": hours
+                }
 
-                return results
+            return results
 
     async def get_recent_alerts(self, limit: int = 10) -> List[Dict[str, Any]]:
         """最近のアラートを取得"""
@@ -560,9 +559,8 @@ class AvatarPerformanceMonitor:
                 LIMIT ?
             ''', (limit,))
 
-            alerts = []
-            for row in cursor.fetchall():
-                alerts.append({
+            return [
+                {
                     "alert_id": row[0],
                     "alert_type": row[1],
                     "severity": row[2],
@@ -572,9 +570,9 @@ class AvatarPerformanceMonitor:
                     "current_value": row[6],
                     "timestamp": row[7],
                     "resolved": bool(row[8])
-                })
-
-            return alerts
+                }
+                for row in cursor.fetchall()
+            ]
 
     async def get_operation_history(self, operation_type: Optional[str] = None,
                                   user_id: Optional[str] = None,
@@ -604,9 +602,8 @@ class AvatarPerformanceMonitor:
 
             cursor.execute(query, params)
 
-            operations = []
-            for row in cursor.fetchall():
-                operations.append({
+            return [
+                {
                     "operation_id": row[0],
                     "operation_type": row[1],
                     "user_id": row[2],
@@ -615,9 +612,9 @@ class AvatarPerformanceMonitor:
                     "duration": row[5],
                     "success": bool(row[6]),
                     "error_message": row[7]
-                })
-
-            return operations
+                }
+                for row in cursor.fetchall()
+            ]
 
     async def generate_performance_report(self, operation_type: Optional[str] = None,
                                         hours: int = 24) -> Dict[str, Any]:
@@ -635,7 +632,7 @@ class AvatarPerformanceMonitor:
         alerts = await self.get_recent_alerts(20)
 
         report = {
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "period_hours": hours,
             "operation_type": operation_type or "all",
             "statistics": stats,
@@ -677,12 +674,11 @@ class AvatarPerformanceMonitor:
 
         if success_rate >= 0.95 and avg_duration <= max_duration * 0.5:
             return "excellent"
-        elif success_rate >= 0.85 and avg_duration <= max_duration:
+        if success_rate >= 0.85 and avg_duration <= max_duration:
             return "good"
-        elif success_rate >= 0.7:
+        if success_rate >= 0.7:
             return "fair"
-        else:
-            return "needs_attention"
+        return "needs_attention"
 
     async def export_performance_data(self, operation_type: Optional[str] = None,
                                     hours: int = 24, format: str = "json") -> Optional[str]:
@@ -703,7 +699,7 @@ class AvatarPerformanceMonitor:
         operations = await self.get_operation_history(operation_type, limit=1000)
 
         export_data = {
-            "exported_at": datetime.now().isoformat(),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
             "period_hours": hours,
             "operation_type": operation_type or "all",
             "statistics": stats,
@@ -713,14 +709,14 @@ class AvatarPerformanceMonitor:
 
         # エクスポートディレクトリ
         export_dir = Path("data/performance_exports")
-        export_dir.mkdir(parents=True, exist_ok=True)
+        export_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"performance_export_{operation_type or 'all'}_{timestamp}.{format}"
         export_path = export_dir / filename
 
         if format == "json":
-            with open(export_path, 'w', encoding='utf-8') as f:
+            with open(export_path, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                 json.dump(export_data, f, ensure_ascii=False, indent=2, default=str)
         elif format == "csv":
             await self._export_to_csv(export_data, export_path)
@@ -731,14 +727,19 @@ class AvatarPerformanceMonitor:
         """CSV形式でエクスポート"""
         import csv
 
-        with open(export_path, 'w', newline='', encoding='utf-8') as f:
+        from csv_safety import sanitize_csv_cell
+
+        with open(export_path, 'w', newline='', encoding='utf-8') as f:  # noqa: ASYNC230
             writer = csv.writer(f)
 
-            # 統計情報
+            # 統計情報。user_id 等のユーザー由来フィールドが CSV 数式として
+            # 評価されないよう各セルをサニタイズ（CSV インジェクション対策）。
             writer.writerow(['Section', 'Key', 'Value'])
             for section, stats in data.get('statistics', {}).items():
                 for key, value in stats.items():
-                    writer.writerow([section, key, value])
+                    writer.writerow([sanitize_csv_cell(section),
+                                     sanitize_csv_cell(key),
+                                     sanitize_csv_cell(value)])
 
             writer.writerow([])
             writer.writerow(['Operations'])
@@ -746,12 +747,12 @@ class AvatarPerformanceMonitor:
 
             for op in data.get('operations', []):
                 writer.writerow([
-                    op['operation_id'],
-                    op['operation_type'],
-                    op['user_id'],
-                    op['start_time'],
-                    op['duration'],
-                    op['success']
+                    sanitize_csv_cell(op['operation_id']),
+                    sanitize_csv_cell(op['operation_type']),
+                    sanitize_csv_cell(op['user_id']),
+                    sanitize_csv_cell(op['start_time']),
+                    sanitize_csv_cell(op['duration']),
+                    sanitize_csv_cell(op['success']),
                 ])
 
     async def close(self):
@@ -762,13 +763,16 @@ class AvatarPerformanceMonitor:
 
 # グローバルインスタンス管理
 _avatar_performance_monitor = None
+_avatar_performance_monitor_lock = asyncio.Lock()
 
 async def get_avatar_performance_monitor() -> AvatarPerformanceMonitor:
     """アバターパフォーマンス監視システムのインスタンスを取得"""
     global _avatar_performance_monitor
 
     if _avatar_performance_monitor is None:
-        _avatar_performance_monitor = AvatarPerformanceMonitor()
-        await _avatar_performance_monitor.initialize()
+        async with _avatar_performance_monitor_lock:
+            if _avatar_performance_monitor is None:
+                _avatar_performance_monitor = AvatarPerformanceMonitor()
+                await _avatar_performance_monitor.initialize()
 
     return _avatar_performance_monitor

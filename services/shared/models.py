@@ -3,14 +3,31 @@
 全サービスで共有されるデータ構造
 """
 
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Float, JSON, ForeignKey
-from sqlalchemy.orm import relationship
-from datetime import datetime
-import uuid
 import json
+import uuid
+from datetime import datetime
 
-Base = declarative_base()
+try:
+    from sqlalchemy import (
+        JSON,
+        Boolean,
+        Column,
+        DateTime,
+        Float,
+        ForeignKey,
+        Integer,
+        String,
+        Text,
+    )
+    from sqlalchemy.ext.declarative import declarative_base
+    from sqlalchemy.orm import relationship
+    SQLALCHEMY_AVAILABLE = True
+    Base = declarative_base()
+except ImportError:
+    SQLALCHEMY_AVAILABLE = False
+    Base = object
+    Column = String = Integer = Boolean = Float = Text = JSON = DateTime = ForeignKey = None
+    relationship = lambda *a, **kw: None  # noqa: E731
 
 
 class BaseModel:

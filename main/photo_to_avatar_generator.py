@@ -5,18 +5,42 @@ Photo-to-Avatar AI Generator Module for Cocoa
 """
 
 import asyncio
+import time
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
-from PIL import Image, ImageDraw
-import cv2
-import face_recognition
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+    np = None
 
-from .integrated_security import get_security_manager
+try:
+    from PIL import Image, ImageDraw
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    Image = None
+    ImageDraw = None
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None
+
+try:
+    import face_recognition
+    FACE_RECOGNITION_AVAILABLE = True
+except ImportError:
+    FACE_RECOGNITION_AVAILABLE = False
+    face_recognition = None
+
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -124,10 +148,9 @@ class FaceFeatureExtractor:
 
             if face_height > face_width * 1.2:
                 return "oval"
-            elif face_width > face_height * 1.1:
+            if face_width > face_height * 1.1:
                 return "round"
-            else:
-                return "heart"
+            return "heart"
 
         return "unknown"
 
@@ -184,7 +207,7 @@ class FaceFeatureExtractor:
             "mouth_shape": "full" if mouth_height > mouth_width * 0.3 else "thin"
         }
 
-    def _assess_face_quality(self, image: np.ndarray, face_location: Tuple, landmarks: Dict) -> str:
+    def _assess_face_quality(self, image: "Any", face_location: Tuple, landmarks: Dict) -> str:
         """顔の品質を評価"""
         top, right, bottom, left = face_location
         face_roi = image[top:bottom, left:right]
@@ -198,10 +221,9 @@ class FaceFeatureExtractor:
         # 品質スコアに基づいて評価
         if brightness > 100 and contrast > 30:
             return "excellent"
-        elif brightness > 60 and contrast > 20:
+        if brightness > 60 and contrast > 20:
             return "good"
-        else:
-            return "fair"
+        return "fair"
 
 class PhotoToAvatarGenerator:
     """
@@ -265,7 +287,7 @@ class PhotoToAvatarGenerator:
         Returns:
             生成結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # セキュリティチェック
@@ -287,7 +309,7 @@ class PhotoToAvatarGenerator:
             avatar_paths = await self._save_generated_avatars(generated_images, request)
 
             # 処理時間を計算
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             result = PhotoToAvatarResult(
                 success=True,
@@ -298,7 +320,7 @@ class PhotoToAvatarGenerator:
                     "model_used": self.style_models.get(request.target_style, "unknown"),
                     "enhancement_applied": request.enhance_features,
                     "identity_preserved": request.preserve_identity,
-                    "generation_timestamp": datetime.now().isoformat()
+                    "generation_timestamp": datetime.now(timezone.utc).isoformat()
                 },
                 processing_time=processing_time
             )
@@ -319,7 +341,7 @@ class PhotoToAvatarGenerator:
 
         except Exception as e:
             logger.error(f"Photo-to-avatar generation failed: {e}")
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             return PhotoToAvatarResult(
                 success=False,
@@ -334,7 +356,7 @@ class PhotoToAvatarGenerator:
             raise ValueError("Unauthorized photo-to-avatar generation request")
 
         # 写真ファイルの検証
-        if not Path(request.source_photo_path).exists():
+        if not Path(request.source_photo_path).exists():  # noqa: ASYNC240
             raise FileNotFoundError(f"Source photo not found: {request.source_photo_path}")
 
         # 画像サイズと形式のチェック
@@ -347,7 +369,7 @@ class PhotoToAvatarGenerator:
                     raise ValueError("Unsupported image format")
 
         except Exception as e:
-            raise ValueError(f"Invalid photo file: {e}")
+            raise ValueError(f"Invalid photo file: {e}") from e
 
         # スタイルの検証
         if request.target_style not in self.style_models:
@@ -422,7 +444,7 @@ class PhotoToAvatarGenerator:
 
         return style_prompts.get(style, style_prompts["realistic"])
 
-    async def _generate_with_ai(self, prompt: str, request: PhotoToAvatarRequest) -> List[Image.Image]:
+    async def _generate_with_ai(self, prompt: str, request: PhotoToAvatarRequest) -> "List[Any]":
         """AIモデルで画像を生成"""
         try:
             # 実際の実装ではStable Diffusionなどのモデルを使用
@@ -434,7 +456,7 @@ class PhotoToAvatarGenerator:
             # スタイルに基づいてベース画像を作成（シミュレーション）
             generated_images = []
 
-            for i in range(len(request.output_formats)):
+            for _i in range(len(request.output_formats)):
                 # シミュレートされた画像生成
                 base_color = {
                     "realistic": "#F5DEB3",
@@ -489,10 +511,10 @@ class PhotoToAvatarGenerator:
             logger.error(f"AI generation failed: {e}")
             raise
 
-    async def _save_generated_avatars(self, images: List[Image.Image], request: PhotoToAvatarRequest) -> Dict[str, str]:
+    async def _save_generated_avatars(self, images: "List[Any]", request: PhotoToAvatarRequest) -> Dict[str, str]:
         """生成されたアバターを保存"""
         avatar_paths = {}
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "output" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -551,13 +573,16 @@ class PhotoToAvatarGenerator:
 
 # グローバルインスタンス管理
 _photo_generator_instance = None
+_photo_generator_instance_lock = asyncio.Lock()
 
 async def get_photo_to_avatar_generator() -> PhotoToAvatarGenerator:
     """写真からアバター生成者のインスタンスを取得"""
     global _photo_generator_instance
 
     if _photo_generator_instance is None:
-        _photo_generator_instance = PhotoToAvatarGenerator()
-        await _photo_generator_instance.initialize_models()
+        async with _photo_generator_instance_lock:
+            if _photo_generator_instance is None:
+                _photo_generator_instance = PhotoToAvatarGenerator()
+                await _photo_generator_instance.initialize_models()
 
     return _photo_generator_instance

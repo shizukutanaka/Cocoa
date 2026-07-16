@@ -4,16 +4,43 @@ Social Media Optimizer Module for Cocoa
 各プラットフォームに最適化された動画フォーマット自動調整
 """
 
-import os
 import asyncio
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from .video_encoding import get_video_encoder, EncodingPreset
-from .integrated_security import get_security_manager
+try:
+    from video_encoding import EncodingPreset, get_video_encoder
+    VIDEO_ENCODING_AVAILABLE = True
+except ImportError:
+    VIDEO_ENCODING_AVAILABLE = False
+    get_video_encoder = None
+
+    from dataclasses import dataclass as _dc
+    from dataclasses import field as _field
+
+    @_dc
+    class EncodingPreset:
+        preset_id: str = ""
+        name: str = ""
+        description: str = ""
+        target_platform: str = ""
+        video_codec: str = "libx264"
+        audio_codec: str = "aac"
+        bitrate_video: str = "2000k"
+        bitrate_audio: str = "128k"
+        resolution: tuple = (1920, 1080)
+        fps: int = 30
+        quality: str = "high"
+        file_format: str = "mp4"
+        estimated_file_size_mb: float = 50.0
+        encoding_speed: str = "balanced"
+        settings: dict = _field(default_factory=dict)
+
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -87,7 +114,7 @@ class SocialMediaOptimizer:
 
     async def initialize(self):
         """初期化"""
-        if not self.video_encoder:
+        if not self.video_encoder and VIDEO_ENCODING_AVAILABLE and get_video_encoder:
             self.video_encoder = await get_video_encoder()
 
     def _create_platform_specs(self) -> Dict[str, PlatformSpec]:
@@ -380,25 +407,23 @@ class SocialMediaOptimizer:
             results = {}
 
             # 各プラットフォーム向けに並列処理
-            tasks = []
-            for platform_id in request.platforms:
-                if platform_id in self.platform_specs:
-                    task = self._optimize_single_platform(
-                        request.video_path, platform_id, request.priority, request.custom_settings
-                    )
-                    tasks.append(task)
+            supported_platforms = [pid for pid in request.platforms if pid in self.platform_specs]
+            tasks = [
+                self._optimize_single_platform(
+                    request.video_path, pid, request.priority, request.custom_settings
+                )
+                for pid in supported_platforms
+            ]
 
             # 並列実行
             platform_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # 結果集約
-            for i, platform_id in enumerate(request.platforms):
-                if platform_id in self.platform_specs:
-                    result = platform_results[i]
-                    if isinstance(result, Exception):
-                        results[platform_id] = {"success": False, "error": str(result)}
-                    else:
-                        results[platform_id] = result
+            # 結果集約 — zip so indices always match (supported_platforms[i] == tasks[i])
+            for platform_id, result in zip(supported_platforms, platform_results):
+                if isinstance(result, Exception):
+                    results[platform_id] = {"success": False, "error": str(result)}
+                else:
+                    results[platform_id] = result
 
             return OptimizationResult(
                 success=True,
@@ -427,7 +452,7 @@ class SocialMediaOptimizer:
             preset = self._create_platform_preset(spec, priority, custom_settings)
 
             # 出力パス
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             filename = f"optimized_{platform_id}_{timestamp}.mp4"
             output_path = self.output_dir / filename
 
@@ -453,11 +478,10 @@ class SocialMediaOptimizer:
                         "fps": preset.fps
                     }
                 }
-            else:
-                return {
-                    "success": False,
-                    "error": result.error_message
-                }
+            return {
+                "success": False,
+                "error": result.error_message
+            }
 
         except Exception as e:
             logger.error(f"Platform optimization failed for {platform_id}: {e}")
@@ -529,8 +553,8 @@ class SocialMediaOptimizer:
     async def _generate_platform_thumbnail(self, video_path: str, platform_id: str) -> Optional[str]:
         """プラットフォーム固有のサムネイルを生成"""
         try:
-            from PIL import Image
             import cv2
+            from PIL import Image
 
             # 動画からフレームを抽出
             cap = cv2.VideoCapture(video_path)
@@ -544,7 +568,6 @@ class SocialMediaOptimizer:
                 image = Image.fromarray(frame_rgb)
 
                 # プラットフォームに応じたサイズ調整
-                spec = self.platform_specs[platform_id]
                 if platform_id == "tiktok":
                     # TikTokは正方形サムネイル推奨
                     size = (500, 500)
@@ -643,26 +666,29 @@ class SocialMediaOptimizer:
             最適化結果のリスト
         """
         semaphore = asyncio.Semaphore(max_concurrent)
-        results = []
 
         async def process_request(request):
             async with semaphore:
-                result = await self.optimize_for_platforms(request)
-                results.append(result)
+                return await self.optimize_for_platforms(request)
 
-        await asyncio.gather(*[process_request(req) for req in requests])
-
-        return results
+        task_results = await asyncio.gather(
+            *[process_request(req) for req in requests],
+            return_exceptions=True,
+        )
+        return [r for r in task_results if not isinstance(r, Exception)]
 
 # グローバルインスタンス管理
 _social_media_optimizer = None
+_social_media_optimizer_lock = asyncio.Lock()
 
 async def get_social_media_optimizer() -> SocialMediaOptimizer:
     """ソーシャルメディア最適化ツールのインスタンスを取得"""
     global _social_media_optimizer
 
     if _social_media_optimizer is None:
-        _social_media_optimizer = SocialMediaOptimizer()
-        await _social_media_optimizer.initialize()
+        async with _social_media_optimizer_lock:
+            if _social_media_optimizer is None:
+                _social_media_optimizer = SocialMediaOptimizer()
+                await _social_media_optimizer.initialize()
 
     return _social_media_optimizer

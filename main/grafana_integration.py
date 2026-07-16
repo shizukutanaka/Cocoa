@@ -6,16 +6,15 @@ Production-gradeのGrafana統合機能を提供し、
 """
 
 import logging
-import time
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-from collections import deque
-import threading
 import os
+import threading
+import time
+from collections import deque
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 try:
     import requests
-    import aiohttp
     GRAFANA_AVAILABLE = True
 except ImportError:
     GRAFANA_AVAILABLE = False
@@ -93,15 +92,10 @@ class GrafanaMetricsCollector:
                 metrics_to_send = self.metrics_buffer.copy()
                 self.metrics_buffer.clear()
 
-            # Grafana HTTP APIに送信（実際の実装では適切なエンドポイントを使用）
-            # ここではInfluxDB形式のデータを想定
-            payload = {
-                "metrics": metrics_to_send,
-                "timestamp": datetime.now().isoformat()
-            }
-
             # 実際のGrafana統合では、適切なエンドポイントに送信
-            # response = requests.post(f"{self.grafana_url}/api/annotations", json=payload, headers=self._get_headers())
+            # response = requests.post(f"{self.grafana_url}/api/annotations",
+            #     json={"metrics": metrics_to_send, "timestamp": datetime.now(timezone.utc).isoformat()},
+            #     headers=self._get_headers())
 
             logger.info(f"メトリクスをGrafanaに送信: {len(metrics_to_send)}件")
             return True
@@ -166,9 +160,8 @@ class GrafanaDashboardManager:
                 dashboard_uid = result.get("uid")
                 logger.info(f"ダッシュボードを作成しました: {title} (UID: {dashboard_uid})")
                 return dashboard_uid
-            else:
-                logger.error(f"ダッシュボード作成エラー: {response.status_code} - {response.text}")
-                return None
+            logger.error(f"ダッシュボード作成エラー: {response.status_code} - {response.text}")
+            return None
 
         except Exception as e:
             logger.error(f"ダッシュボード作成エラー: {e}")
@@ -258,8 +251,6 @@ class GrafanaIntegrationService:
 
     def collect_system_metrics(self, cpu_percent: float, memory_percent: float, disk_io: float, network_io: float):
         """システムメトリクスを収集"""
-        timestamp = int(time.time() * 1000)
-
         # CPUメトリクス
         self.metrics_collector.add_metric(
             "cocoa_cpu_usage",
@@ -330,7 +321,7 @@ class EnhancedPerformanceMonitor:
         # Grafana統合設定
         self.grafana_enabled = config.get('grafana_enabled', False) if config else False
         self.grafana_url = config.get('grafana_url', 'http://localhost:3000') if config else 'http://localhost:3000'
-        self.grafana_api_key = config.get('grafana_api_key')
+        self.grafana_api_key = config.get('grafana_api_key') if config else None
 
         # コンポーネント初期化
         self.grafana_service = None
@@ -427,7 +418,7 @@ class EnhancedPerformanceMonitor:
             network_io_total = network_recv + network_sent
 
             return {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'cpu_percent': cpu_percent,
                 'memory_percent': memory_percent,
                 'disk_io': disk_io_total,
@@ -438,7 +429,7 @@ class EnhancedPerformanceMonitor:
         except Exception as e:
             logger.error(f"メトリクス収集エラー: {e}")
             return {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'error': str(e)
             }
 
@@ -467,7 +458,7 @@ class EnhancedPerformanceMonitor:
                 'statistics': stats,
                 'grafana_enabled': self.grafana_enabled,
                 'grafana_url': self.grafana_url if self.grafana_enabled else None,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
 
         except Exception as e:
@@ -485,13 +476,16 @@ class EnhancedPerformanceMonitor:
 
 # グローバルサービスインスタンス
 _enhanced_monitor: Optional[EnhancedPerformanceMonitor] = None
+_enhanced_monitor_lock = threading.Lock()
 
 
 def get_enhanced_performance_monitor(config: Optional[Dict[str, Any]] = None) -> EnhancedPerformanceMonitor:
     """強化された性能監視システムのシングルトンインスタンスを取得"""
     global _enhanced_monitor
     if _enhanced_monitor is None:
-        _enhanced_monitor = EnhancedPerformanceMonitor(config)
+        with _enhanced_monitor_lock:
+            if _enhanced_monitor is None:
+                _enhanced_monitor = EnhancedPerformanceMonitor(config)
     return _enhanced_monitor
 
 

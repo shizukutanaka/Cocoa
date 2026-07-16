@@ -3,13 +3,13 @@
 Cocoaテストランナー
 包括的テストスイートの実行とレポート生成
 """
-import sys
-import time
 import json
 import subprocess
-from pathlib import Path
+import sys
+import time
 from datetime import datetime
-from typing import Dict, Any
+from pathlib import Path
+from typing import Any, Dict
 
 # プロジェクトルートをPythonパスに追加
 PROJECT_ROOT = Path(__file__).parent
@@ -111,8 +111,9 @@ def run_integration_tests():
     print("🔗 統合テストを実行しています...")
 
     try:
-        from tests.test_suite import TestIntegration
         import unittest
+
+        from tests.test_suite import TestIntegration
 
         loader = unittest.TestLoader()
         suite = loader.loadTestsFromTestCase(TestIntegration)
@@ -137,8 +138,9 @@ def run_performance_tests():
     print("⚡ パフォーマンステストを実行しています...")
 
     try:
-        from tests.test_suite import TestPerformance
         import unittest
+
+        from tests.test_suite import TestPerformance
 
         loader = unittest.TestLoader()
         suite = loader.loadTestsFromTestCase(TestPerformance)
@@ -163,8 +165,9 @@ def run_security_tests():
     print("🔒 セキュリティテストを実行しています...")
 
     try:
-        from tests.test_suite import TestSecurityManager
         import unittest
+
+        from tests.test_suite import TestSecurityManager
 
         loader = unittest.TestLoader()
         suite = loader.loadTestsFromTestCase(TestSecurityManager)

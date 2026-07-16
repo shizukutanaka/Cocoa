@@ -3,23 +3,44 @@
 Avatar Video Creator Module for Cocoa
 アバターを使用した動画生成機能を提供
 """
+from __future__ import annotations
 
-import os
 import asyncio
-import logging
 import json
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass
-from datetime import datetime
+import logging
+import os
+import time
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-import cv2
-import numpy as np
-from PIL import Image, ImageDraw, ImageFont
-import moviepy.editor as mp
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
 
-from .integrated_security import get_security_manager
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+try:
+    import moviepy.editor as mp
+    MOVIEPY_AVAILABLE = True
+except ImportError:
+    mp = None
+    MOVIEPY_AVAILABLE = False
+
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -115,7 +136,7 @@ class AvatarVideoCreator:
         Returns:
             生成結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # セキュリティチェック
@@ -154,11 +175,11 @@ class AvatarVideoCreator:
                 "style": request.video_style,
                 "language": request.voice_language,
                 "duration": len(frames) / request.fps,
-                "created_at": datetime.now().isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat()
             }
 
             # 生成時間を計算
-            generation_time = asyncio.get_event_loop().time() - start_time
+            generation_time = time.monotonic() - start_time
 
             result = VideoGenerationResult(
                 success=True,
@@ -184,7 +205,7 @@ class AvatarVideoCreator:
 
         except Exception as e:
             logger.error(f"Video generation failed: {e}")
-            generation_time = asyncio.get_event_loop().time() - start_time
+            generation_time = time.monotonic() - start_time
 
             return VideoGenerationResult(
                 success=False,
@@ -233,8 +254,7 @@ class AvatarVideoCreator:
 
         if not avatar_path.exists():
             # シンプルなデフォルトアバターを生成
-            avatar_image = await self._create_default_avatar()
-            return avatar_image
+            return await self._create_default_avatar()
 
         return Image.open(avatar_path)
 
@@ -353,7 +373,7 @@ class AvatarVideoCreator:
             # フォントの取得（フォールバック対応）
             try:
                 font = ImageFont.truetype(self.fonts.get("ja", None) or "", font_size)
-            except (OSError, IOError) as e:
+            except OSError as e:
                 logger.debug(f"Failed to load TrueType font, using default: {e}")
                 font = ImageFont.load_default()
 
@@ -406,7 +426,7 @@ class AvatarVideoCreator:
                 frame_paths.append(str(frame_path))
 
             # 動画ファイル名を生成
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             video_filename = f"avatar_video_{timestamp}_{language}.mp4"
             video_path = self.assets_dir / "videos" / video_filename
 
@@ -444,7 +464,7 @@ class AvatarVideoCreator:
             thumbnail = cv2.resize(first_frame, (480, 270))
 
         # サムネイルのパス
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         thumbnail_filename = f"thumbnail_{timestamp}.jpg"
         thumbnail_path = self.assets_dir / "thumbnails" / thumbnail_filename
 
@@ -501,9 +521,9 @@ class AvatarVideoCreator:
 
                 if metadata_file.exists():
                     try:
-                        with open(metadata_file, 'r', encoding='utf-8') as f:
+                        with open(metadata_file, encoding='utf-8') as f:  # noqa: ASYNC230
                             metadata = json.load(f)
-                    except (IOError, json.JSONDecodeError) as e:
+                    except (OSError, json.JSONDecodeError) as e:
                         logger.warning(f"Failed to load video metadata from {metadata_file}: {e}")
 
                 videos.append({
@@ -520,12 +540,15 @@ class AvatarVideoCreator:
 
 # グローバルインスタンス管理
 _video_creator_instance = None
+_video_creator_lock = asyncio.Lock()
 
 async def get_avatar_video_creator() -> AvatarVideoCreator:
     """アバター動画作成者のインスタンスを取得"""
     global _video_creator_instance
 
     if _video_creator_instance is None:
-        _video_creator_instance = AvatarVideoCreator()
+        async with _video_creator_lock:
+            if _video_creator_instance is None:
+                _video_creator_instance = AvatarVideoCreator()
 
     return _video_creator_instance

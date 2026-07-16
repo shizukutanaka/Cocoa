@@ -10,11 +10,11 @@ Cocoa 個人使用向け自動セットアップスクリプト
 5. パーミッションの設定
 6. セキュリティレベルの最大化
 """
-import os
-import sys
-import json
-import secrets
 import hashlib
+import json
+import os
+import secrets
+import sys
 from pathlib import Path
 from typing import Dict
 
@@ -27,7 +27,7 @@ except ImportError:
     print("推奨: pip install bcrypt")
 
 try:
-    from cryptography.fernet import Fernet
+    from cryptography.fernet import Fernet  # noqa: F401
     CRYPTO_AVAILABLE = True
 except ImportError:
     CRYPTO_AVAILABLE = False

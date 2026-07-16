@@ -4,16 +4,16 @@ Avatar Agent Module for Cocoa
 Webサイトやキオスクに埋め込み可能なリアルタイムアバター代理機能
 """
 
-import time
-import json
-import random
-from pathlib import Path
-from datetime import datetime
-from dataclasses import dataclass
-from collections import defaultdict, deque
-from typing import Dict, List, Optional, Any
 import asyncio
+import json
 import logging
+import random
+import time
+from collections import defaultdict, deque
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,9 @@ try:
 except ImportError:
     AIOFILES_AVAILABLE = False
 
-from .interactive_avatar import InteractiveAvatar, create_interactive_avatar
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
+from interactive_avatar import InteractiveAvatar, create_interactive_avatar
+
 
 @dataclass
 class AgentSession:
@@ -65,7 +66,7 @@ class AgenticTask:
 
     def __post_init__(self):
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class EnvironmentContext:
@@ -80,7 +81,7 @@ class EnvironmentContext:
 
     def __post_init__(self):
         if self.timestamp is None:
-            self.timestamp = datetime.now()
+            self.timestamp = datetime.now(timezone.utc)
 @dataclass
 class AgentConfiguration:
     """アバターエージェント設定"""
@@ -97,7 +98,7 @@ class AgentConfiguration:
 
     def __post_init__(self):
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 class AgenticAIManager:
     """
@@ -129,6 +130,9 @@ class AgenticAIManager:
         # 予測モデル
         self.action_predictor: Dict[str, Any] = {}
 
+        # バックグラウンドタスク参照（GC防止）
+        self._background_tasks: list = []
+
         logger.info("Agentic AI Manager initialized")
 
     async def initialize(self):
@@ -136,8 +140,8 @@ class AgenticAIManager:
         # デフォルトタスクテンプレートの読み込み
         await self._load_default_task_templates()
 
-        # 環境監視開始
-        await self._start_environment_monitoring()
+        # 環境監視開始（バックグラウンドタスクとして起動）
+        self._background_tasks.append(asyncio.create_task(self._start_environment_monitoring()))
 
         # 予測モデルの初期化
         await self._initialize_prediction_model()
@@ -225,15 +229,14 @@ class AgenticAIManager:
 
     def _get_time_of_day(self) -> str:
         """時間帯を取得"""
-        hour = datetime.now().hour
+        hour = datetime.now(timezone.utc).hour
         if 6 <= hour < 12:
             return "morning"
-        elif 12 <= hour < 18:
+        if 12 <= hour < 18:
             return "afternoon"
-        elif 18 <= hour < 22:
+        if 18 <= hour < 22:
             return "evening"
-        else:
-            return "night"
+        return "night"
 
     def _get_location(self) -> str:
         """場所を取得"""
@@ -263,15 +266,13 @@ class AgenticAIManager:
             elif isinstance(threshold, bool):
                 if not current_value:
                     return False
-            elif isinstance(threshold, str):
-                if context.user_activity != threshold:
-                    return False
+            elif isinstance(threshold, str) and context.user_activity != threshold:
+                return False
 
         # 優先度に基づく実行判断
         if task.priority < 5:
             return random.random() < 0.8  # 高優先タスクは80%の確率で実行
-        else:
-            return random.random() < 0.3  # 低優先タスクは30%の確率で実行
+        return random.random() < 0.3  # 低優先タスクは30%の確率で実行
 
     async def _execute_agentic_task(self, task_template: AgenticTask, context: EnvironmentContext):
         """自律的タスクを実行"""
@@ -295,7 +296,7 @@ class AgenticAIManager:
 
             # タスク完了
             task.status = "completed"
-            task.completed_at = datetime.now()
+            task.completed_at = datetime.now(timezone.utc)
             self.completed_tasks.append(task)
 
             # 履歴記録
@@ -313,7 +314,7 @@ class AgenticAIManager:
         except Exception as e:
             logger.error(f"Task execution failed: {task.task_id} - {e}")
             task.status = "failed"
-            task.completed_at = datetime.now()
+            task.completed_at = datetime.now(timezone.utc)
             self.task_history[task.task_type].append({
                 "task_id": task.task_id,
                 "success": False,
@@ -440,7 +441,7 @@ class AgenticAIManager:
             "autonomous_mode": self.autonomous_mode,
             "learning_enabled": self.learning_enabled,
             "active_tasks": len(self.active_tasks),
-            "completed_tasks_today": len([t for t in self.completed_tasks if t.created_at.date() == datetime.now().date()]),
+            "completed_tasks_today": len([t for t in self.completed_tasks if t.created_at.date() == datetime.now(timezone.utc).date()]),
             "success_rates": dict(self.success_rates),
             "environment_context": self.environment_history[-1] if self.environment_history else None
         }
@@ -457,14 +458,17 @@ class AgenticAIManager:
 
 # グローバルインスタンス
 _agentic_ai_manager = None
+_agentic_ai_manager_lock = asyncio.Lock()
 
 async def get_agentic_ai_manager() -> AgenticAIManager:
     """Agentic AIマネージャーのインスタンスを取得"""
     global _agentic_ai_manager
 
     if _agentic_ai_manager is None:
-        _agentic_ai_manager = AgenticAIManager()
-        await _agentic_ai_manager.initialize()
+        async with _agentic_ai_manager_lock:
+            if _agentic_ai_manager is None:
+                _agentic_ai_manager = AgenticAIManager()
+                await _agentic_ai_manager.initialize()
 
     return _agentic_ai_manager
 class AvatarAgentService:
@@ -511,17 +515,19 @@ class AvatarAgentService:
         self.agentic_ai_manager = await get_agentic_ai_manager()
 
         # Webアプリケーション作成
-        self.web_app = web.Application()
-        self.setup_routes()
+        if AIOHTTP_AVAILABLE:
+            self.web_app = web.Application()
+            self.setup_routes()
 
         # デフォルトエージェント作成
         await self.create_default_agents()
 
         # Jinja2テンプレート環境
-        self.template_env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(str(self.template_dir)),
-            autoescape=True
-        )
+        if JINJA2_AVAILABLE:
+            self.template_env = jinja2.Environment(
+                loader=jinja2.FileSystemLoader(str(self.template_dir)),
+                autoescape=True
+            )
 
     def setup_routes(self):
         """Webルート設定"""
@@ -684,7 +690,7 @@ class AvatarAgentService:
     async def _save_agent_config(self, config: AgentConfiguration):
         """エージェント設定を保存"""
         config_dir = Path("data/agent_configs")
-        config_dir.mkdir(parents=True, exist_ok=True)
+        config_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
         config_file = config_dir / f"{config.agent_id}.json"
         config_data = {
@@ -1036,13 +1042,13 @@ class AvatarAgentService:
                     session_id=session_id,
                     agent_id=agent_id,
                     client_id=user_id,
-                    start_time=datetime.now(),
-                    last_activity=datetime.now()
+                    start_time=datetime.now(timezone.utc),
+                    last_activity=datetime.now(timezone.utc)
                 )
 
             session = self.active_sessions[session_id]
             session.message_count += 1
-            session.last_activity = datetime.now()
+            session.last_activity = datetime.now(timezone.utc)
 
             # メッセージ処理（ここでは簡易的な応答）
             response = f"こんにちは！ {message} についてお答えします。"
@@ -1050,7 +1056,7 @@ class AvatarAgentService:
             return web.json_response({
                 "response": response,
                 "session_id": session_id,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
         except Exception as e:
@@ -1077,7 +1083,7 @@ class AvatarAgentService:
                 response = {
                     "type": "response",
                     "content": f"エージェント {agent_id} からの応答: {data.get('content', '')}",
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 await ws.send_str(json.dumps(response, ensure_ascii=False))
             elif msg.type == aiohttp.WSMsgType.ERROR:
@@ -1132,13 +1138,16 @@ class AvatarAgentService:
 
 # グローバルインスタンス管理
 _avatar_agent_service = None
+_avatar_agent_service_lock = asyncio.Lock()
 
 async def get_avatar_agent_service() -> AvatarAgentService:
     """アバターエージェントサービスのインスタンスを取得"""
     global _avatar_agent_service
 
     if _avatar_agent_service is None:
-        _avatar_agent_service = AvatarAgentService()
-        await _avatar_agent_service.initialize()
+        async with _avatar_agent_service_lock:
+            if _avatar_agent_service is None:
+                _avatar_agent_service = AvatarAgentService()
+                await _avatar_agent_service.initialize()
 
     return _avatar_agent_service

@@ -5,17 +5,22 @@ Production-gradeのRedisキャッシュ機能を提供し、
 分散環境でのスケーラブルなキャッシュ機能を実現します。
 """
 
-import os
 import asyncio
-import json
-import time
+import functools
 import hashlib
-import pickle
-from typing import Any, Dict, Optional, Callable, Awaitable, Union
-import threading
+import hmac
+import json
 import logging
+import os
+import pickle
+import threading
+import time
+from typing import Any, Awaitable, Callable, Dict, Optional, Union
 
-from cache_manager import MemoryCache
+try:
+    from .cache_manager import MemoryCache
+except ImportError:  # pragma: no cover - support flat import in tests
+    from cache_manager import MemoryCache
 
 try:
     import redis
@@ -115,6 +120,14 @@ class RedisCacheManager:
         # プレフィックスを追加して名前空間を確保
         return f"cocoa:cache:{key_hash}"
 
+    # 署名付きpickleのマーカー（JSON出力は決してこの先頭バイトを取らない）。
+    _PICKLE_MARKER = "\x00cocoa-pkl1:"
+
+    @staticmethod
+    def _pickle_hmac_key() -> bytes:
+        """pickleペイロード署名用の鍵。未設定なら空（pickle無効）。"""
+        return os.getenv("COCOA_CACHE_HMAC_KEY", "").encode("utf-8")
+
     def _serialize_value(self, value: Any) -> str:
         """値をシリアライズ"""
         try:
@@ -125,16 +138,41 @@ class RedisCacheManager:
 
             return json.dumps(value, default=str)
         except (TypeError, ValueError):
-            # JSONでシリアライズできない場合はpickleを使用
-            return pickle.dumps(value).decode('latin1')
+            # JSONでシリアライズできない場合はpickleを使用する。ただし
+            # pickle.loads は任意コード実行（RCE）の温床なので、HMAC署名を
+            # 付けて「Cocoa 自身が書いた値」だけを後で復元できるようにする。
+            # 署名鍵が未設定なら pickle は使わず例外送出 → 呼び出し側
+            # （set）はキャッシュをスキップするだけで安全側に倒れる。
+            key = self._pickle_hmac_key()
+            if not key:
+                raise ValueError(
+                    "value is not JSON-serializable and COCOA_CACHE_HMAC_KEY "
+                    "is unset; refusing to emit unsigned pickle"
+                )
+            raw = pickle.dumps(value)
+            sig = hmac.new(key, raw, hashlib.sha256).hexdigest()
+            return f"{self._PICKLE_MARKER}{sig}:{raw.decode('latin1')}"
 
     def _deserialize_value(self, value: str) -> Any:
         """値をデシリアライズ"""
-        try:
-            return json.loads(value)
-        except (json.JSONDecodeError, TypeError):
-            # JSONでデシリアライズできない場合はpickleを使用
-            return pickle.loads(value.encode('latin1'))
+        if value.startswith(self._PICKLE_MARKER):
+            # 署名付きpickle。HMAC を検証できたものだけ unpickle する。
+            # 検証に失敗（改ざん・鍵未設定）したら例外送出 → get は
+            # キャッシュミス扱いになり、攻撃者が仕込んだ値で pickle.loads
+            # が走ることは無い。
+            key = self._pickle_hmac_key()
+            if not key:
+                raise ValueError("signed pickle present but COCOA_CACHE_HMAC_KEY is unset")
+            body = value[len(self._PICKLE_MARKER):]
+            sig, sep, payload = body.partition(":")
+            if not sep:
+                raise ValueError("malformed signed-pickle payload")
+            raw = payload.encode("latin1")
+            expected = hmac.new(key, raw, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(sig, expected):
+                raise ValueError("signed-pickle HMAC verification failed; refusing to unpickle")
+            return pickle.loads(raw)
+        return json.loads(value)
 
     async def get(self, key: str) -> Optional[Any]:
         """キャッシュから値を取得（非同期）"""
@@ -148,9 +186,9 @@ class RedisCacheManager:
                     self.stats['misses'] += 1
                 return None
 
-            # TTLチェック
+            # TTLチェック（-2: キーが存在しない、-1: キーは存在するが期限なし）
             ttl = await self.redis_async_client.ttl(key)
-            if ttl == -1:  # キーが存在しない場合
+            if ttl == -2:  # キーが存在しない場合（GET後の競合で削除された）
                 with self.lock:
                     self.stats['misses'] += 1
                 return None
@@ -295,18 +333,14 @@ class RedisCacheManager:
                 cache_key = self._get_cache_key(func, args, kwargs)
 
                 # 非同期キャッシュから取得（同期関数でも非同期キャッシュを使用）
+                # ループが実行中の場合は create_task を使わない（リークするため）
+                cached_result = None
                 try:
                     loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        # イベントループが実行中の場合は新しいタスクを作成
-                        task = loop.create_task(self.get(cache_key))
-                        cached_result = loop.run_until_complete(task)
-                    else:
-                        # 新しいイベントループを作成
+                    if not loop.is_running():
                         cached_result = loop.run_until_complete(self.get(cache_key))
                 except RuntimeError:
-                    # イベントループがない場合は同期的に処理
-                    cached_result = None
+                    pass
 
                 if cached_result is not None:
                     return cached_result
@@ -316,13 +350,9 @@ class RedisCacheManager:
 
                 try:
                     loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        task = loop.create_task(self.set(cache_key, result, ttl))
-                        loop.run_until_complete(task)
-                    else:
+                    if not loop.is_running():
                         loop.run_until_complete(self.set(cache_key, result, ttl))
                 except RuntimeError:
-                    # イベントループがない場合は同期的に処理
                     pass
 
                 return result
@@ -366,10 +396,11 @@ class FallbackCacheManager:
         return self.memory_cache.get(key)
 
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
-        # メモリキャッシュは同期的なので、簡単な実装
+        self.memory_cache.set(key, value)
         return True
 
     async def delete(self, key: str) -> bool:
+        self.memory_cache.delete(key)
         return True
 
     async def exists(self, key: str) -> bool:
@@ -379,10 +410,32 @@ class FallbackCacheManager:
         return {'cache_type': 'memory', 'message': 'Redis not available'}
 
     def cached_async(self, ttl: Optional[int] = None):
-        return self.memory_cache.cached_async(ttl)
+        def decorator(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+            @functools.wraps(func)
+            async def wrapper(*args, **kwargs) -> Any:
+                key = f"{func.__name__}:{args}:{frozenset(kwargs.items())}"
+                cached = self.memory_cache.get(key)
+                if cached is not None:
+                    return cached
+                result = await func(*args, **kwargs)
+                self.memory_cache.set(key, result)
+                return result
+            return wrapper
+        return decorator
 
     def cached_sync(self, ttl: Optional[int] = None):
-        return self.memory_cache.cached_sync(ttl)
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs) -> Any:
+                key = f"{func.__name__}:{args}:{frozenset(kwargs.items())}"
+                cached = self.memory_cache.get(key)
+                if cached is not None:
+                    return cached
+                result = func(*args, **kwargs)
+                self.memory_cache.set(key, result)
+                return result
+            return wrapper
+        return decorator
 
     async def close(self):
         pass
@@ -390,6 +443,7 @@ class FallbackCacheManager:
 
 # グローバルキャッシュマネージャーインスタンス
 _cache_manager: Optional[Union[RedisCacheManager, FallbackCacheManager]] = None
+_cache_manager_lock = threading.Lock()
 
 
 def get_cache_manager() -> Union[RedisCacheManager, FallbackCacheManager]:
@@ -397,22 +451,24 @@ def get_cache_manager() -> Union[RedisCacheManager, FallbackCacheManager]:
     global _cache_manager
 
     if _cache_manager is None:
-        try:
-            # 環境変数からRedis設定を取得
-            redis_host = os.getenv('REDIS_HOST', 'localhost')
-            redis_port = int(os.getenv('REDIS_PORT', '6379'))
-            redis_db = int(os.getenv('REDIS_DB', '0'))
-            redis_password = os.getenv('REDIS_PASSWORD')
+        with _cache_manager_lock:
+            if _cache_manager is None:
+                try:
+                    # 環境変数からRedis設定を取得
+                    redis_host = os.getenv('REDIS_HOST', 'localhost')
+                    redis_port = int(os.getenv('REDIS_PORT', '6379'))
+                    redis_db = int(os.getenv('REDIS_DB', '0'))
+                    redis_password = os.getenv('REDIS_PASSWORD')
 
-            _cache_manager = RedisCacheManager(
-                host=redis_host,
-                port=redis_port,
-                db=redis_db,
-                password=redis_password
-            )
-        except Exception as e:
-            logger.warning(f"Redis not available, falling back to memory cache: {e}")
-            _cache_manager = FallbackCacheManager()
+                    _cache_manager = RedisCacheManager(
+                        host=redis_host,
+                        port=redis_port,
+                        db=redis_db,
+                        password=redis_password
+                    )
+                except Exception as e:
+                    logger.warning(f"Redis not available, falling back to memory cache: {e}")
+                    _cache_manager = FallbackCacheManager()
 
     return _cache_manager
 

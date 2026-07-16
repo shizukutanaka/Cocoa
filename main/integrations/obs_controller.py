@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hashlib
-from datetime import datetime
-from typing import Dict, Iterable, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, Optional
 
 import aiohttp
 
@@ -36,7 +37,7 @@ class OBSController(StreamingController):
             await self._perform_identify(hello)
             self._status.connected = True
             self._status.last_error = None
-            self._status.last_heartbeat = datetime.utcnow()
+            self._status.last_heartbeat = datetime.now(timezone.utc)
             self._listener = asyncio.create_task(self._reader())
         except Exception:
             await self.disconnect()
@@ -45,10 +46,8 @@ class OBSController(StreamingController):
     async def disconnect(self) -> None:
         if self._listener:
             self._listener.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._listener
-            except asyncio.CancelledError:
-                pass
             self._listener = None
         if self._ws:
             await self._ws.close()
@@ -95,17 +94,15 @@ class OBSController(StreamingController):
     async def list_sources(self, scene_name: str) -> Iterable[SourceInfo]:
         response = await self._send_request("GetSceneItemList", sceneName=scene_name)
         items = response.get("responseData", {}).get("sceneItems", [])
-        results = []
-        for item in items:
-            results.append(
-                SourceInfo(
-                    name=item.get("sourceName", ""),
-                    enabled=item.get("sceneItemEnabled", False),
-                    kind=item.get("inputKind"),
-                    group=item.get("sourceType"),
-                )
+        return [
+            SourceInfo(
+                name=item.get("sourceName", ""),
+                enabled=item.get("sceneItemEnabled", False),
+                kind=item.get("inputKind"),
+                group=item.get("sourceType"),
             )
-        return results
+            for item in items
+        ]
 
     async def set_source_enabled(self, scene_name: str, source_name: str, enabled: bool) -> None:
         scene_item_id = await self._resolve_scene_item(scene_name, source_name)
@@ -118,8 +115,8 @@ class OBSController(StreamingController):
             sceneItemEnabled=enabled,
         )
 
-    async def _perform_identify(self, hello: Dict[str, any]) -> None:
-        identify: Dict[str, any] = {
+    async def _perform_identify(self, hello: Dict[str, Any]) -> None:
+        identify: Dict[str, Any] = {
             "op": 1,
             "d": {
                 "rpcVersion": 1,
@@ -155,7 +152,7 @@ class OBSController(StreamingController):
                     if op == 7:
                         await self._handle_response(data.get("d", {}))
                     elif op == 8:
-                        self._status.last_heartbeat = datetime.utcnow()
+                        self._status.last_heartbeat = datetime.now(timezone.utc)
                         metrics = data.get("d", {}).get("measurements", {})
                         duration = metrics.get("wsOpTime")
                         if duration is not None:
@@ -170,12 +167,15 @@ class OBSController(StreamingController):
             self._status.last_error = str(exc)
         finally:
             self._status.connected = False
-            for fut in list(self._pending.values()):
-                if not fut.done():
-                    fut.set_exception(RuntimeError("Connection closed"))
-            self._pending.clear()
+            self._cancel_pending_futures()
 
-    async def _handle_response(self, payload: Dict[str, any]) -> None:
+    def _cancel_pending_futures(self) -> None:
+        for fut in list(self._pending.values()):
+            if not fut.done():
+                fut.set_exception(RuntimeError("Connection closed"))
+        self._pending.clear()
+
+    async def _handle_response(self, payload: Dict[str, Any]) -> None:
         request_id = payload.get("requestId")
         if request_id is None:
             return
@@ -188,7 +188,7 @@ class OBSController(StreamingController):
         else:
             future.set_exception(RuntimeError(status.get("comment", "OBS request failed")))
 
-    async def _send_request(self, request_type: str, **request_data: any) -> Dict[str, any]:
+    async def _send_request(self, request_type: str, **request_data: Any) -> Dict[str, Any]:
         if not self._ws:
             raise RuntimeError("OBS controller is not connected")
         async with self._lock:
@@ -205,8 +205,7 @@ class OBSController(StreamingController):
             },
         }
         await self._ws.send_json(payload)
-        result = await asyncio.wait_for(future, timeout=self.params.request_timeout)
-        return result
+        return await asyncio.wait_for(future, timeout=self.params.request_timeout)
 
     async def _resolve_scene_item(self, scene_name: str, source_name: str) -> Optional[int]:
         response = await self._send_request("GetSceneItemList", sceneName=scene_name)

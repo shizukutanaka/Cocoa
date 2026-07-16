@@ -6,19 +6,36 @@ Consolidate language files from main/ to locales/
 import json
 import shutil
 from pathlib import Path
+from typing import Dict, List, Optional
+
+DEFAULT_LANG_CODES = [
+    'ar', 'bn', 'de', 'es', 'fr', 'hi',
+    'id', 'ko', 'pt', 'ru', 'ur', 'zh',
+]
 
 
-def consolidate_language_files():
-    """main/ から locales/ へ言語ファイルを統合"""
-    project_root = Path(__file__).resolve().parent.parent
+def consolidate_language_files(
+    project_root: Optional[Path] = None,
+    lang_codes: Optional[List[str]] = None,
+) -> Dict[str, int]:
+    """main/ から locales/ へ言語ファイルを統合する。
+
+    Args:
+        project_root: プロジェクトルート。未指定時はこのスクリプトの2階層上。
+        lang_codes: 統合対象の言語コード。未指定時は DEFAULT_LANG_CODES。
+
+    Returns:
+        {"consolidated": 統合件数, "skipped": スキップ件数}
+    """
+    if project_root is None:
+        project_root = Path(__file__).resolve().parent.parent
+    project_root = Path(project_root)
     main_dir = project_root / 'main'
     locales_dir = project_root / 'locales'
+    locales_dir.mkdir(parents=True, exist_ok=True)
 
-    # 統合する言語コード
-    lang_codes = [
-        'ar', 'bn', 'de', 'es', 'fr', 'hi',
-        'id', 'ko', 'pt', 'ru', 'ur', 'zh'
-    ]
+    if lang_codes is None:
+        lang_codes = DEFAULT_LANG_CODES
 
     consolidated = 0
     skipped = 0
@@ -29,7 +46,7 @@ def consolidate_language_files():
 
         if main_file.exists():
             if not locales_file.exists():
-                # locales/ にファイルが存在しない場合、コピー
+                # locales/ にファイルが存在しない場合、移動
                 shutil.move(str(main_file), str(locales_file))
                 print(f"✓ Moved {lang}.json to locales/")
                 consolidated += 1
@@ -37,11 +54,11 @@ def consolidate_language_files():
                 # locales/ に既に存在する場合、統合
                 try:
                     # main/ の内容を読み込み
-                    with open(main_file, 'r', encoding='utf-8') as f:
+                    with open(main_file, encoding='utf-8') as f:
                         main_data = json.load(f)
 
                     # locales/ の内容を読み込み
-                    with open(locales_file, 'r', encoding='utf-8') as f:
+                    with open(locales_file, encoding='utf-8') as f:
                         locales_data = json.load(f)
 
                     # マージ（locales/ のデータを優先）
@@ -66,6 +83,8 @@ def consolidate_language_files():
     print("\n統合完了 / Consolidation complete:")
     print(f"  統合ファイル数: {consolidated}")
     print(f"  スキップファイル数: {skipped}")
+
+    return {"consolidated": consolidated, "skipped": skipped}
 
 
 if __name__ == "__main__":

@@ -14,11 +14,16 @@ import threading
 import time
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import stripe
+try:
+    import stripe
+    STRIPE_AVAILABLE = True
+except ImportError:
+    stripe = None
+    STRIPE_AVAILABLE = False
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR.parent / "config" / "config.json"
@@ -52,7 +57,7 @@ class BillingConfig:
     webhook_secret_env: Optional[str]
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "BillingConfig":
+    def from_dict(cls, config_dict: Dict[str, Any]) -> BillingConfig:
         billing_raw = (config_dict or {}).get("billing") or {}
         enabled = bool(billing_raw.get("enabled", False))
         mode = billing_raw.get("mode", "subscription")
@@ -89,7 +94,7 @@ class BillingConfig:
         )
 
     @classmethod
-    def load(cls, path: Path = CONFIG_PATH) -> "BillingConfig":
+    def load(cls, path: Path = CONFIG_PATH) -> BillingConfig:
         with path.open(encoding="utf-8") as handle:
             config_dict = json.load(handle)
         return cls.from_dict(config_dict)
@@ -129,6 +134,9 @@ class BillingStorage:
         except FileNotFoundError:
             return {}
         except json.JSONDecodeError as exc:
+            # Empty or corrupt file — treat as empty storage rather than crashing
+            if self._path.stat().st_size == 0:
+                return {}
             raise BillingError(f"ストレージファイルの読み込みに失敗しました: {exc}") from exc
 
         if not isinstance(payload, dict):
@@ -197,7 +205,7 @@ class BillingEventLog:
             data = self._read()
             data[event_id] = {
                 "event_type": event_type,
-                "processed_at": datetime.utcnow().isoformat() + "Z",
+                "processed_at": datetime.now(timezone.utc).isoformat(),
             }
             self._prune(data)
             self._write(data)
@@ -215,6 +223,8 @@ class BillingEventLog:
         except FileNotFoundError:
             return {}
         except json.JSONDecodeError as exc:
+            if self._path.stat().st_size == 0:
+                return {}
             raise BillingError(f"イベントログの読み込みに失敗しました: {exc}") from exc
 
     def _write(self, payload: Dict[str, Any]) -> None:
@@ -227,7 +237,7 @@ class BillingEventLog:
         if not data:
             return
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         threshold = now - timedelta(days=self._retention_days) if self._retention_days else None
 
         if threshold:
@@ -255,7 +265,9 @@ class BillingEventLog:
         if not raw:
             return None
         try:
-            return datetime.fromisoformat(raw.replace("Z", ""))
+            # Preserve timezone info; comparing the result against
+            # datetime.now(timezone.utc) later requires an aware datetime.
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
             return None
 
@@ -268,6 +280,8 @@ class StripeBillingService:
         if not self._config.enabled:
             raise BillingError("billing.enabled が false のため Stripe サービスを初期化できません")
 
+        if not STRIPE_AVAILABLE:
+            raise BillingError("stripe ライブラリがインストールされていません: pip install stripe")
         api_key = os.getenv("STRIPE_API_KEY")
         if not api_key:
             raise BillingError("環境変数 STRIPE_API_KEY が設定されていません")
@@ -333,6 +347,8 @@ class StripeBillingService:
         else:
             raise BillingError(f"未対応の billing.mode です: {mode}")
 
+        return session_kwargs
+
     def _check_rate_limit(self) -> None:
         """レート制限チェック"""
         now = time.time()
@@ -362,10 +378,6 @@ class StripeBillingService:
 
         # リトライ機能付きAPI呼び出しを使用
         session = self._api_call_with_retry(stripe.billing_portal.Session.create, customer=customer_id, return_url=return_url)
-        return {
-            "id": session.get("id"),
-            "url": session.get("url"),
-        }
 
         existing = self._storage.get_by_customer(customer_id) or {}
         record = {
@@ -373,10 +385,15 @@ class StripeBillingService:
             "customer_id": customer_id,
             "user_id": user_id or existing.get("user_id"),
             "mode": self._config.mode,
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "last_event": "billing_portal.session.created",
         }
         self._storage.upsert_subscription(customer_id, record)
+
+        return {
+            "id": session.get("id"),
+            "url": session.get("url"),
+        }
 
     def _api_call_with_retry(self, api_func, *args, max_retries: int = 3, **kwargs) -> Any:
         """リトライ機能付きAPI呼び出し"""
@@ -464,25 +481,9 @@ class StripeBillingService:
                 "event_id": event_id,
             }
 
-        if event_type == "customer.subscription.created":
-            logger.debug("Processing subscription.created for %s", data_object.get("customer"))
-            result = self._handle_subscription_update(data_object, event_type)
-        elif event_type == "customer.subscription.updated":
-            logger.debug("Processing subscription.updated for %s", data_object.get("customer"))
-            result = self._handle_subscription_update(data_object, event_type)
-        elif event_type == "customer.subscription.deleted":
-            logger.debug("Processing subscription.deleted for %s", data_object.get("customer"))
-            result = self._handle_subscription_update(data_object, event_type)
-        elif event_type == "customer.subscription.trial_will_end":
-            result = self._handle_trial_will_end(data_object, event_type)
-        elif event_type == "checkout.session.completed":
-            result = self._handle_checkout_completed(data_object, event_type)
-        elif event_type == "invoice.payment_succeeded":
-            result = self._handle_invoice_payment(data_object, event_type)
-        elif event_type == "invoice.payment_failed":
-            result = self._handle_invoice_payment_failed(data_object, event_type)
-        elif event_type == "invoice.payment_action_required":
-            result = self._handle_invoice_payment_action_required(data_object, event_type)
+        handler_name = self._WEBHOOK_HANDLERS.get(event_type)
+        if handler_name is not None:
+            result = getattr(self, handler_name)(data_object, event_type)
         else:
             logger.info("Unhandled Stripe event received: %s", event_type)
             result = {"processed": False, "reason": "Unhandled event", "event_type": event_type}
@@ -490,6 +491,18 @@ class StripeBillingService:
         if event_id:
             self._event_log.record(event_id, event_type or "unknown")
         return result
+
+    # Stripe イベントタイプ -> ハンドラメソッド名のディスパッチテーブル
+    _WEBHOOK_HANDLERS = {
+        "customer.subscription.created": "_handle_subscription_update",
+        "customer.subscription.updated": "_handle_subscription_update",
+        "customer.subscription.deleted": "_handle_subscription_update",
+        "customer.subscription.trial_will_end": "_handle_trial_will_end",
+        "checkout.session.completed": "_handle_checkout_completed",
+        "invoice.payment_succeeded": "_handle_invoice_payment",
+        "invoice.payment_failed": "_handle_invoice_payment_failed",
+        "invoice.payment_action_required": "_handle_invoice_payment_action_required",
+    }
 
     # ------------------------------------------------------------------
     # Stripe back-office operations
@@ -533,7 +546,7 @@ class StripeBillingService:
             "user_id": user_id,
             "mode": self._config.mode,
             "status": "customer_created",
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "last_event": "customer.created",
         }
         self._storage.upsert_subscription(customer_id, record)
@@ -561,7 +574,7 @@ class StripeBillingService:
                 "customer_id": customer_id,
                 "status": "not_found",
                 "mode": self._config.mode,
-                "updated_at": datetime.utcnow().isoformat() + "Z",
+                "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
                 "last_event": "sync.subscription.missing",
             }
             self._storage.upsert_subscription(customer_id, record)
@@ -703,7 +716,7 @@ class StripeBillingService:
                 trial_will_end.append(customer_id)
 
         report = {
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "currency": self._config.currency,
             "counts": {
                 "customers": len(records),
@@ -763,7 +776,7 @@ class StripeBillingService:
             "mode": self._config.mode,
             "amount_due": invoice.get("amount_due"),
             "attempt_count": invoice.get("attempt_count"),
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "last_event": event_type,
         }
         if customer_id:
@@ -773,13 +786,19 @@ class StripeBillingService:
     def _handle_invoice_payment_action_required(self, invoice: Dict[str, Any], event_type: str) -> Dict[str, Any]:
         customer_id = invoice.get("customer")
         existing = self._storage.get_by_customer(customer_id) or {}
+        # Fall back to the stored amount only when the webhook omits the field.
+        # `... or existing` would also discard a legitimate amount_due of 0
+        # (fully-credited invoice), reverting to a stale non-zero balance.
+        amount_due = invoice.get("amount_due")
+        if amount_due is None:
+            amount_due = existing.get("amount_due")
         record = {
             **existing,
             "customer_id": customer_id,
             "status": "action_required",
             "mode": self._config.mode,
-            "amount_due": invoice.get("amount_due") or existing.get("amount_due"),
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "amount_due": amount_due,
+            "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "last_event": event_type,
         }
         if customer_id:
@@ -804,7 +823,7 @@ class StripeBillingService:
             else session_obj.get("line_items", [{}])[0].get("price", {}).get("id"),
             "user_id": user_id,
             "mode": mode,
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "last_event": event_type,
             "subscription_item_id": None,
         }
@@ -835,7 +854,7 @@ class StripeBillingService:
             "user_id": user_id or existing.get("user_id"),
             "mode": self._config.mode,
             "amount_paid": amount_paid,
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "last_event": event_type,
         }
         if customer_id:

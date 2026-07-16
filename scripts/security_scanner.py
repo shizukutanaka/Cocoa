@@ -10,15 +10,15 @@ Otedama セキュリティスキャナー - Production-Grade Security Scanner
 - ファイルパーミッションの監査
 """
 
-import os
-import sys
 import json
+import logging
+import os
 import re
 import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any
-from datetime import datetime
-import logging
+from typing import Any, Dict
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,7 +41,7 @@ class SecurityScanner:
         logger.info("🔍 セキュリティスキャン開始")
 
         results = {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'scan_version': '1.0.0',
             'base_directory': str(self.base_dir),
             'checks': {}
@@ -77,6 +77,43 @@ class SecurityScanner:
         logger.info("✅ セキュリティスキャン完了")
         return results
 
+    @staticmethod
+    def _parse_version(version: str) -> tuple:
+        """バージョン文字列を比較可能な整数タプルに変換。
+
+        非数値サフィックス（例: "2.3.0rc1" の "rc1"）は無視する。
+        数値要素が1つも無い場合は空タプルを返す。
+        """
+        parts = []
+        for token in str(version).strip().split('.'):
+            # 先頭の連続する数字のみを取り出す ("0rc1" -> 0)
+            digits = ''
+            for ch in token:
+                if ch.isdigit():
+                    digits += ch
+                else:
+                    break
+            if digits == '':
+                break
+            parts.append(int(digits))
+        return tuple(parts)
+
+    @classmethod
+    def _is_version_vulnerable(cls, installed: str, constraint: str) -> bool:
+        """installed が constraint("<X.Y.Z") を満たす（=脆弱）か判定。
+
+        現状サポートする制約は "<バージョン"（指定未満なら脆弱）のみ。
+        解析不能な入力に対しては False（脆弱でない）を返し誤検知を避ける。
+        """
+        constraint = str(constraint).strip()
+        if not constraint.startswith('<'):
+            return False
+        threshold = cls._parse_version(constraint[1:])
+        installed_v = cls._parse_version(installed)
+        if not threshold or not installed_v:
+            return False
+        return installed_v < threshold
+
     def check_dependencies(self) -> Dict[str, Any]:
         """依存関係の脆弱性チェック"""
         result = {
@@ -93,7 +130,7 @@ class SecurityScanner:
             self.warnings.append('requirements.txt が存在しません')
             return result
 
-        # 既知の脆弱性パッケージチェック
+        # 既知の脆弱性パッケージチェック (パッケージ -> "<最小安全バージョン")
         vulnerable_patterns = {
             'Flask': '<2.3.0',
             'cryptography': '<41.0.0',
@@ -108,13 +145,21 @@ class SecurityScanner:
                     continue
 
                 for pkg, min_version in vulnerable_patterns.items():
-                    if line.startswith(pkg):
-                        # バージョンチェック（簡易）
-                        if '==' in line:
-                            installed_version = line.split('==')[1]
-                            result['recommendations'].append(
-                                f"{pkg}: バージョン{min_version}以上を推奨"
+                    if line.startswith(pkg) and '==' in line:
+                        installed_version = line.split('==', 1)[1].strip()
+                        if self._is_version_vulnerable(installed_version, min_version):
+                            result['vulnerable_packages'].append({
+                                'package': pkg,
+                                'installed': installed_version,
+                                'safe_version': min_version,
+                            })
+                            self.issues.append(
+                                f"脆弱な依存: {pkg}=={installed_version} "
+                                f"(安全バージョン {min_version})"
                             )
+                        result['recommendations'].append(
+                            f"{pkg}: バージョン{min_version[1:]}以上を推奨"
+                        )
 
         result['status'] = 'pass' if not result['vulnerable_packages'] else 'fail'
         return result
@@ -332,7 +377,7 @@ class SecurityScanner:
             'security_score': 0
         }
 
-        for check_name, check_result in checks.items():
+        for check_result in checks.values():
             status = check_result.get('status', 'unknown')
             if status == 'pass':
                 summary['passed'] += 1
@@ -394,8 +439,7 @@ class SecurityScanner:
                 "🚨 重大な問題",
                 "=" * 80
             ])
-            for issue in self.issues:
-                report_lines.append(f"  ❌ {issue}")
+            report_lines.extend(f"  ❌ {issue}" for issue in self.issues)
             report_lines.append("")
 
         # 警告
@@ -405,13 +449,12 @@ class SecurityScanner:
                 "⚠️  警告",
                 "=" * 80
             ])
-            for warning in self.warnings:
-                report_lines.append(f"  ⚠️  {warning}")
+            report_lines.extend(f"  ⚠️  {warning}" for warning in self.warnings)
             report_lines.append("")
 
         # 推奨事項
         recommendations = []
-        for check_name, check_result in results['checks'].items():
+        for check_result in results['checks'].values():
             if 'recommendations' in check_result:
                 recommendations.extend(check_result['recommendations'])
 
@@ -421,8 +464,7 @@ class SecurityScanner:
                 "💡 推奨事項",
                 "=" * 80
             ])
-            for rec in recommendations:
-                report_lines.append(f"  💡 {rec}")
+            report_lines.extend(f"  💡 {rec}" for rec in recommendations)
             report_lines.append("")
 
         report_lines.append("=" * 80)

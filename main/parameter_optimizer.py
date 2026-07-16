@@ -1,17 +1,34 @@
-from typing import Dict, Any, List
-import numpy as np
-from scipy.optimize import minimize
-from .avatar_parameters import AvatarParameters
-from .error_handling import ParameterError
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+
+try:
+    from scipy.optimize import minimize
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+
+from avatar_parameters import AvatarParameters
+
+
+class ParameterError(Exception):
+    """Raised when avatar parameter optimization fails."""
+
 
 class ParameterOptimizer:
     """Optimize avatar parameters for better performance"""
-    
+
     def __init__(self, parameters: AvatarParameters):
         """Initialize optimizer with avatar parameters"""
         self.parameters = parameters
         self.bounds = self._calculate_bounds()
-    
+
     def _calculate_bounds(self) -> List[tuple]:
         """Calculate parameter bounds"""
         bounds = []
@@ -20,18 +37,18 @@ class ParameterOptimizer:
             max_val = param.get('max', 100)
             bounds.append((min_val, max_val))
         return bounds
-    
+
     def objective_function(self, x: np.ndarray) -> float:
         """Objective function to minimize"""
         # Example objective: minimize parameter variance
         return np.var(x)
-    
+
     def optimize(self) -> Dict[str, Any]:
         """Optimize parameters"""
         try:
             # Convert parameters to numpy array
             initial_params = np.array([param['value'] for param in self.parameters])
-            
+
             # Perform optimization
             result = minimize(
                 self.objective_function,
@@ -39,26 +56,26 @@ class ParameterOptimizer:
                 bounds=self.bounds,
                 method='L-BFGS-B'
             )
-            
+
             if not result.success:
                 raise ParameterError("Optimization failed: " + result.message)
-            
+
             # Update optimized parameters
             optimized_params = []
             for i, param in enumerate(self.parameters):
                 param['value'] = float(result.x[i])
                 optimized_params.append(param)
-            
+
             return {
                 'success': True,
                 'optimized_parameters': optimized_params,
                 'message': "Optimization successful",
                 'performance_gain': self._calculate_performance_gain(result.x)
             }
-            
+
         except Exception as e:
-            raise ParameterError(f"Optimization failed: {str(e)}")
-    
+            raise ParameterError(f"Optimization failed: {str(e)}") from e
+
     def _calculate_performance_gain(self, optimized_values: np.ndarray) -> float:
         """Calculate performance gain from optimization"""
         initial_values = np.array([param['value'] for param in self.parameters])

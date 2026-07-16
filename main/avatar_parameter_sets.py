@@ -1,6 +1,5 @@
 from avatar_parameters import AvatarParameters
 
-# よく使うアバターパラメータのプリセットを定義
 PRESET_SETS = {
     "標準男性": AvatarParameters(
         height=172.0, weight=68.0, muscle_mass=0.5, flexibility=0.5,
@@ -20,8 +19,16 @@ PRESET_SETS = {
     ),
 }
 
+
 def list_presets():
     return list(PRESET_SETS.keys())
 
+
 def get_preset(name: str) -> AvatarParameters:
-    return PRESET_SETS.get(name)
+    """Return the preset for *name*.
+
+    Raises KeyError if *name* is not registered (never returns None).
+    """
+    if name not in PRESET_SETS:
+        raise KeyError(name)
+    return PRESET_SETS[name]

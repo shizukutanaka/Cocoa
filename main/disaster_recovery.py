@@ -7,16 +7,17 @@ Disaster Recovery and Backup Verification System
 - データ整合性チェック
 - ポイントインタイムリカバリ
 """
+import hashlib
+import json
 import logging
 import os
-import json
 import shutil
-import hashlib
-from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime, timedelta
-from pathlib import Path
+import threading
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,10 @@ class DisasterRecoveryManager:
             'yearly': self.config.get('retention_yearly', 5),  # 年次バックアップを5年保持
         }
 
+        self.metadata_file = self.backup_dir / 'backup_metadata.json'
+        self.backup_metadata: List[BackupMetadata] = []
+        self._load_metadata()
+
     def create_backup(
         self,
         backup_name: Optional[str] = None,
@@ -84,7 +89,7 @@ class DisasterRecoveryManager:
         """バックアップの作成"""
         try:
             # バックアップIDとタイムスタンプ
-            timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
             backup_id = backup_name or f"backup_{timestamp}"
 
             logger.info(f"バックアップ作成開始: {backup_id}")
@@ -95,41 +100,13 @@ class DisasterRecoveryManager:
             self._assert_writable(backup_path, 'backup destination')
 
             # バックアップ対象のパス
-            source_paths = []
-
-            if include_config:
-                if self.config_dir.exists():
-                    source_paths.append(str(self.config_dir))
-                else:
-                    logger.warning("設定ディレクトリが見つかりません: %s", self.config_dir)
-
-            if include_data:
-                if self.data_dir.exists():
-                    source_paths.append(str(self.data_dir))
-                else:
-                    logger.warning("データディレクトリが見つかりません: %s", self.data_dir)
+            source_paths = self._collect_backup_sources(include_config, include_data)
 
             if not source_paths:
                 return False, "バックアップ対象が存在しません", None
 
             # ファイルのコピーとチェックサム計算
-            total_size = 0
-            checksums = []
-
-            for source_path in source_paths:
-                source = Path(source_path)
-                dest = backup_path / source.name
-
-                if source.is_file():
-                    shutil.copy2(source, dest)
-                    total_size += source.stat().st_size
-                    checksums.append(self._calculate_file_checksum(source))
-                elif source.is_dir():
-                    shutil.copytree(source, dest, dirs_exist_ok=True)
-                    for file_path in dest.rglob('*'):
-                        if file_path.is_file():
-                            total_size += file_path.stat().st_size
-                            checksums.append(self._calculate_file_checksum(file_path))
+            total_size, checksums = self._copy_backup_sources(source_paths, backup_path)
 
             # 総合チェックサムの計算
             combined_checksum = hashlib.sha256(
@@ -139,7 +116,7 @@ class DisasterRecoveryManager:
             # メタデータの作成
             metadata = BackupMetadata(
                 backup_id=backup_id,
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 status=BackupStatus.COMPLETED,
                 size_bytes=total_size,
                 checksum=combined_checksum,
@@ -170,6 +147,48 @@ class DisasterRecoveryManager:
             logger.error(error_msg, exc_info=True)
             return False, error_msg, None
 
+    def _collect_backup_sources(self, include_config: bool, include_data: bool) -> List[str]:
+        """バックアップ対象ディレクトリのパス一覧を収集する。"""
+        source_paths: List[str] = []
+
+        if include_config:
+            if self.config_dir.exists():
+                source_paths.append(str(self.config_dir))
+            else:
+                logger.warning("設定ディレクトリが見つかりません: %s", self.config_dir)
+
+        if include_data:
+            if self.data_dir.exists():
+                source_paths.append(str(self.data_dir))
+            else:
+                logger.warning("データディレクトリが見つかりません: %s", self.data_dir)
+
+        return source_paths
+
+    def _copy_backup_sources(
+        self, source_paths: List[str], backup_path: Path
+    ) -> Tuple[int, List[str]]:
+        """対象パスをバックアップ先へコピーし、総サイズとチェックサム一覧を返す。"""
+        total_size = 0
+        checksums: List[str] = []
+
+        for source_path in source_paths:
+            source = Path(source_path)
+            dest = backup_path / source.name
+
+            if source.is_file():
+                shutil.copy2(source, dest)
+                total_size += source.stat().st_size
+                checksums.append(self._calculate_file_checksum(source))
+            elif source.is_dir():
+                shutil.copytree(source, dest, dirs_exist_ok=True)
+                for file_path in dest.rglob('*'):
+                    if file_path.is_file():
+                        total_size += file_path.stat().st_size
+                        checksums.append(self._calculate_file_checksum(file_path))
+
+        return total_size, checksums
+
     def verify_backup(self, backup_id: str) -> Tuple[bool, str]:
         """バックアップの検証"""
         try:
@@ -183,10 +202,11 @@ class DisasterRecoveryManager:
                 return False, f"バックアップディレクトリが存在しません: {backup_path}"
 
             # チェックサムの再計算
-            checksums = []
-            for file_path in backup_path.rglob('*'):
-                if file_path.is_file():
-                    checksums.append(self._calculate_file_checksum(file_path))
+            checksums = [
+                self._calculate_file_checksum(file_path)
+                for file_path in backup_path.rglob('*')
+                if file_path.is_file()
+            ]
 
             combined_checksum = hashlib.sha256(
                 ''.join(checksums).encode()
@@ -196,10 +216,9 @@ class DisasterRecoveryManager:
             if combined_checksum == metadata.checksum:
                 logger.info(f"バックアップ検証成功: {backup_id}")
                 return True, "検証成功"
-            else:
-                error_msg = f"チェックサム不一致: 期待={metadata.checksum}, 実際={combined_checksum}"
-                logger.error(error_msg)
-                return False, error_msg
+            error_msg = f"チェックサム不一致: 期待={metadata.checksum}, 実際={combined_checksum}"
+            logger.error(error_msg)
+            return False, error_msg
 
         except Exception as e:
             error_msg = f"バックアップ検証エラー: {str(e)}"
@@ -234,7 +253,7 @@ class DisasterRecoveryManager:
 
             # 現在の状態をバックアップ (復元前)
             pre_restore_backup = self.create_backup(
-                backup_name=f"pre_restore_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+                backup_name=f"pre_restore_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
                 verify=False
             )
 
@@ -245,31 +264,9 @@ class DisasterRecoveryManager:
             logger.info(f"復元開始: {backup_id} (戦略: {strategy.value})")
 
             if strategy == RecoveryStrategy.FULL_RESTORE:
-                # 完全復元: バックアップディレクトリ全体を上書き
-                for item in backup_path.iterdir():
-                    dest = Path(item.name)
-
-                    if dest.exists():
-                        if dest.is_dir():
-                            shutil.rmtree(dest)
-                        else:
-                            dest.unlink()
-
-                    if item.is_dir():
-                        shutil.copytree(item, dest)
-                    else:
-                        shutil.copy2(item, dest)
-
+                self._restore_full(backup_path)
             elif strategy == RecoveryStrategy.PARTIAL_RESTORE:
-                # 部分復元: 欠損ファイルのみ復元
-                for item in backup_path.rglob('*'):
-                    if item.is_file():
-                        relative_path = item.relative_to(backup_path)
-                        dest = Path(relative_path)
-
-                        if not dest.exists():
-                            dest.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(item, dest)
+                self._restore_partial(backup_path)
 
             logger.info(f"復元完了: {backup_id}")
             return True, f"復元成功: {backup_id}"
@@ -278,6 +275,33 @@ class DisasterRecoveryManager:
             error_msg = f"復元エラー: {str(e)}"
             logger.error(error_msg, exc_info=True)
             return False, error_msg
+
+    def _restore_full(self, backup_path: Path) -> None:
+        """完全復元: バックアップディレクトリ全体を上書きする。"""
+        for item in backup_path.iterdir():
+            dest = Path(item.name)
+
+            if dest.exists():
+                if dest.is_dir():
+                    shutil.rmtree(dest)
+                else:
+                    dest.unlink()
+
+            if item.is_dir():
+                shutil.copytree(item, dest)
+            else:
+                shutil.copy2(item, dest)
+
+    def _restore_partial(self, backup_path: Path) -> None:
+        """部分復元: 欠損しているファイルのみを復元する。"""
+        for item in backup_path.rglob('*'):
+            if item.is_file():
+                relative_path = item.relative_to(backup_path)
+                dest = Path(relative_path)
+
+                if not dest.exists():
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(item, dest)
 
     def list_backups(
         self,
@@ -291,7 +315,7 @@ class DisasterRecoveryManager:
             backups = [b for b in backups if b.verification_passed]
 
         if days is not None:
-            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
             backups = [
                 b for b in backups
                 if datetime.fromisoformat(b.timestamp) > cutoff
@@ -309,7 +333,7 @@ class DisasterRecoveryManager:
         """古いバックアップを保持ポリシーに基づいてクリーンアップ"""
         if retention_days is not None:
             # カスタム保持期間を指定
-            cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
         else:
             # デフォルトのポリシーを適用
             cutoff_date = self._get_earliest_retention_date()
@@ -346,7 +370,7 @@ class DisasterRecoveryManager:
 
     def _get_earliest_retention_date(self) -> datetime:
         """保持ポリシーに基づく最も古い保持日を取得"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         # 年次バックアップの保持期間を基準に
         return now - timedelta(days=self.retention_policy['yearly'] * 365) + timedelta(days=1)
 
@@ -374,7 +398,7 @@ class DisasterRecoveryManager:
                 "verified": latest_backup.verification_passed
             } if latest_backup else None,
             "backup_directory": str(self.backup_dir),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
     # =============== Internal Methods ===============
@@ -398,8 +422,8 @@ class DisasterRecoveryManager:
         for label, directory in critical_directories.items():
             try:
                 directory.mkdir(parents=True, exist_ok=True)
-            except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(f"{label} ディレクトリを作成できません: {directory} ({exc})")
+            except Exception as exc:
+                raise RuntimeError(f"{label} ディレクトリを作成できません: {directory} ({exc})") from exc
 
             if not os.access(directory, os.R_OK | os.X_OK):
                 logger.warning("%s ディレクトリへの読み取り/実行権限が不足しています: %s", label, directory)
@@ -432,7 +456,7 @@ class DisasterRecoveryManager:
         """メタデータの読み込み"""
         try:
             if self.metadata_file.exists():
-                with open(self.metadata_file, 'r', encoding='utf-8') as f:
+                with open(self.metadata_file, encoding='utf-8') as f:
                     data = json.load(f)
 
                 self.backup_metadata = [
@@ -483,13 +507,16 @@ class DisasterRecoveryManager:
 
 # グローバルインスタンス
 _recovery_manager: Optional[DisasterRecoveryManager] = None
+_recovery_manager_lock = threading.Lock()
 
 
 def get_recovery_manager(config: Optional[Dict[str, Any]] = None) -> DisasterRecoveryManager:
     """災害復旧マネージャーの取得"""
     global _recovery_manager
     if _recovery_manager is None:
-        _recovery_manager = DisasterRecoveryManager(config)
+        with _recovery_manager_lock:
+            if _recovery_manager is None:
+                _recovery_manager = DisasterRecoveryManager(config)
     return _recovery_manager
 
 

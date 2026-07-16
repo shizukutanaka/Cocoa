@@ -4,16 +4,21 @@ AI Avatar Generator GUI Module for Cocoa
 AIアバター生成GUIコンポーネント
 """
 
-import os
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
 import asyncio
-import threading
-from pathlib import Path
 import json
+import os
+import threading
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 
-from .ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest, AvatarStyle
-from .video_creator import get_video_creator, VideoCreationRequest
+from ai_avatar_generator import (
+    AvatarGenerationRequest,
+    AvatarStyle,
+    get_ai_avatar_generator,
+)
+from video_creator import VideoCreationRequest, get_video_creator
+
 
 class AIAvatarGeneratorGUI:
     """
@@ -24,6 +29,7 @@ class AIAvatarGeneratorGUI:
         self.parent = parent_frame
         self.generator = None
         self.current_user_id = "default_user"  # 実際の運用では認証システムから取得
+        self._background_tasks: list = []
 
         # UI変数
         self.source_image_path = tk.StringVar()
@@ -208,7 +214,7 @@ class AIAvatarGeneratorGUI:
 
         # 初期化
         self.current_result = None
-        asyncio.create_task(self.initialize_generator())
+        self._background_tasks.append(asyncio.create_task(self.initialize_generator()))
 
     def setup_video_creation_tab(self, tab_frame):
         """動画作成タブのセットアップ"""
@@ -331,7 +337,7 @@ class AIAvatarGeneratorGUI:
 
         # 動画作成器の初期化
         self.video_creator = None
-        asyncio.create_task(self.initialize_video_creator())
+        self._background_tasks.append(asyncio.create_task(self.initialize_video_creator()))
 
     async def initialize_video_creator(self):
         """動画作成器を初期化"""
@@ -496,8 +502,8 @@ class AIAvatarGeneratorGUI:
             return
 
         try:
-            import subprocess
             import platform
+            import subprocess
 
             video_path = self.current_video_result.video_path
 
@@ -686,8 +692,8 @@ class AIAvatarGeneratorGUI:
         """プレビューを表示"""
         if self.current_result and self.current_result.thumbnail_path:
             try:
-                import subprocess
                 import platform
+                import subprocess
 
                 if platform.system() == "Windows":
                     os.startfile(self.current_result.thumbnail_path)

@@ -2,11 +2,11 @@
 ログ管理システム
 軽量で実用的なログ管理機能を提供
 """
+import json
 import logging
 import logging.handlers
-import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -14,7 +14,9 @@ from typing import Any, Dict, List, Optional
 try:
     from cryptography.fernet import Fernet
     CRYPTOGRAPHY_AVAILABLE = True
-except ImportError:
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     CRYPTOGRAPHY_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
@@ -39,12 +41,16 @@ class EncryptedFileHandler(logging.handlers.RotatingFileHandler):
     def emit(self, record):
         if self.fernet:
             try:
+                # ローテーションチェック（スキップすると maxBytes が機能しない）
+                if self.shouldRollover(record):
+                    self.doRollover()
                 # ログメッセージを暗号化
                 message = self.format(record)
                 encrypted_message = self.fernet.encrypt(message.encode('utf-8'))
                 # 暗号化されたメッセージをファイルに書き込み
                 self.stream.write(encrypted_message.decode('latin1') + '\n')
                 self.stream.write('---ENCRYPTED---\n')  # マーカー
+                self.flush()
             except Exception:
                 # 暗号化失敗時は通常のログを記録
                 super().emit(record)
@@ -58,7 +64,7 @@ class EncryptedFileHandler(logging.handlers.RotatingFileHandler):
 
         logs = []
         try:
-            with open(self.baseFilename, 'r', encoding='latin1') as f:
+            with open(self.baseFilename, encoding='latin1') as f:
                 encrypted_lines = []
                 for line in f:
                     if line.strip() == '---ENCRYPTED---':
@@ -87,7 +93,7 @@ class JsonLogFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload: Dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
             "logger": record.name,
             "level": record.levelname,
             "message": record.getMessage(),
@@ -103,7 +109,11 @@ class JsonLogFormatter(logging.Formatter):
         if extra:
             payload["extra"] = extra
 
-        return json.dumps(payload, ensure_ascii=False)
+        # default=str so a non-JSON-serializable value in `extra` (datetime,
+        # Decimal, set, custom object, …) degrades to its string form instead
+        # of raising TypeError *inside* the logging handler — which Python's
+        # logging swallows via handleError(), silently dropping the log line.
+        return json.dumps(payload, ensure_ascii=False, default=str)
 
 class LoggingManager:
     """軽量で実用的なログ管理システム"""
@@ -264,7 +274,7 @@ class LoggingManager:
                 return results
 
             keyword_lower = keyword.lower()
-            with open(log_file, 'r', encoding='utf-8') as f:
+            with open(log_file, encoding='utf-8') as f:
                 for line in f:
                     parsed = self._parse_log_line(line)
                     haystack = json.dumps(parsed, ensure_ascii=False).lower()
@@ -287,7 +297,7 @@ class LoggingManager:
         except Exception as e:
             return {"error": str(e), "raw": line.strip()}
 
-    def get_log_stats(self) -> Dict[str, any]:
+    def get_log_stats(self) -> Dict[str, Any]:
         """ログ統計を取得"""
         try:
             log_file = self.log_dir / "otedama.log"
@@ -295,7 +305,8 @@ class LoggingManager:
                 return {"error": "ログファイルが存在しません"}
 
             file_size = log_file.stat().st_size
-            line_count = sum(1 for _ in open(log_file, 'r', encoding='utf-8'))
+            with open(log_file, encoding='utf-8') as _f:
+                line_count = sum(1 for _ in _f)
 
             return {
                 "file_size": file_size,
@@ -311,7 +322,7 @@ class LoggingManager:
     def clear_old_logs(self, days: int = 30) -> bool:
         """古いログファイルを削除"""
         try:
-            cutoff_date = datetime.now().timestamp() - (days * 24 * 60 * 60)
+            cutoff_date = datetime.now(timezone.utc).timestamp() - (days * 24 * 60 * 60)
 
             for log_file in self.log_dir.glob("*.log.*"):
                 if log_file.stat().st_mtime < cutoff_date:
@@ -332,11 +343,12 @@ class LoggingManager:
                 return False
 
             if format.lower() == "json":
-                logs = [
-                    self._parse_log_line(line)
-                    for line in open(log_file, 'r', encoding='utf-8')
-                    if line.strip()
-                ]
+                with open(log_file, encoding='utf-8') as src:
+                    logs = [
+                        self._parse_log_line(line)
+                        for line in src
+                        if line.strip()
+                    ]
 
                 with open(filename, 'w', encoding='utf-8') as f:
                     json.dump(logs, f, indent=2, ensure_ascii=False)

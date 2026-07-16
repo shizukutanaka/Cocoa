@@ -10,14 +10,26 @@ Python logging の統一的な設定と使用
 - 非本番環境での詳細ログ
 """
 
+import json
 import logging
 import logging.config
-import json
-import sys
-from pathlib import Path
-from typing import Optional, Dict
-from datetime import datetime
 import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, Optional
+
+_VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+
+def _validate_level(level: str) -> int:
+    """Return the numeric logging level for *level*, raising ValueError if unknown."""
+    upper = level.upper()
+    if upper not in _VALID_LEVELS:
+        raise ValueError(
+            f"Invalid log level: {level!r}. Must be one of {sorted(_VALID_LEVELS)}"
+        )
+    return getattr(logging, upper)
 
 # グローバルロガーレジストリ
 _loggers: Dict[str, logging.Logger] = {}
@@ -48,7 +60,7 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record):
         log_data = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -62,7 +74,9 @@ class JSONFormatter(logging.Formatter):
         if record.exc_info:
             log_data["exception"] = self.formatException(record.exc_info)
 
-        return json.dumps(log_data, ensure_ascii=False)
+        # default=str keeps the JSON formatter crash-proof: a non-serializable
+        # field can never raise inside the handler and drop the log line.
+        return json.dumps(log_data, ensure_ascii=False, default=str)
 
 
 def configure_logging(
@@ -81,13 +95,8 @@ def configure_logging(
         environment: 環境 (development/production)
     """
 
-    # ログレベルの決定
-    if environment == "production":
-        # 本番環境では最小限のログ
-        numeric_level = getattr(logging, level.upper(), logging.WARNING)
-    else:
-        # 開発環境ではより詳細
-        numeric_level = getattr(logging, level.upper(), logging.DEBUG)
+    # ログレベルの決定（無効な値は ValueError）
+    numeric_level = _validate_level(level)
 
     # ルートロガーの設定
     root_logger = logging.getLogger()
@@ -212,6 +221,6 @@ if __name__ == "__main__":
 
     # 例外ログ（スタックトレース自動追加）
     try:
-        1 / 0
+        1 / 0  # noqa: B018
     except ZeroDivisionError:
         logger.exception("Math error occurred")  # この行でスタックトレース自動追加

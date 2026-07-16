@@ -3,16 +3,20 @@
 設定ファイル暗号化とキャッシュマネージャーのテスト
 """
 
-import unittest
-import tempfile
 import json
+import tempfile
 import time
+import unittest
 from pathlib import Path
 
 # 新しい機能のインポート
 try:
-    from main.config_encryptor import ConfigEncryptor, encrypt_config_file, decrypt_config_file
-    from main.cache_manager import CacheManager, MemoryCache, FileCache, get_cache_manager, cached
+    from main.cache_manager import CacheManager, FileCache, MemoryCache, cached
+    from main.config_encryptor import (
+        ConfigEncryptor,
+        decrypt_config_file,
+        encrypt_config_file,
+    )
     CONFIG_ENCRYPTOR_AVAILABLE = True
 except ImportError as e:
     print(f"テスト対象モジュールがインポートできません: {e}")
@@ -75,7 +79,7 @@ class TestConfigEncryptor(unittest.TestCase):
             self.assertTrue(decrypted_file.exists())
 
             # 復号化された内容を確認
-            with open(decrypted_file, 'r', encoding='utf-8') as f:
+            with open(decrypted_file, encoding='utf-8') as f:
                 decrypted_config = json.load(f)
 
             # 機密フィールドがマスクされていることを確認
@@ -389,7 +393,7 @@ class TestLoggingManager(unittest.TestCase):
             self.assertTrue(export_file.exists())
 
             # エクスポートされたファイルの内容を確認
-            with open(export_file, 'r', encoding='utf-8') as f:
+            with open(export_file, encoding='utf-8') as f:
                 exported_data = json.load(f)
 
             self.assertIsInstance(exported_data, list)
@@ -429,7 +433,7 @@ class TestIntegrationFeatures(unittest.TestCase):
             self.assertTrue(success)
 
             # 4. 復号化された内容の確認
-            with open(decrypted_file, 'r', encoding='utf-8') as f:
+            with open(decrypted_file, encoding='utf-8') as f:
                 final_config = json.load(f)
 
             self.assertEqual(final_config['app_name'], 'Workflow Test')
@@ -475,7 +479,7 @@ class TestPerformanceOptimization(unittest.TestCase):
     def test_async_cache_performance(self):
         """非同期キャッシュのパフォーマンステスト"""
         try:
-            from main.cache_manager import AsyncCacheManager, AsyncMemoryCache
+            from main.cache_manager import AsyncCacheManager
         except ImportError:
             self.skipTest("AsyncCacheManagerが利用できません")
 

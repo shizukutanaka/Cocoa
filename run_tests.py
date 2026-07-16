@@ -5,19 +5,19 @@ Cocoaテストランナー
 """
 from __future__ import annotations
 
-import sys
-import time
-import json
-import inspect
 import argparse
-import unittest
-import importlib
-import threading
-import traceback
 import concurrent.futures
-from pathlib import Path
+import importlib
+import inspect
+import json
+import sys
+import threading
+import time
+import traceback
+import unittest
 from dataclasses import dataclass, field
-from typing import Any, Optional, Iterable, Callable
+from pathlib import Path
+from typing import Any, Callable, Iterable, Optional
 
 try:
     import psutil
@@ -130,7 +130,7 @@ def setup_test_environment():
 @dataclass(frozen=True)
 class CommandContext:
     parser: argparse.ArgumentParser
-    config_manager: "ConfigManager"
+    config_manager: ConfigManager
     args: argparse.Namespace
 
     @property
@@ -312,7 +312,7 @@ def run_tests_in_parallel(suite: unittest.TestSuite, max_workers: int = 4) -> un
 
     # 結果を集約
     final_result = unittest.TestResult()
-    for test_case, result in results:
+    for _test_case, result in results:
         final_result.testsRun += result.testsRun
         final_result.failures.extend(result.failures)
         final_result.errors.extend(result.errors)
@@ -466,6 +466,7 @@ class SelfAdaptingMonitor:
                 print(f"  - テスト実行時間が{self.config.monitoring_thresholds['execution_time_per_test']:.1f}秒を超えました (現在: {avg_time:.2f}秒)")
             elif violation == "error_rate":
                 error_rate = (metrics.failed_tests / max(metrics.total_tests, 1)) * 100
+                print(f"  - エラー率が閾値を超えました (現在: {error_rate:.1f}%)")
 class AutoTestGenerator:
     """テストケースを自動生成する。"""
 
@@ -484,9 +485,11 @@ class AutoTestGenerator:
                 # mainディレクトリのPythonファイルを検索
                 main_dir = PROJECT_ROOT / "main"
                 if main_dir.exists():
-                    for py_file in main_dir.glob("*.py"):
-                        if not py_file.name.startswith("__") and py_file.name != "main.py":
-                            modules.append(py_file.stem)
+                    modules.extend(
+                        py_file.stem
+                        for py_file in main_dir.glob("*.py")
+                        if not py_file.name.startswith("__") and py_file.name != "main.py"
+                    )
             else:
                 # 特定のモジュール
                 modules.append(module_name)
@@ -704,7 +707,7 @@ class TestRollbackManager:
 
         try:
             backup_files = sorted(
-                [f for f in self.backup_dir.glob("test_backup_*.json")],
+                list(self.backup_dir.glob("test_backup_*.json")),
                 key=lambda x: x.stat().st_mtime,
                 reverse=True
             )
@@ -728,7 +731,7 @@ class TestRollbackManager:
 
         try:
             with backup_path.open("r", encoding="utf-8") as f:
-                backup_data = json.load(f)
+                json.load(f)  # validate JSON is well-formed before reporting success
 
             # 設定を復元
             if self.json_logger:
@@ -1164,10 +1167,8 @@ def run_suite(
         if rollback_manager.should_rollback(result):
             # 最新のバックアップにロールバック
             backups = rollback_manager.list_backups()
-            if backups:
-                if rollback_manager.rollback_to_backup(backups[0]["file"]):
-                    if json_logger:
-                        json_logger.warning("エラー発生のためバックアップにロールバックしました", backup_file=backups[0]["file"])
+            if backups and rollback_manager.rollback_to_backup(backups[0]["file"]) and json_logger:
+                json_logger.warning("エラー発生のためバックアップにロールバックしました", backup_file=backups[0]["file"])
 
     if result.wasSuccessful():
         if json_logger:
@@ -1248,7 +1249,7 @@ def run_all_tests(args: argparse.Namespace, context: CommandContext) -> int:
         if json_logger:
             json_logger.close()
 
-        return result_code
+
 def normalize_module_name(name: str) -> str:
     candidate = name.strip()
     if not candidate:
@@ -1335,7 +1336,7 @@ def create_config_template(_: argparse.Namespace, context: CommandContext) -> in
         print("このファイルを config/test_runner.json にコピーしてカスタマイズしてください。")
         return 0
     except OSError as e:
-        raise TestRunnerError(f"テンプレートの作成に失敗しました: {e}")
+        raise TestRunnerError(f"テンプレートの作成に失敗しました: {e}") from e
 
 
 def run_selected_tests(args: argparse.Namespace, context: CommandContext) -> int:
@@ -1357,7 +1358,8 @@ def run_selected_tests(args: argparse.Namespace, context: CommandContext) -> int
             "有効なテストケースが検出されませんでした / "
             "No test cases were discovered"
         )
-    return run_suite(suite, verbosity=context.effective_verbosity, use_parallel=context.config.enable_parallel_execution, max_workers=context.config.max_parallel_workers)
+    result_code, _ = run_suite(suite, verbosity=context.effective_verbosity, use_parallel=context.config.enable_parallel_execution, max_workers=context.config.max_parallel_workers)
+    return result_code
 
 
 def show_available_tests(_: argparse.Namespace, context: CommandContext) -> int:

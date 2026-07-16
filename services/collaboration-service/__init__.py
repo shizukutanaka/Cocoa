@@ -3,30 +3,45 @@ Collaboration Service
 リアルタイムコラボレーション機能を提供（WebSocket + WebRTCベース）
 """
 
-import asyncio
 import json
 import logging
-from typing import Dict, Any, List, Optional
-from datetime import datetime
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
+from contextlib import asynccontextmanager, suppress
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
 import uvicorn
-from contextlib import asynccontextmanager
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 
 # WebRTC関連インポート
 try:
-    from aiortc import RTCPeerConnection, RTCSessionDescription, RTCDataChannel, RTCConfiguration, RTCIceServer
-    from aiortc.contrib.media import MediaBlackhole, MediaPlayer, MediaRecorder
+    from aiortc import (
+        RTCConfiguration,
+        RTCDataChannel,
+        RTCIceServer,
+        RTCPeerConnection,
+        RTCSessionDescription,
+    )
     WEBRTC_AVAILABLE = True
 except ImportError:
     WEBRTC_AVAILABLE = False
 
-from services.shared.config import get_config, ConfigManager
-from services.shared.models import CollaborationSession, CollaborationParticipant, CollaborationMessage, User
-from services.shared.database import DatabaseManager, get_db
+from services.shared.config import get_config
+from services.shared.database import DatabaseManager
+from services.shared.models import (
+    CollaborationMessage,
+    CollaborationParticipant,
+    CollaborationSession,
+)
 
 logger = logging.getLogger(__name__)
 from services.shared.logger import setup_logging
-
 
 # グローバル変数
 app: Optional[FastAPI] = None
@@ -56,19 +71,15 @@ async def lifespan(app: FastAPI):
     # WebSocket接続を閉じる
     for connections in active_connections.values():
         for connection in connections:
-            try:
+            with suppress(Exception):
                 await connection.close()
-            except:
-                pass
 
     # WebRTC接続を閉じる
     if WEBRTC_AVAILABLE:
         for session_connections in active_webrtc_connections.values():
             for peer_connection in session_connections.values():
-                try:
+                with suppress(Exception):
                     await peer_connection.close()
-                except:
-                    pass
 
     logger.info("Collaboration Service stopped")
 
@@ -139,10 +150,8 @@ class ConnectionManager:
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
         """個人メッセージを送信"""
-        try:
+        with suppress(Exception):
             await websocket.send_text(message)
-        except:
-            pass
 
     async def broadcast_to_session(self, session_id: str, message: str, exclude: Optional[WebSocket] = None):
         """セッション内の全ユーザーにブロードキャスト"""
@@ -151,7 +160,7 @@ class ConnectionManager:
                 if connection != exclude:
                     try:
                         await connection.send_text(message)
-                    except:
+                    except Exception:
                         # 切断された接続は削除
                         self.disconnect(session_id, connection)
 
@@ -184,7 +193,7 @@ class ConnectionManager:
                 "user_id": "user_1",
                 "username": "user1",
                 "content": "こんにちは！",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "type": "text"
             }
         ]
@@ -212,7 +221,7 @@ async def websocket_endpoint(
         # セッション存在確認
         session = await db.query(CollaborationSession).filter(
             CollaborationSession.id == session_id,
-            CollaborationSession.is_active == True
+            CollaborationSession.is_active.is_(True)
         ).first()
 
         if not session:
@@ -249,10 +258,8 @@ async def websocket_endpoint(
 
     except Exception as e:
         logging.error(f"WebSocket接続エラー: {e}")
-        try:
+        with suppress(Exception):
             await websocket.close(code=1011, reason="サーバーエラー")
-        except:
-            pass
 
 
 async def handle_collaboration_message(
@@ -296,7 +303,7 @@ async def handle_chat_message(session_id: str, message_data: Dict[str, Any], web
         user_id=message_data.get("user_id", "anonymous"),
         message_type="text",
         content=message_data.get("content", ""),
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
 
     db.add(message)
@@ -327,7 +334,7 @@ async def handle_avatar_edit_message(session_id: str, message_data: Dict[str, An
     edit_data = {
         "type": "avatar_edit",
         "edit": message_data,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
     # セッション内の全ユーザーにブロードキャスト（編集者以外）
@@ -344,7 +351,7 @@ async def handle_cursor_move_message(session_id: str, message_data: Dict[str, An
     cursor_data = {
         "type": "cursor_move",
         "cursor": message_data,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
     await manager.broadcast_to_session(
@@ -395,7 +402,7 @@ async def create_collaboration_session(
 
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"セッション作成エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"セッション作成エラー: {str(e)}") from e
 
 
 @app.get("/api/v1/collaboration/sessions")
@@ -426,7 +433,7 @@ async def list_collaboration_sessions(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"セッション一覧取得エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"セッション一覧取得エラー: {str(e)}") from e
 
 
 @app.post("/api/v1/collaboration/sessions/{session_id}/join")
@@ -440,7 +447,7 @@ async def join_collaboration_session(
         # セッション存在確認
         session = await db.query(CollaborationSession).filter(
             CollaborationSession.id == session_id,
-            CollaborationSession.is_active == True
+            CollaborationSession.is_active.is_(True)
         ).first()
 
         if not session:
@@ -483,7 +490,7 @@ async def join_collaboration_session(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"セッション参加エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"セッション参加エラー: {str(e)}") from e
 
 
 @app.post("/api/v1/collaboration/sessions/{session_id}/leave")
@@ -523,7 +530,7 @@ async def leave_collaboration_session(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"セッション退出エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"セッション退出エラー: {str(e)}") from e
 
 
 # WebRTC関連関数
@@ -634,7 +641,7 @@ async def webrtc_offer(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"WebRTCオファー処理エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"WebRTCオファー処理エラー: {str(e)}") from e
 
 
 @app.post("/api/v1/collaboration/webrtc/ice-candidate")
@@ -657,7 +664,7 @@ async def webrtc_ice_candidate(
         return {"success": True}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"ICE候補処理エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"ICE候補処理エラー: {str(e)}") from e
 
 
 # ヘルスチェック

@@ -3,14 +3,15 @@ VR/AR Enhanced Avatar System for Cocoa
 WebXRとハプティック技術を活用した没入型アバター体験システム
 """
 
+import asyncio
 import json
 import logging
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-from datetime import datetime
-from dataclasses import dataclass, asdict
+from typing import Any, Dict, List, Optional
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 logger = logging.getLogger(__name__)
 
@@ -186,10 +187,10 @@ class VRAvatarSystem:
         """VRアバター設定を保存"""
 
         config_dict = asdict(vr_config)
-        config_dict["created_at"] = datetime.now().isoformat()
+        config_dict["created_at"] = datetime.now(timezone.utc).isoformat()
 
         config_file = self.vr_data_dir / f"vr_avatar_{vr_config.avatar_id}.json"
-        with open(config_file, 'w', encoding='utf-8') as f:
+        with open(config_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(config_dict, f, ensure_ascii=False, indent=2)
 
         logger.info(f"VR avatar config saved: {config_file}")
@@ -331,7 +332,7 @@ class VRAvatarSystem:
             if not config_file.exists():
                 return None
 
-            with open(config_file, 'r', encoding='utf-8') as f:
+            with open(config_file, encoding='utf-8') as f:  # noqa: ASYNC230
                 config_dict = json.load(f)
 
             # 作成日を除去してVRAvatarConfigを作成
@@ -430,7 +431,7 @@ class VRAvatarSystem:
                 "performance_score": performance_score,
                 "metaverse_compatibility": config.metaverse_compatibility,
                 "recommendations": await self._generate_webxr_recommendations(config),
-                "generated_at": datetime.now().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
 
             return report
@@ -509,7 +510,7 @@ class VRAvatarSystem:
                 "metaverse_visits": ["decentraland", "sandbox"],
                 "performance_issues": 2,
                 "user_satisfaction_score": 4.2,
-                "generated_at": datetime.now().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
 
             return analytics
@@ -520,6 +521,7 @@ class VRAvatarSystem:
 
 # グローバルインスタンス
 _vr_system = None
+_vr_system_lock = asyncio.Lock()
 
 async def get_vr_system() -> VRAvatarSystem:
     """VR/ARシステムのインスタンスを取得"""
@@ -527,6 +529,8 @@ async def get_vr_system() -> VRAvatarSystem:
     global _vr_system
 
     if _vr_system is None:
-        _vr_system = VRAvatarSystem()
+        async with _vr_system_lock:
+            if _vr_system is None:
+                _vr_system = VRAvatarSystem()
 
     return _vr_system

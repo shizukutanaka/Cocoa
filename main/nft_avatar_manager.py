@@ -3,20 +3,33 @@ NFT-Enhanced Avatar Management System for Cocoa
 ブロックチェーンとNFTを活用したアバター真正性証明システム
 """
 
-import os
+import asyncio
+import hashlib
 import json
 import logging
+import os
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-from datetime import datetime
-from dataclasses import dataclass, asdict
-import hashlib
+from typing import Any, Dict, List, Optional
 
-from web3 import Web3
-from eth_account import Account
-import ipfshttpclient
+try:
+    from eth_account import Account
+    from web3 import Web3
+    WEB3_AVAILABLE = True
+except ImportError:
+    WEB3_AVAILABLE = False
+    Web3 = None
+    Account = None
 
-from .integrated_security import get_security_manager
+try:
+    import ipfshttpclient
+    IPFS_AVAILABLE = True
+except ImportError:
+    IPFS_AVAILABLE = False
+    ipfshttpclient = None
+
+from integrated_security import get_security_manager
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +50,7 @@ class AvatarNFTMetadata:
 
     def to_ipfs_metadata(self) -> Dict:
         """IPFSメタデータフォーマットに変換"""
-        return {
+        metadata = {
             "name": self.name,
             "description": self.description,
             "image": f"ipfs://{self.ipfs_cid}",
@@ -45,9 +58,16 @@ class AvatarNFTMetadata:
                 {"trait_type": key, "value": value}
                 for key, value in self.attributes.items()
             ],
-            "external_url": f"https://cocoa-avatar.com/avatar/{self.avatar_hash}",
             "background_color": "000000"
         }
+        # external_url is optional in the NFT metadata spec (OpenSea etc.) --
+        # this project does not own/operate a public avatar-viewer domain, so
+        # only include it when COCOA_NFT_EXTERNAL_URL_BASE is explicitly
+        # configured, rather than pointing to a fictional/unowned domain.
+        base_url = os.getenv("COCOA_NFT_EXTERNAL_URL_BASE", "").rstrip("/")
+        if base_url:
+            metadata["external_url"] = f"{base_url}/avatar/{self.avatar_hash}"
+        return metadata
 
 class NFTAvatarManager:
     """
@@ -98,6 +118,8 @@ class NFTAvatarManager:
             if not network_config:
                 raise ValueError(f"Unsupported blockchain network: {self.blockchain_network}")
 
+            if not WEB3_AVAILABLE:
+                raise RuntimeError("web3 not installed")
             # Web3インスタンス作成
             self.web3 = Web3(Web3.HTTPProvider(network_config["rpc_url"]))
 
@@ -110,7 +132,8 @@ class NFTAvatarManager:
                 self.account = Account.from_key(private_key)
 
             # IPFSクライアント初期化
-            self.ipfs_client = ipfshttpclient.connect('/ip4/127.0.0.1/tcp/5001/http')
+            if IPFS_AVAILABLE:
+                self.ipfs_client = ipfshttpclient.connect('/ip4/127.0.0.1/tcp/5001/http')
 
             logger.info(f"Blockchain initialized: {self.blockchain_network}")
 
@@ -155,7 +178,7 @@ class NFTAvatarManager:
                 image_hash=avatar_hash,
                 avatar_hash=avatar_hash,
                 creator_id=user_id,
-                creation_date=datetime.now().isoformat(),
+                creation_date=datetime.now(timezone.utc).isoformat(),
                 attributes=metadata,
                 ipfs_cid=ipfs_cid,
                 contract_address=self.contract_address
@@ -197,13 +220,13 @@ class NFTAvatarManager:
             if not self.ipfs_client:
                 await self.initialize_blockchain()
 
-            with open(file_path, 'rb') as f:
+            with open(file_path, 'rb') as f:  # noqa: ASYNC230
                 # IPFSにファイルを追加
                 result = self.ipfs_client.add(f.read())
 
                 if isinstance(result, dict) and 'Hash' in result:
                     return result['Hash']
-                elif isinstance(result, list) and len(result) > 0:
+                if isinstance(result, list) and len(result) > 0:
                     return result[0]['Hash']
 
                 raise ValueError("Failed to get IPFS hash from upload result")
@@ -226,7 +249,7 @@ class NFTAvatarManager:
 
             if isinstance(result, dict) and 'Hash' in result:
                 return result['Hash']
-            elif isinstance(result, list) and len(result) > 0:
+            if isinstance(result, list) and len(result) > 0:
                 return result[0]['Hash']
 
             raise ValueError("Failed to get IPFS hash from metadata upload")
@@ -314,12 +337,12 @@ class NFTAvatarManager:
             "tx_hash": tx_hash,
             "ipfs_cid": nft_metadata.ipfs_cid,
             "metadata": asdict(nft_metadata),
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
 
         # JSONファイルとして保存
         record_file = self.nft_data_dir / f"nft_{nft_metadata.avatar_hash}.json"
-        with open(record_file, 'w', encoding='utf-8') as f:
+        with open(record_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(nft_record, f, ensure_ascii=False, indent=2)
 
         logger.info(f"NFT mint record saved: {record_file}")
@@ -346,16 +369,13 @@ class NFTAvatarManager:
             if not record_file.exists():
                 return False
 
-            with open(record_file, 'r', encoding='utf-8') as f:
+            with open(record_file, encoding='utf-8') as f:  # noqa: ASYNC230
                 nft_record = json.load(f)
 
             # ブロックチェーンで所有権を確認（実際の実装では）
             # ここでは記録ファイルの情報で簡易検証
             recorded_address = nft_record.get("owner_address")
-            if recorded_address and recorded_address.lower() == user_address.lower():
-                return True
-
-            return False
+            return bool(recorded_address and recorded_address.lower() == user_address.lower())
 
         except Exception as e:
             logger.error(f"Avatar ownership verification failed: {e}")
@@ -370,7 +390,7 @@ class NFTAvatarManager:
             # NFT記録ディレクトリからユーザーのNFTを検索
             for nft_file in self.nft_data_dir.glob("nft_*.json"):
                 try:
-                    with open(nft_file, 'r', encoding='utf-8') as f:
+                    with open(nft_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         nft_record = json.load(f)
 
                     if nft_record.get("user_id") == user_id:
@@ -457,7 +477,7 @@ class NFTAvatarManager:
             record_file = self.nft_data_dir / f"nft_{avatar_hash}.json"
 
             if record_file.exists():
-                with open(record_file, 'r', encoding='utf-8') as f:
+                with open(record_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     nft_record = json.load(f)
 
                 # 転送情報を追加
@@ -465,12 +485,12 @@ class NFTAvatarManager:
                 nft_record["transfer_history"].append({
                     "to_address": to_address,
                     "tx_hash": tx_hash,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 })
 
                 nft_record["owner_address"] = to_address
 
-                with open(record_file, 'w', encoding='utf-8') as f:
+                with open(record_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                     json.dump(nft_record, f, ensure_ascii=False, indent=2)
 
                 logger.info(f"NFT transfer record updated: {avatar_hash}")
@@ -480,6 +500,7 @@ class NFTAvatarManager:
 
 # グローバルインスタンス
 _nft_manager = None
+_nft_manager_lock = asyncio.Lock()
 
 async def get_nft_manager() -> NFTAvatarManager:
     """NFTマネージャーのインスタンスを取得"""
@@ -487,7 +508,9 @@ async def get_nft_manager() -> NFTAvatarManager:
     global _nft_manager
 
     if _nft_manager is None:
-        _nft_manager = NFTAvatarManager()
-        await _nft_manager.initialize_blockchain()
+        async with _nft_manager_lock:
+            if _nft_manager is None:
+                _nft_manager = NFTAvatarManager()
+                await _nft_manager.initialize_blockchain()
 
     return _nft_manager

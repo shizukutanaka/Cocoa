@@ -1,0 +1,760 @@
+<title>Cocoa 機能過不足監査レポート</title>
+<style>
+  :root {
+    --ink: #1c1b18;
+    --ink-soft: #4a473f;
+    --paper: #f6f4ef;
+    --paper-raised: #fcfbf8;
+    --accent: #8b5a2b;
+    --accent-soft: #c8956a;
+    --deficit: #b23a2e;
+    --deficit-bg: #f7e9e6;
+    --surplus: #3f5c7a;
+    --surplus-bg: #e9eef3;
+    --resolved: #4b7a51;
+    --resolved-bg: #eaf1e9;
+    --line: #dedacf;
+    --line-strong: #c9c3b3;
+    --serif: Iowan Old Style, Palatino Linotype, Palatino, Georgia, "Hiragino Mincho ProN", "Yu Mincho", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Cascadia Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent); }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .page {
+    max-width: 840px;
+    margin: 0 auto;
+    padding: 4rem 1.75rem 6rem;
+  }
+
+  /* ---------- Masthead ---------- */
+
+  .masthead {
+    border-bottom: 3px solid var(--ink);
+    padding-bottom: 1.75rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .masthead .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    display: flex;
+    gap: 0.6em;
+    flex-wrap: wrap;
+    margin-bottom: 0.9rem;
+  }
+
+  .masthead .eyebrow .branch {
+    background: var(--paper-raised);
+    border: 1px solid var(--line-strong);
+    border-radius: 3px;
+    padding: 0.1em 0.5em;
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.9rem, 4vw, 2.5rem);
+    line-height: 1.15;
+    margin: 0 0 0.6rem;
+    text-wrap: balance;
+  }
+
+  .masthead .dek {
+    font-size: 1.05rem;
+    color: var(--ink-soft);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  /* ---------- Stat strip ---------- */
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line-strong);
+    border: 1px solid var(--line-strong);
+    margin-bottom: 3rem;
+  }
+
+  .stat {
+    background: var(--paper-raised);
+    padding: 1.1rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .stat .n {
+    font-family: var(--serif);
+    font-variant-numeric: tabular-nums;
+    font-size: 1.9rem;
+    line-height: 1;
+    font-weight: 600;
+  }
+
+  .stat.is-resolved .n { color: var(--resolved); }
+  .stat.is-deficit .n { color: var(--deficit); }
+  .stat.is-surplus .n { color: var(--surplus); }
+
+  .stat .l {
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+  }
+
+  @media (max-width: 560px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ---------- Section structure ---------- */
+
+  section { margin-bottom: 3.25rem; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    border-bottom: 1px solid var(--line-strong);
+    padding-bottom: 0.6rem;
+    margin-bottom: 1.4rem;
+  }
+
+  .section-head .num {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    color: var(--accent);
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  h3 {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+  }
+
+  p { margin: 0 0 1rem; }
+  p:last-child { margin-bottom: 0; }
+
+  .lede {
+    color: var(--ink-soft);
+    max-width: 66ch;
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0.05em 0.35em;
+  }
+
+  /* ---------- Chip ---------- */
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 0.22em 0.6em;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .chip.resolved { background: var(--resolved-bg); color: var(--resolved); }
+  .chip.deficit-high { background: var(--deficit-bg); color: var(--deficit); }
+  .chip.deficit-med { background: #f5ede0; color: #8a5a1f; }
+  .chip.deficit-low { background: var(--surplus-bg); color: var(--surplus); }
+  .chip.surplus { background: var(--surplus-bg); color: var(--surplus); }
+
+  /* ---------- Resolved table ---------- */
+
+  .resolved-list {
+    border-top: 1px solid var(--line);
+  }
+
+  .resolved-row {
+    display: grid;
+    grid-template-columns: 2.2rem 1fr auto;
+    gap: 1rem;
+    align-items: baseline;
+    padding: 0.85rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .resolved-row .idx {
+    font-family: var(--mono);
+    color: var(--line-strong);
+    font-size: 0.85rem;
+  }
+
+  .resolved-row .feature {
+    font-weight: 600;
+  }
+
+  .resolved-row .commit {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--resolved);
+    background: var(--resolved-bg);
+    padding: 0.15em 0.5em;
+    border-radius: 3px;
+  }
+
+  /* ---------- Finding cards ---------- */
+
+  .finding {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--deficit);
+    padding: 1.3rem 1.5rem;
+    margin-bottom: 1.1rem;
+  }
+
+  .finding.surplus-card { border-left-color: var(--surplus); }
+
+  .finding-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.7rem;
+  }
+
+  .finding-head h3 { margin: 0; }
+
+  .evidence {
+    font-family: var(--mono);
+    font-size: 0.83rem;
+    line-height: 1.6;
+    color: var(--ink-soft);
+    margin-top: 0.8rem;
+    padding-top: 0.8rem;
+    border-top: 1px dashed var(--line-strong);
+  }
+
+  .evidence .k {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  pre {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.55;
+    background: var(--ink);
+    color: #e8e4d8;
+    padding: 1rem 1.1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0.8rem 0 0;
+  }
+
+  .overflow-wrap { overflow-x: auto; }
+
+  /* ---------- Guard table ---------- */
+
+  table.guard {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+  }
+
+  table.guard th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    border-bottom: 2px solid var(--ink);
+    padding: 0.5rem 0.75rem 0.5rem 0;
+  }
+
+  table.guard td {
+    padding: 0.75rem 0.75rem 0.75rem 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  table.guard td:first-child { font-weight: 600; width: 30%; }
+  table.guard td.looks { color: var(--deficit); }
+  table.guard td.actually { color: var(--resolved); }
+
+  /* ---------- Roadmap ---------- */
+
+  .roadmap {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: step;
+    border: 1px solid var(--line);
+    background: var(--paper-raised);
+  }
+
+  .roadmap li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 2.75rem 1fr;
+    gap: 1rem;
+    padding: 1rem 1.3rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .roadmap li:last-child { border-bottom: none; }
+
+  .roadmap li::before {
+    content: counter(step);
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.3rem;
+    color: var(--accent-soft);
+  }
+
+  .roadmap .why {
+    color: var(--ink-soft);
+    font-size: 0.9rem;
+  }
+
+  /* ---------- Footer ---------- */
+
+  footer {
+    margin-top: 3.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line-strong);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span class="branch">branch: claude/deepresearch-ultrathink-improvement-MpLA3</span>
+      <span class="branch">base: 0f9a100</span>
+    </div>
+    <h1>Cocoa 機能過不足監査レポート</h1>
+    <p class="dek">
+      コードレベルの検証に基づく機能の「不足」と「過剰」の選別リスト。
+      各主張には証拠（ファイルパス・シンボル名・検証コマンド）を併記し、
+      この文書単体で再検証と着手ができるように書かれている。
+    </p>
+  </header>
+
+  <div class="stats">
+    <div class="stat is-resolved">
+      <span class="n">8</span>
+      <span class="l">不足・対応済み</span>
+    </div>
+    <div class="stat is-deficit">
+      <span class="n">6</span>
+      <span class="l">不足・未対応</span>
+    </div>
+    <div class="stat is-surplus">
+      <span class="n">60<span style="font-size:1rem;">/95</span></span>
+      <span class="l">到達不能モジュール</span>
+    </div>
+    <div class="stat is-surplus">
+      <span class="n">32<span style="font-size:1rem;">%</span></span>
+      <span class="l">死コード向けテスト</span>
+    </div>
+  </div>
+
+  <section id="premise">
+    <div class="section-head">
+      <span class="num">01</span>
+      <h2>前提: 製品の実像</h2>
+    </div>
+    <p class="lede">着手前に誤解しやすい 2 点を先に固定する。</p>
+
+    <div class="finding" style="border-left-color: var(--ink-soft);">
+      <h3>製品の実体は「アバターパラメータの取引所」</h3>
+      <p>
+        3D モデルファイルの配布基盤ではない。<code>main/avatar_marketplace.py</code> の
+        <code>MarketplaceListing</code> dataclass にファイル/モデル URL に相当するフィールドは
+        存在せず（<code>thumbnail_url</code> のみ）、購入処理 <code>download()</code> が買い手に
+        返すのは <code>parameters</code>（dict）である。<code>README.md</code> 自身が
+        "Preset Management: Large-scale parameter handling" と宣言しており、
+        <strong>これは欠陥ではなく意図されたスコープ</strong>（アセット著作権の複雑さを回避する設計）
+        と判断する。
+      </p>
+    </div>
+
+    <div class="finding" style="border-left-color: var(--ink-soft);">
+      <h3>実行形態は単一 FastAPI モノリス</h3>
+      <p>
+        <code>main/api_server.py</code>（約 5,100 行・221 エンドポイント）が全 API を提供し、
+        <code>main/main.py</code> は tkinter デスクトップ GUI ランチャー。
+        マイクロサービス分割はコード上に存在しない。
+      </p>
+    </div>
+  </section>
+
+  <section id="resolved">
+    <div class="section-head">
+      <span class="num">02</span>
+      <h2>不足 — 対応済み</h2>
+    </div>
+    <p class="lede">本ブランチのコミットで解消済みの欠落機能。</p>
+
+    <div class="resolved-list">
+      <div class="resolved-row">
+        <span class="idx">01</span>
+        <span class="feature">2FA の永続化層<br><span style="font-weight:400;color:var(--ink-soft);font-size:0.88rem;"><code>TwoFactorAuthService</code> が <code>db_manager=None</code> で構築され、setup/enable/verify/status が全て見せかけの no-op だった</span></span>
+        <span class="commit">2c6f0fd</span>
+      </div>
+      <div class="resolved-row">
+        <span class="idx">02</span>
+        <span class="feature">バックアップコードの使い捨て化<br><span style="font-weight:400;color:var(--ink-soft);font-size:0.88rem;">単回使用の消費機構が無く、漏洩コードが無限再利用可能だった</span></span>
+        <span class="commit">2c6f0fd</span>
+      </div>
+      <div class="resolved-row">
+        <span class="idx">03</span>
+        <span class="feature">新規ユーザーのクレジット入手経路<br><span style="font-weight:400;color:var(--ink-soft);font-size:0.88rem;">初期残高 0 のまま入手手段が無く、永久に購入不能だった。登録時に 50 クレジット付与で暫定対応</span></span>
+        <span class="commit">0f9a100</span>
+      </div>
+      <div class="resolved-row">
+        <span class="idx">04</span>
+        <span class="feature">コミッション紛争のエスカレーション<br><span style="font-weight:400;color:var(--ink-soft);font-size:0.88rem;"><code>moderation_queue.VALID_KINDS</code> に <code>commission_dispute</code> が宣言済みだが生成手段が無かった</span></span>
+        <span class="commit">b86c334</span>
+      </div>
+      <div class="resolved-row">
+        <span class="idx">05</span>
+        <span class="feature">通報→統合モデレーションキューの配線<br><span style="font-weight:400;color:var(--ink-soft);font-size:0.88rem;">キューは完成・テスト済みだったが、通報・申請のどれも <code>enqueue()</code> を呼んでいなかった</span></span>
+        <span class="commit">2a80aaf</span>
+      </div>
+      <div class="resolved-row">
+        <span class="idx">06</span>
+        <span class="feature">コレクションのライブ状態表示<br><span style="font-weight:400;color:var(--ink-soft);font-size:0.88rem;"><code>item_ids</code> の生配列のみで N+1 呼び出しが必要だった</span></span>
+        <span class="commit">a4c5528</span>
+      </div>
+      <div class="resolved-row">
+        <span class="idx">07</span>
+        <span class="feature">ビルド可能なデプロイ構成<br><span style="font-weight:400;color:var(--ink-soft);font-size:0.88rem;">実在しない 5 つのサービス別 Dockerfile を参照しビルド不能だった</span></span>
+        <span class="commit">0f9a100</span>
+      </div>
+      <div class="resolved-row">
+        <span class="idx">08</span>
+        <span class="feature"><code>qrcode</code> 依存の宣言と障害分離<br><span style="font-weight:400;color:var(--ink-soft);font-size:0.88rem;">未宣言パッケージに無条件依存し、未インストール環境で 2FA の入口が全滅していた</span></span>
+        <span class="commit">2c6f0fd</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="deficit">
+    <div class="section-head">
+      <span class="num">03</span>
+      <h2>不足 — 未対応</h2>
+    </div>
+    <p class="lede">
+      いずれも「一行修正」ではなく製品・法務レベルの判断を要するため、実装せず所見として残す。優先度順。
+    </p>
+
+    <div class="finding">
+      <div class="finding-head">
+        <h3>3-1. クレジット購入フロー（実通貨 → クレジット）が存在しない</h3>
+        <span class="chip deficit-high">優先度: 最高</span>
+      </div>
+      <p>
+        Stripe 連携はサブスクリプション課金専用（<code>mode == "subscription"</code>）。
+        全 webhook ハンドラを確認したが、どれも <code>marketplace_store.credit()</code> を呼ばない。
+        <code>credit()</code> の全呼び出し元はギフトカード還元・紹介ボーナス・返金・サインアップボーナスの
+        4 系統のみで、実通貨からの入金経路がゼロ。サインアップボーナスを使い切ったユーザーに
+        追加入手手段が無く、有償マーケットプレイスが商売として成立しない。
+      </p>
+      <div class="evidence">
+        <span class="k">証拠:</span> <code>main/billing_service.py</code> の <code>_WEBHOOK_HANDLERS</code> 登録先を全確認<br>
+        <span class="k">必要な実装:</span> Stripe one-time payment + webhook + 冪等性処理（<code>main/idempotency.py</code> 再利用可）
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-head">
+        <h3>3-2. クリエイター売上の現金化が存在しない</h3>
+        <span class="chip deficit-high">優先度: 高</span>
+      </div>
+      <p>
+        Stripe Connect・payout・transfer に類する機構が皆無。3-1 と合わせ、クレジット経済は
+        入口・出口とも実通貨と断絶した閉鎖系。クリエイターは売上をプラットフォーム内でしか使えない。
+        資金移動業などの法規制判断を伴うため、技術実装より先にビジネス判断が必要。
+      </p>
+      <div class="evidence">
+        <span class="k">証拠:</span> <code>grep -rin "connect\|payout\|transfer\|cashout" main/billing_service.py</code> → 送金関連ヒットなし
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-head">
+        <h3>3-3. アカウント削除のカスケードが存在しない</h3>
+        <span class="chip deficit-high">優先度: 高（法的リスク）</span>
+      </div>
+      <p>
+        <code>auth_manager.delete_user()</code> は auth 内部の 3 インデックスから pop するのみ。
+        マーケットプレイス残高・取引台帳・公開リスティング・カート・ウィッシュリスト・コレクション・
+        コミッション・紹介コード・会員ティア・ライセンスキー・<strong>2FA 秘密鍵とバックアップコード</strong>
+        が全て残存する。さらに管理者専用エンドポイントのみで、ユーザー自身のセルフ削除 API が
+        存在しない — GDPR / CCPA の消去権に相当する機能の欠落。
+      </p>
+      <div class="evidence">
+        <span class="k">証拠:</span> <code>main/auth_manager.py</code> の <code>delete_user()</code>（407 行付近）<br>
+        <span class="k">必要な実装:</span> 10 以上のストアを横断する削除 or 匿名化。会計上の保持義務の設計判断を伴う
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-head">
+        <h3>3-4. ビジネスデータの永続化が存在しない</h3>
+        <span class="chip deficit-high">優先度: 高</span>
+      </div>
+      <p>
+        マーケットプレイス・カート・ギフトカード・コミッション・モデレーション・会員ティア・
+        ライセンス・紹介・2FA など、事実上すべてのビジネス状態がプロセス内 Python dict のみに
+        存在する。PostgreSQL / Redis の基盤は存在するが、<code>api_server.py</code> からの
+        実利用は各 2 箇所のみ。プロセス再起動で全データ消失し、水平スケール不可。
+      </p>
+      <div class="evidence">
+        <span class="k">証拠:</span> <code>grep -c "get_database_service()\|get_cache_manager()" main/api_server.py</code><br>
+        <span class="k">注意:</span> 全ストアが同一のシングルトン + Lock パターンのため機械的に移行しやすい
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-head">
+        <h3>3-5. ログイン時に 2FA が強制されない</h3>
+        <span class="chip deficit-med">優先度: 中</span>
+      </div>
+      <p>
+        <code>auth_manager.login()</code> は 2FA の有効状態を一切参照しない。永続化は機能する
+        ようになったが、有効化してもログインが 2 要素にならない。<code>/api/2fa/*</code> は
+        独立 API として動くだけ。<code>auth_manager.py</code> は 193 テストを持つため
+        慎重な変更が必要。
+      </p>
+      <div class="evidence">
+        <span class="k">証拠:</span> <code>grep -in "2fa\|totp\|two_factor" main/auth_manager.py</code> → 0 件
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-head">
+        <h3>3-6. Prometheus の実スクレイプ対象が無い</h3>
+        <span class="chip deficit-low">優先度: 低</span>
+      </div>
+      <p>
+        <code>/metrics</code> は JSON レスポンス + 認証必須で、Prometheus のテキスト形式ではない。
+        本物のエクスポーターは独立プロセス設計で API サーバーに未統合。
+      </p>
+      <div class="evidence">
+        <span class="k">証拠:</span> <code>docker/prometheus.yml</code> 内のコメント参照
+      </div>
+    </div>
+  </section>
+
+  <section id="surplus">
+    <div class="section-head">
+      <span class="num">04</span>
+      <h2>過剰 — 死んでいる / 余剰な機能</h2>
+    </div>
+
+    <div class="finding surplus-card">
+      <div class="finding-head">
+        <h3>4-1. 到達不能モジュール 60/95（63%）</h3>
+        <span class="chip surplus">規模: 大</span>
+      </div>
+      <p>
+        <code>main/</code> 配下 95 モジュールについて、2 つの実エントリポイント
+        （<code>api_server.py</code> と <code>main.py</code>）からの import 推移閉包を BFS で
+        計算した結果、60 モジュールがどちらからも到達不能。BCI・ブロックチェーン監査・NFT・
+        メタバース統合・エッジ AI・音声クローンなどの野心的 R&D 群がこれに含まれる。
+      </p>
+      <p style="color:var(--ink-soft); font-size:0.9rem;">
+        注意: この BFS は静的 import のみを見る。subprocess 経由で起動する GUI ツールや
+        <code>__main__</code> を持つ独立 CLI は「到達不能」と出ても実際には使われうる
+        （下の 5 節参照）。60 件の一括削除は不可、個別精査が必要。
+      </p>
+      <div class="evidence overflow-wrap">
+        <span class="k">再検証用スクリプト（リポジトリルートで実行）:</span>
+        <pre>import re, glob, os
+def local_imports(path):
+    src = open(path, encoding="utf-8", errors="ignore").read()
+    mods = set()
+    for m in re.finditer(r"from \.(\w+) import", src): mods.add(m.group(1))
+    for m in re.finditer(r"^\s*import (\w+)$", src, re.MULTILINE): mods.add(m.group(1))
+    for m in re.finditer(r"from (\w+) import", src): mods.add(m.group(1))
+    return mods
+files = {os.path.basename(p)[:-3]: p for p in glob.glob("main/*.py")}
+graph = {n: local_imports(p) & set(files) for n, p in files.items()}
+def reach(root):
+    seen, stack = {root}, [root]
+    while stack:
+        for d in graph.get(stack.pop(), set()):
+            if d not in seen: seen.add(d); stack.append(d)
+    return seen
+dead = sorted(set(files) - reach("api_server") - reach("main"))
+print(len(dead), dead)</pre>
+      </div>
+    </div>
+
+    <div class="finding surplus-card">
+      <div class="finding-head">
+        <h3>4-2. 置換済みの残骸 3 ファイル</h3>
+        <span class="chip surplus">削除推奨・未実行</span>
+      </div>
+      <p>
+        <code>main/preset_manager.py</code>・<code>main/preset_diff_core.py</code>・
+        <code>main/preset_schema.py</code>（+ 対応するテスト 3 ファイル）は最も厳格な基準で
+        「死んでいる」ことを確認済み: importer ゼロ、<code>__main__</code> エントリポイント無し、
+        機能は <code>database_manager.create_avatar_preset(user_id, name, parameters)</code> が
+        <code>/api/avatars</code> で実際に稼働中で置換済み。旧実装には <code>user_id</code> の概念も
+        <code>threading.Lock</code> も無く、仮に API に配線すればクロスユーザー脆弱性を生む代物。
+      </p>
+      <div class="evidence overflow-wrap">
+        <span class="k">削除コマンド（エージェント実行環境の権限制約でブロック中）:</span>
+        <pre>git rm main/preset_manager.py main/preset_diff_core.py main/preset_schema.py \
+       tests/test_preset_manager.py tests/test_preset_diff_core.py tests/test_preset_schema.py
+# tests/run_safe.py から対応する3行の削除も忘れずに</pre>
+      </div>
+    </div>
+
+    <div class="finding surplus-card">
+      <div class="finding-head">
+        <h3>4-3. 死コードに対するテスト投資</h3>
+        <span class="chip surplus">812 関数 / 8,333 行</span>
+      </div>
+      <p>
+        到達不能な 60 モジュールのうち 58 個にテストファイルが存在し、その合計はテストスイート
+        全体の約 32%。CI 実行のたびに、本番でどのユーザーも通れない経路を検証し続けている。
+        テスト自体は品質が高く「将来配線されたときの保険」の価値はあるため、
+        4-1 の個別精査とセットで判断すべき。
+      </p>
+    </div>
+
+    <div class="finding surplus-card" style="border-left-color: var(--resolved); opacity: 0.75;">
+      <div class="finding-head">
+        <h3>4-4. 虚構の 5 マイクロサービス docker-compose</h3>
+        <span class="chip resolved">解消済み</span>
+      </div>
+      <p>実在しない 5 つの Dockerfile を参照する構成だったが、<code>0f9a100</code> で実態（単一 api サービス）に修正済み。</p>
+    </div>
+  </section>
+
+  <section id="guard">
+    <div class="section-head">
+      <span class="num">05</span>
+      <h2>過剰に見えて正当なもの</h2>
+    </div>
+    <p class="lede">将来の監査者が誤って「削除対象」と判定しないための注記。</p>
+
+    <div class="overflow-wrap">
+      <table class="guard">
+        <thead>
+          <tr><th>対象</th><th>一見</th><th>実際</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>3D モデル配布機構の不在</td>
+            <td class="looks">重大な欠落</td>
+            <td class="actually">意図的スコープ。README が宣言済み</td>
+          </tr>
+          <tr>
+            <td><code>preset_history_*</code> 系 5 ファイル</td>
+            <td class="looks">preset 残骸の仲間</td>
+            <td class="actually"><code>__main__</code> を持つ独立 CLI ツール。削除不可</td>
+          </tr>
+          <tr>
+            <td><code>billing_service</code> と <code>membership_manager</code> の二重「ティア」</td>
+            <td class="looks">概念の重複実装</td>
+            <td class="actually">別軸（課金プラン vs ロイヤルティ）。統合不要</td>
+          </tr>
+          <tr>
+            <td>クレジット台帳（<code>_credit_ledger</code>）</td>
+            <td class="looks">in-memory で脆弱</td>
+            <td class="actually">append 専用 + 自己整合性検証つき。設計は健全</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="roadmap">
+    <div class="section-head">
+      <span class="num">06</span>
+      <h2>推奨着手順</h2>
+    </div>
+
+    <ol class="roadmap">
+      <li>
+        <div>
+          <strong>クレジット購入フロー（3-1）</strong>
+          <div class="why">有償マーケットプレイスが商売として成立する最低条件</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>アカウント削除カスケード（3-3）</strong>
+          <div class="why">法的リスクの解消</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>永続化（3-4）</strong>
+          <div class="why">1・2 の成果を再起動で失わないための土台。順序を上げる判断もあり</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>死コード削除</strong>
+          <div class="why">4-2 の 3 ファイルは即実行可能。残り 57 モジュールは個別精査後に一括判断</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>ログイン 2FA 強制（3-5）</strong>
+          <div class="why">セキュリティ完成度の引き上げ</div>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <footer>
+    Cocoa 機能過不足監査レポート — 対象コミット 0f9a100 / 文書コミット cabf165<br>
+    全文は <code>FEATURE_AUDIT.md</code>（リポジトリ直下）を参照
+  </footer>
+
+</div>

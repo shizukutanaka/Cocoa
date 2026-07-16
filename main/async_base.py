@@ -9,10 +9,11 @@
 """
 
 import asyncio
-from typing import Callable, List, Optional, TypeVar, Any, Coroutine
 import logging
+import time
 from contextlib import asynccontextmanager
 from functools import wraps
+from typing import Any, Callable, Coroutine, List, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +54,12 @@ class AsyncBatch:
 
             try:
                 # 非ブロッキング: asyncio.gather を使用して並行実行
-                batch_results = await asyncio.gather(
-                    *[processor(item) for item in batch],
-                    return_exceptions=True  # 個別エラーをキャッチ
+                batch_results = await asyncio.wait_for(
+                    asyncio.gather(
+                        *[processor(item) for item in batch],
+                        return_exceptions=True  # 個別エラーをキャッチ
+                    ),
+                    timeout=self.timeout,
                 )
 
                 # エラーをログに記録
@@ -103,8 +107,6 @@ class AsyncPool:
         tasks: List[Callable[[], Coroutine[Any, Any, Any]]]
     ) -> List[Any]:
         """複数のタスクを制限された並行性で実行"""
-        results = []
-
         async def run_with_limit(task):
             async with self.connection():
                 try:
@@ -113,12 +115,10 @@ class AsyncPool:
                     logger.error(f"Task timeout after {self.timeout}s")
                     raise
 
-        results = await asyncio.gather(
+        return await asyncio.gather(
             *[run_with_limit(task) for task in tasks],
             return_exceptions=True
         )
-
-        return results
 
 
 def async_timeout(seconds: float):
@@ -169,22 +169,20 @@ class AsyncCache:
         self._timestamps: dict = {}
 
     async def get(self, key: str) -> Optional[Any]:
-        """キャッシュから値を取得"""
+        """キャッシュから値を取得。ttl <= 0 のとき TTL 無効（永続）。"""
         if key in self._cache:
-            import time
+            if self.ttl <= 0:
+                return self._cache[key]
             elapsed = time.time() - self._timestamps[key]
             if elapsed < self.ttl:
                 return self._cache[key]
-            else:
-                # TTL切れ
-                del self._cache[key]
-                del self._timestamps[key]
-
+            # TTL切れ
+            del self._cache[key]
+            del self._timestamps[key]
         return None
 
     async def set(self, key: str, value: Any) -> None:
         """キャッシュに値を設定"""
-        import time
         self._cache[key] = value
         self._timestamps[key] = time.time()
 
@@ -213,17 +211,16 @@ async def fetch_multiple_sources(urls: List[str]) -> List[str]:
 
     async def fetch(url: str) -> str:
         # 非ブロッキング: aiohttp（同期リクエストライブラリは使わない）
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                return await resp.text()
+        async with aiohttp.ClientSession() as session, \
+                session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            return await resp.text()
 
     try:
         # 全URLを並行処理
-        results = await asyncio.wait_for(
+        return await asyncio.wait_for(
             asyncio.gather(*[fetch(url) for url in urls], return_exceptions=True),
             timeout=30.0
         )
-        return results
     except asyncio.TimeoutError:
         logger.error("Fetching multiple sources exceeded timeout")
         raise

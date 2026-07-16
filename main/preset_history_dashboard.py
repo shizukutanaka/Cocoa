@@ -1,7 +1,8 @@
+from collections import Counter
+from datetime import datetime
+
 from flask import Flask, render_template_string, request
 from preset_change_history import PresetChangeHistory
-from datetime import datetime
-from collections import Counter
 
 app = Flask(__name__)
 

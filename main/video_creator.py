@@ -5,18 +5,32 @@ AIアバターを使用した動画自動生成システム
 """
 
 import asyncio
+import time
 import logging
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
-from dataclasses import dataclass
-from datetime import datetime
 
-from PIL import Image
-import numpy as np
-from moviepy.editor import AudioFileClip, CompositeVideoClip, TextClip
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
-from .ai_avatar_generator import get_ai_avatar_generator, AvatarGenerationRequest
-from .integrated_security import get_security_manager
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+try:
+    from moviepy.editor import AudioFileClip, CompositeVideoClip, TextClip
+    MOVIEPY_AVAILABLE = True
+except ImportError:
+    MOVIEPY_AVAILABLE = False
+
+from ai_avatar_generator import AvatarGenerationRequest, get_ai_avatar_generator
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -89,9 +103,9 @@ class VoiceGenerator:
 
             # 音声ファイル生成
             audio_dir = Path("data/temp_audio")
-            audio_dir.mkdir(parents=True, exist_ok=True)
+            audio_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
-            audio_filename = f"voice_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+            audio_filename = f"voice_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.wav"
             audio_path = audio_dir / audio_filename
 
             self.tts_engine.save_to_file(text, str(audio_path))
@@ -113,9 +127,8 @@ class VoiceGenerator:
             with wave.open(audio_path, 'rb') as wav_file:
                 frames = wav_file.getnframes()
                 rate = wav_file.getframerate()
-                duration = frames / float(rate)
-                return duration
-        except (OSError, IOError, wave.Error) as e:
+                return frames / float(rate)
+        except (OSError, wave.Error) as e:
             # フォールバック: 文字数ベースの推定
             logger.warning(f"Failed to read audio duration from {audio_path}: {e}")
             return len(audio_path) * 0.1  # 簡易的な推定
@@ -156,7 +169,7 @@ class VideoCreator:
         Returns:
             作成結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # 初期化チェック
@@ -194,12 +207,12 @@ class VideoCreator:
                     "avatar_style": request.avatar_style,
                     "voice_settings": request.voice_settings,
                     "video_settings": request.video_settings,
-                    "created_at": datetime.now().isoformat()
+                    "created_at": datetime.now(timezone.utc).isoformat()
                 }
             )
 
             # 作成時間を記録
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
             processed_result.creation_time = end_time - start_time
 
             # 監査ログ
@@ -212,7 +225,7 @@ class VideoCreator:
 
         except Exception as e:
             logger.error(f"Video creation failed: {e}")
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
 
             # エラー時のクリーンアップ
             await self._cleanup_temp_files([])
@@ -338,7 +351,7 @@ class VideoCreator:
             audio_clip = AudioFileClip(audio_path)
 
             # 背景音楽追加（オプション）
-            if request.background_music and Path(request.background_music).exists():
+            if request.background_music and Path(request.background_music).exists():  # noqa: ASYNC240
                 bg_music = AudioFileClip(request.background_music).set_duration(audio_clip.duration)
                 bg_music = bg_music.volumex(0.3)  # ボリュームを下げる
                 audio_clip = CompositeVideoClip([audio_clip, bg_music])
@@ -349,7 +362,7 @@ class VideoCreator:
             final_video = final_video.set_duration(audio_clip.duration)
 
             # 出力ファイルパス
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             output_filename = f"avatar_video_{timestamp}.{request.output_format}"
             output_path = self.output_dir / output_filename
 
@@ -393,7 +406,7 @@ class VideoCreator:
             logger.warning(f"Duration calculation failed: {e}")
             # フォールバック: 等分
             default_duration = 2.0
-            return {sentence: default_duration for sentence in sentences}
+            return dict.fromkeys(sentences, default_duration)
 
     def _create_avatar_clip(self, avatar_path: str, duration: float, width: int, height: int):
         """アバター画像から動画クリップを作成"""
@@ -426,9 +439,7 @@ class VideoCreator:
                 return frame
 
             clip = ColorClip(size=(width, height), color=(0,0,0), duration=duration)
-            clip = clip.fl(make_frame)
-
-            return clip
+            return clip.fl(make_frame)
 
         except Exception as e:
             logger.error(f"Avatar clip creation failed: {e}")
@@ -488,7 +499,7 @@ class VideoCreator:
         """デフォルトのアバター画像を取得"""
         # スタイルに応じたデフォルト画像を返す
         default_dir = Path("data/default_avatars")
-        default_dir.mkdir(parents=True, exist_ok=True)
+        default_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
         default_path = default_dir / f"default_{style}.png"
 
@@ -545,8 +556,8 @@ class VideoCreator:
 
             # temp_audio内の古いファイルを削除
             audio_dir = Path("data/temp_audio")
-            if audio_dir.exists():
-                for file_path in audio_dir.glob("*"):
+            if audio_dir.exists():  # noqa: ASYNC240
+                for file_path in audio_dir.glob("*"):  # noqa: ASYNC240
                     if str(file_path) not in keep_set:
                         try:
                             file_path.unlink()
@@ -566,13 +577,16 @@ class VideoCreator:
 
 # グローバルインスタンス管理
 _video_creator_instance = None
+_video_creator_instance_lock = asyncio.Lock()
 
 async def get_video_creator() -> VideoCreator:
     """動画作成器のインスタンスを取得"""
     global _video_creator_instance
 
     if _video_creator_instance is None:
-        _video_creator_instance = VideoCreator()
-        await _video_creator_instance.initialize()
+        async with _video_creator_instance_lock:
+            if _video_creator_instance is None:
+                _video_creator_instance = VideoCreator()
+                await _video_creator_instance.initialize()
 
     return _video_creator_instance

@@ -14,13 +14,14 @@ Enterprise Secret Management System
 - シークレット管理ソリューションの使用を推奨
 """
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from enum import Enum
-from typing import Optional, List
-import os
 import json
 import logging
+import os
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from enum import Enum
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,6 @@ class SecretManager(ABC):
         Returns:
             シークレット値
         """
-        pass
 
     @abstractmethod
     def set_secret(self, secret_name: str, secret_value: str) -> bool:
@@ -72,7 +72,6 @@ class SecretManager(ABC):
         Returns:
             成功フラグ
         """
-        pass
 
     @abstractmethod
     def delete_secret(self, secret_name: str) -> bool:
@@ -85,7 +84,6 @@ class SecretManager(ABC):
         Returns:
             成功フラグ
         """
-        pass
 
     @abstractmethod
     def list_secrets(self) -> List[str]:
@@ -95,7 +93,6 @@ class SecretManager(ABC):
         Returns:
             シークレット名のリスト
         """
-        pass
 
     @abstractmethod
     def rotate_secret(self, secret_name: str, new_value: str) -> bool:
@@ -109,7 +106,6 @@ class SecretManager(ABC):
         Returns:
             成功フラグ
         """
-        pass
 
 
 class AWSSecretsManager(SecretManager):
@@ -227,7 +223,7 @@ class AWSSecretsManager(SecretManager):
                 Tags=[
                     {
                         'Key': 'LastRotation',
-                        'Value': json.dumps({'timestamp': str(os.times())})
+                        'Value': json.dumps({'timestamp': datetime.now(timezone.utc).isoformat()})
                     }
                 ]
             )
@@ -365,12 +361,7 @@ class EnvironmentSecretManager(SecretManager):
 
     def list_secrets(self) -> List[str]:
         """シークレット一覧を取得"""
-        # プレフィックスでフィルタリング
-        prefix = "COCOA_"
-        return [
-            key for key in os.environ.keys()
-            if key.startswith(prefix)
-        ]
+        return list(self._secrets.keys())
 
     def rotate_secret(self, secret_name: str, new_value: str) -> bool:
         """シークレットをローテーション"""
@@ -399,7 +390,7 @@ class SecretManagerFactory:
             region = kwargs.get('region', os.getenv('AWS_REGION', 'us-east-1'))
             return AWSSecretsManager(region=region)
 
-        elif provider == SecretProvider.HASHICORP_VAULT:
+        if provider == SecretProvider.HASHICORP_VAULT:
             vault_url = kwargs.get(
                 'vault_url',
                 os.getenv('VAULT_URL', 'http://localhost:8200')
@@ -407,11 +398,10 @@ class SecretManagerFactory:
             token = kwargs.get('token', os.getenv('VAULT_TOKEN'))
             return HashiCorpVaultManager(vault_url=vault_url, token=token)
 
-        elif provider == SecretProvider.ENVIRONMENT:
+        if provider == SecretProvider.ENVIRONMENT:
             return EnvironmentSecretManager()
 
-        else:
-            raise ValueError(f"Unsupported provider: {provider}")
+        raise ValueError(f"Unsupported provider: {provider}")
 
 
 def get_secret_manager(provider: Optional[str] = None) -> SecretManager:
@@ -434,7 +424,12 @@ def get_secret_manager(provider: Optional[str] = None) -> SecretManager:
         'env': SecretProvider.ENVIRONMENT
     }
 
-    provider_enum = provider_map.get(provider.lower(), SecretProvider.ENVIRONMENT)
+    provider_enum = provider_map.get(provider.lower())
+    if provider_enum is None:
+        raise ValueError(
+            f"Unknown secret provider: {provider!r}. "
+            f"Must be one of {list(provider_map.keys())}"
+        )
 
     return SecretManagerFactory.create(provider_enum)
 

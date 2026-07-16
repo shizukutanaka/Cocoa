@@ -3,29 +3,66 @@ Advanced Security System for Cocoa 2025
 ゼロトラストセキュリティとポスト量子暗号を活用した高度なセキュリティシステム
 """
 
-import os
+import asyncio
+import hashlib
 import json
 import logging
-from pathlib import Path
-from typing import Dict, List, Any
-from datetime import datetime
-from dataclasses import dataclass
-import hashlib
+import os
 import secrets
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
-# セキュリティ関連の追加インポート（2025年トレンド対応）
+# 古典暗号 (AEAD/KDF) — ハイブリッド方式の対称鍵部分に使用
 try:
-    from cryptography.hazmat.primitives.asymmetric import dilithium, falcon
     from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-    POST_QUANTUM_AVAILABLE = True
-except ImportError:
-    POST_QUANTUM_AVAILABLE = False
-    logger.warning("Post-quantum cryptography libraries not available")
+    _AEAD_AVAILABLE = True
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
+    _AEAD_AVAILABLE = False
 
-from .integrated_security import get_security_manager
+# 耐量子暗号 (NIST PQC: ML-KEM/ML-DSA) — liboqs (oqs-python) を使用
+try:
+    import oqs  # https://github.com/open-quantum-safe/liboqs-python
+    POST_QUANTUM_AVAILABLE = True
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
+    oqs = None
+    POST_QUANTUM_AVAILABLE = False
+    logger.info(
+        "liboqs (oqs-python) 未インストールのため耐量子機能は無効です。"
+        "NIST FIPS 203/204 準拠の ML-KEM/ML-DSA を使うには liboqs を導入してください。"
+    )
+
+# NIST 標準アルゴリズム (liboqs 名称)
+PQ_SIGN_ALGORITHM = "ML-DSA-65"   # FIPS 204 (旧 Dilithium)
+PQ_KEM_ALGORITHM = "ML-KEM-768"   # FIPS 203 (旧 Kyber)
+# 旧称からの後方互換エイリアス
+_PQ_ALIASES = {
+    "dilithium": PQ_SIGN_ALGORITHM, "ml-dsa": PQ_SIGN_ALGORITHM,
+    "falcon": PQ_SIGN_ALGORITHM,  # FN-DSA(FIPS 206)未確定のため ML-DSA にフォールバック
+    "kyber": PQ_KEM_ALGORITHM, "ml-kem": PQ_KEM_ALGORITHM,
+}
+
+
+def _resolve_pq_alg(name: str) -> str:
+    """旧称(dilithium/kyber 等)を NIST 標準名へ正規化する。"""
+    return _PQ_ALIASES.get(name.lower(), name)
+
+
+def _is_kem_alg(name: str) -> bool:
+    return _resolve_pq_alg(name).upper().startswith("ML-KEM")
+
+
+from integrated_security import get_security_manager
+
 
 @dataclass
 class ZeroTrustContext:
@@ -93,8 +130,8 @@ class AdvancedSecurityManager:
             return
 
         try:
-            # ポスト量子鍵ペアを生成
-            key_algorithms = ["dilithium", "falcon"] if POST_QUANTUM_AVAILABLE else []
+            # 署名(ML-DSA)と鍵カプセル化(ML-KEM)の鍵ペアを生成
+            key_algorithms = [PQ_SIGN_ALGORITHM, PQ_KEM_ALGORITHM] if POST_QUANTUM_AVAILABLE else []
 
             for algorithm in key_algorithms:
                 key_pair = await self._generate_post_quantum_keypair(algorithm)
@@ -110,33 +147,52 @@ class AdvancedSecurityManager:
         """ポスト量子鍵ペアを生成"""
 
         if not POST_QUANTUM_AVAILABLE:
-            raise RuntimeError("Post-quantum cryptography not available")
+            raise RuntimeError("Post-quantum cryptography not available (liboqs not installed)")
 
+        alg = _resolve_pq_alg(algorithm)
         try:
-            if algorithm == "dilithium":
-                # Dilithium鍵ペア生成
-                private_key = dilithium.DilithiumPrivateKey.generate()
-                public_key = private_key.public_key()
-            elif algorithm == "falcon":
-                # Falcon鍵ペア生成
-                private_key = falcon.FalconPrivateKey.generate()
-                public_key = private_key.public_key()
+            if _is_kem_alg(alg):
+                with oqs.KeyEncapsulation(alg) as kem:
+                    public_key = kem.generate_keypair()
+                    private_key = kem.export_secret_key()
             else:
-                raise ValueError(f"Unsupported algorithm: {algorithm}")
-
-            key_id = secrets.token_hex(16)
+                with oqs.Signature(alg) as signer:
+                    public_key = signer.generate_keypair()
+                    private_key = signer.export_secret_key()
 
             return PostQuantumKeyPair(
-                public_key=public_key.public_bytes_raw(),
-                private_key=private_key.private_bytes_raw(),
-                algorithm=algorithm,
-                key_id=key_id,
-                created_at=datetime.now().isoformat()
+                public_key=bytes(public_key),
+                private_key=bytes(private_key),
+                algorithm=alg,
+                key_id=secrets.token_hex(16),
+                created_at=datetime.now(timezone.utc).isoformat()
             )
 
         except Exception as e:
-            logger.error(f"Failed to generate {algorithm} key pair: {e}")
+            logger.error(f"Failed to generate {alg} key pair: {e}")
             raise
+
+    async def sign_with_post_quantum(self, data: bytes, algorithm: str = PQ_SIGN_ALGORITHM) -> bytes:
+        """ML-DSA (FIPS 204) でデータに署名する。"""
+        if not self.post_quantum_enabled:
+            raise RuntimeError("Post-quantum cryptography not enabled")
+        alg = _resolve_pq_alg(algorithm)
+        key_pair = self.post_quantum_keys.get(alg)
+        if not key_pair:
+            raise ValueError(f"No post-quantum signing key for algorithm: {alg}")
+        with oqs.Signature(alg, key_pair.private_key) as signer:
+            return signer.sign(data)
+
+    def verify_post_quantum_signature(
+        self, data: bytes, signature: bytes, public_key: bytes,
+        algorithm: str = PQ_SIGN_ALGORITHM
+    ) -> bool:
+        """ML-DSA (FIPS 204) 署名を検証する。"""
+        if not POST_QUANTUM_AVAILABLE:
+            raise RuntimeError("Post-quantum cryptography not available")
+        alg = _resolve_pq_alg(algorithm)
+        with oqs.Signature(alg) as verifier:
+            return bool(verifier.verify(data, signature, public_key))
 
     async def evaluate_zero_trust_access(
         self,
@@ -266,7 +322,7 @@ class AdvancedSecurityManager:
         risk_score = 0.0
 
         # 時間帯チェック
-        current_hour = datetime.now().hour
+        current_hour = datetime.now(timezone.utc).hour
         if current_hour not in behavioral_pattern.get("usual_login_hours", []):
             risk_score += self.risk_factors["unusual_login_time"]
 
@@ -293,12 +349,11 @@ class AdvancedSecurityManager:
 
         if risk_score > 0.8:
             return "denied"
-        elif risk_score > 0.6:
+        if risk_score > 0.6:
             return "restricted"
-        elif risk_score > 0.4:
+        if risk_score > 0.4:
             return "monitored"
-        else:
-            return "full"
+        return "full"
 
     async def _check_compliance_requirements(
         self,
@@ -346,31 +401,34 @@ class AdvancedSecurityManager:
     async def encrypt_with_post_quantum(
         self,
         data: bytes,
-        algorithm: str = "dilithium"
+        algorithm: str = PQ_KEM_ALGORITHM
     ) -> bytes:
-        """ポスト量子暗号でデータを暗号化"""
+        """ハイブリッド方式で暗号化する: ML-KEM(FIPS 203)で共有鍵をカプセル化し AES-256-GCM で本文を暗号化。
 
+        フレーム: [2B kem_ct長][kem_ct][12B nonce][aes_gcm_ct]。
+        注意: 署名アルゴリズム(ML-DSA)は暗号化には使用できない。
+        """
         if not self.post_quantum_enabled:
             raise RuntimeError("Post-quantum cryptography not enabled")
+        if not _AEAD_AVAILABLE:
+            raise RuntimeError("AES-GCM (cryptography) unavailable for hybrid encryption")
+
+        alg = _resolve_pq_alg(algorithm)
+        if not _is_kem_alg(alg):
+            raise ValueError(f"Encryption requires a KEM algorithm (e.g. {PQ_KEM_ALGORITHM}), got: {alg}")
+        key_pair = self.post_quantum_keys.get(alg)
+        if not key_pair:
+            raise ValueError(f"No post-quantum KEM key pair for algorithm: {alg}")
 
         try:
-            key_pair = self.post_quantum_keys.get(algorithm)
-            if not key_pair:
-                raise ValueError(f"Post-quantum key pair not found for algorithm: {algorithm}")
+            with oqs.KeyEncapsulation(alg) as kem:
+                kem_ciphertext, shared_secret = kem.encap_secret(key_pair.public_key)
 
-            # ポスト量子暗号化の実装（ライブラリによる）
-            # ここでは簡易的な実装例を示す
-
-            if algorithm == "dilithium":
-                # Dilithium暗号化（実際のAPIに合わせて実装）
-                encrypted_data = data  # 実際には適切な暗号化処理
-            elif algorithm == "falcon":
-                # Falcon暗号化（実際のAPIに合わせて実装）
-                encrypted_data = data  # 実際には適切な暗号化処理
-            else:
-                raise ValueError(f"Unsupported post-quantum algorithm: {algorithm}")
-
-            return encrypted_data
+            aes_key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None,
+                           info=b"cocoa-pq-hybrid").derive(shared_secret)
+            nonce = secrets.token_bytes(12)
+            aes_ct = AESGCM(aes_key).encrypt(nonce, data, None)
+            return len(kem_ciphertext).to_bytes(2, "big") + kem_ciphertext + nonce + aes_ct
 
         except Exception as e:
             logger.error(f"Post-quantum encryption failed: {e}")
@@ -379,31 +437,37 @@ class AdvancedSecurityManager:
     async def decrypt_with_post_quantum(
         self,
         encrypted_data: bytes,
-        algorithm: str = "dilithium"
+        algorithm: str = PQ_KEM_ALGORITHM
     ) -> bytes:
-        """ポスト量子暗号でデータを復号化"""
+        """encrypt_with_post_quantum の逆: ML-KEM で共有鍵を復元し AES-256-GCM で復号する。"""
 
         if not self.post_quantum_enabled:
             raise RuntimeError("Post-quantum cryptography not enabled")
+        if not _AEAD_AVAILABLE:
+            raise RuntimeError("AES-GCM (cryptography) unavailable for hybrid decryption")
+
+        alg = _resolve_pq_alg(algorithm)
+        if not _is_kem_alg(alg):
+            raise ValueError(f"Decryption requires a KEM algorithm (e.g. {PQ_KEM_ALGORITHM}), got: {alg}")
+        key_pair = self.post_quantum_keys.get(alg)
+        if not key_pair:
+            raise ValueError(f"No post-quantum KEM key pair for algorithm: {alg}")
 
         try:
-            key_pair = self.post_quantum_keys.get(algorithm)
-            if not key_pair:
-                raise ValueError(f"Post-quantum key pair not found for algorithm: {algorithm}")
+            ct_len = int.from_bytes(encrypted_data[:2], "big")
+            offset = 2
+            kem_ciphertext = encrypted_data[offset:offset + ct_len]
+            offset += ct_len
+            nonce = encrypted_data[offset:offset + 12]
+            offset += 12
+            aes_ct = encrypted_data[offset:]
 
-            # ポスト量子復号化の実装（ライブラリによる）
-            # ここでは簡易的な実装例を示す
+            with oqs.KeyEncapsulation(alg, key_pair.private_key) as kem:
+                shared_secret = kem.decap_secret(kem_ciphertext)
 
-            if algorithm == "dilithium":
-                # Dilithium復号化（実際のAPIに合わせて実装）
-                decrypted_data = encrypted_data  # 実際には適切な復号化処理
-            elif algorithm == "falcon":
-                # Falcon復号化（実際のAPIに合わせて実装）
-                decrypted_data = encrypted_data  # 実際には適切な復号化処理
-            else:
-                raise ValueError(f"Unsupported post-quantum algorithm: {algorithm}")
-
-            return decrypted_data
+            aes_key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None,
+                           info=b"cocoa-pq-hybrid").derive(shared_secret)
+            return AESGCM(aes_key).decrypt(nonce, aes_ct, None)
 
         except Exception as e:
             logger.error(f"Post-quantum decryption failed: {e}")
@@ -422,15 +486,15 @@ class AdvancedSecurityManager:
 
                 # 古い鍵をバックアップ
                 old_key_backup = self.post_quantum_keys[algorithm]
-                backup_file = self.security_data_dir / f"key_backup_{algorithm}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                backup_file = self.security_data_dir / f"key_backup_{algorithm}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
 
-                with open(backup_file, 'w') as f:
+                with open(backup_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                     json.dump({
                         "algorithm": algorithm,
                         "public_key": old_key_backup.public_key.hex(),
                         "private_key": old_key_backup.private_key.hex(),
                         "key_id": old_key_backup.key_id,
-                        "backed_up_at": datetime.now().isoformat()
+                        "backed_up_at": datetime.now(timezone.utc).isoformat()
                     }, f)
 
                 # 新しい鍵をアクティブに設定
@@ -470,9 +534,9 @@ class AdvancedSecurityManager:
                     "gdpr_compliant": True,
                     "sox_compliant": True,
                     "hipaa_compliant": True,
-                    "last_audit": datetime.now().isoformat()
+                    "last_audit": datetime.now(timezone.utc).isoformat()
                 },
-                "generated_at": datetime.now().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
 
             return dashboard_data
@@ -483,6 +547,7 @@ class AdvancedSecurityManager:
 
 # グローバルインスタンス
 _advanced_security_manager = None
+_advanced_security_manager_lock = asyncio.Lock()
 
 async def get_advanced_security_manager() -> AdvancedSecurityManager:
     """高度セキュリティマネージャーのインスタンスを取得"""
@@ -490,7 +555,9 @@ async def get_advanced_security_manager() -> AdvancedSecurityManager:
     global _advanced_security_manager
 
     if _advanced_security_manager is None:
-        _advanced_security_manager = AdvancedSecurityManager()
-        await _advanced_security_manager.initialize_post_quantum_crypto()
+        async with _advanced_security_manager_lock:
+            if _advanced_security_manager is None:
+                _advanced_security_manager = AdvancedSecurityManager()
+                await _advanced_security_manager.initialize_post_quantum_crypto()
 
     return _advanced_security_manager

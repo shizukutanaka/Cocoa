@@ -10,9 +10,10 @@ FastAPI との統合を想定した実装
 """
 
 import inspect
-from typing import Any, Callable, Dict, Optional, Type, TypeVar, Union
-from enum import Enum
 import logging
+import threading
+from enum import Enum
+from typing import Any, Callable, Dict, Optional, Type, TypeVar, Union
 
 logger = logging.getLogger(__name__)
 
@@ -39,23 +40,31 @@ class Dependency:
         self.scope = scope
         self.dependencies = dependencies or {}
         self._instances: Dict[str, Any] = {}  # シングルトンの保存
+        self._singleton_lock = threading.Lock()
 
     def get_instance(self, **kwargs) -> Any:
         """依存性のインスタンスを取得"""
         if self.scope == Scope.SINGLETON:
             key = "_singleton"
+            # Double-checked locking: fast path avoids lock acquisition once the
+            # singleton is created; slow path (inside the lock) guarantees only
+            # one thread runs the factory even under concurrent first access.
             if key not in self._instances:
-                self._instances[key] = self.factory(**kwargs)
+                with self._singleton_lock:
+                    if key not in self._instances:
+                        self._instances[key] = self.factory(**kwargs)
             return self._instances[key]
-        else:
-            # REQUEST / TRANSIENT
-            return self.factory(**kwargs)
+        # REQUEST / TRANSIENT
+        return self.factory(**kwargs)
 
     def resolve_dependencies(self) -> Dict[str, Any]:
-        """依存性を解決"""
+        """依存性を解決。Dependency オブジェクトは get_instance()、生の値はそのまま使用。"""
         resolved = {}
         for name, dep in self.dependencies.items():
-            resolved[name] = dep.get_instance()
+            if isinstance(dep, Dependency):
+                resolved[name] = dep.get_instance()
+            else:
+                resolved[name] = dep
         return resolved
 
 
@@ -85,7 +94,7 @@ class Container:
         # 依存性を解析
         sig = inspect.signature(factory)
         dependencies = {}
-        for param_name, param in sig.parameters.items():
+        for param_name in sig.parameters:
             if param_name in kwargs:
                 dependencies[param_name] = kwargs[param_name]
 
@@ -118,13 +127,16 @@ class Container:
 
 # グローバルコンテナ
 _global_container: Optional[Container] = None
+_global_container_lock = threading.Lock()
 
 
 def get_container() -> Container:
     """グローバルコンテナを取得"""
     global _global_container
     if _global_container is None:
-        _global_container = Container()
+        with _global_container_lock:
+            if _global_container is None:
+                _global_container = Container()
     return _global_container
 
 
@@ -137,14 +149,17 @@ def init_container() -> Container:
 
 def inject(interface: Union[Type[T], str], scope: Scope = Scope.TRANSIENT):
     """依存性注入デコレータ（FastAPI Depends() 互換）"""
+    from functools import wraps
 
     def wrapper(func: Callable) -> Callable:
+        @wraps(func)
         async def async_wrapper(*args, **kwargs):
             container = get_container()
             instance = container.resolve(interface)
             kwargs[interface.__name__ if not isinstance(interface, str) else interface] = instance
             return await func(*args, **kwargs)
 
+        @wraps(func)
         def sync_wrapper(*args, **kwargs):
             container = get_container()
             instance = container.resolve(interface)
@@ -153,8 +168,7 @@ def inject(interface: Union[Type[T], str], scope: Scope = Scope.TRANSIENT):
 
         if inspect.iscoroutinefunction(func):
             return async_wrapper
-        else:
-            return sync_wrapper
+        return sync_wrapper
 
     return wrapper
 
@@ -164,7 +178,7 @@ class ConfigService:
     """設定サービス（サンプル）"""
 
     def __init__(self):
-        from .config import get_config
+        from config import get_config
         self.config = get_config()
 
     def get_api_config(self):

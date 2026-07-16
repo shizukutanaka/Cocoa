@@ -7,13 +7,20 @@ Scryptベースの強化暗号化システム
 理由: 計算集約的かつメモリ集約的でASIC攻撃に強い
 """
 
-from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.backends import default_backend
+try:
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+    CRYPTO_AVAILABLE = True
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
+    CRYPTO_AVAILABLE = False
+
+import logging
+import secrets
 from dataclasses import dataclass
 from enum import Enum
-import secrets
-import logging
 
 logger = logging.getLogger(__name__)
 

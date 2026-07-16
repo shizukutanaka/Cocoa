@@ -13,16 +13,16 @@ Enhanced Disaster Recovery System with 3-2-1 Backup Strategy
 - 1つはオフサイト: 物理的に離れた場所に保管
 """
 
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from enum import Enum
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 import hashlib
 import json
 import logging
 import tarfile
 import tempfile
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -189,8 +189,8 @@ class Enhanced321BackupManager:
         Returns:
             (成功フラグ, メッセージ, メタデータ辞書)
         """
-        backup_name = backup_name or f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        start_time = datetime.now()
+        backup_name = backup_name or f"backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        start_time = datetime.now(timezone.utc)
 
         logger.info(f"Starting 3-2-1 backup: {backup_name}")
 
@@ -223,7 +223,7 @@ class Enhanced321BackupManager:
         # 3-2-1ルール準拠チェック
         compliance = self._check_321_compliance(results)
 
-        duration = (datetime.now() - start_time).total_seconds()
+        duration = (datetime.now(timezone.utc) - start_time).total_seconds()
 
         message = (
             f"Backup '{backup_name}' completed in {duration:.1f}s. "
@@ -270,7 +270,7 @@ class Enhanced321BackupManager:
         # ファイル数カウント
         files_count = sum(1 for _ in backup_file.parent.rglob('*') if _.is_file())
 
-        duration = (datetime.now() - start_time).total_seconds()
+        duration = (datetime.now(timezone.utc) - start_time).total_seconds()
 
         # メタデータ作成
         metadata = BackupMetadata(
@@ -328,7 +328,7 @@ class Enhanced321BackupManager:
     def _check_321_compliance(
         self,
         results: Dict[BackupLocation, BackupMetadata]
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """3-2-1ルール準拠チェック"""
 
         # 成功したバックアップ
@@ -371,14 +371,14 @@ class Enhanced321BackupManager:
         self,
         backup_name: str,
         results: Dict[BackupLocation, BackupMetadata],
-        compliance: Dict[str, any]
+        compliance: Dict[str, Any]
     ):
         """バックアップメタデータを保存"""
         metadata_file = self.metadata_dir / f"{backup_name}_metadata.json"
 
         metadata = {
             'backup_name': backup_name,
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'compliance': compliance,
             'locations': {
                 loc.value: {
@@ -392,7 +392,7 @@ class Enhanced321BackupManager:
             }
         }
 
-        with open(metadata_file, 'w') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, indent=2)
 
     def list_backups(
@@ -404,7 +404,7 @@ class Enhanced321BackupManager:
         backups = []
 
         for metadata_file in self.metadata_dir.glob('*_metadata.json'):
-            with open(metadata_file) as f:
+            with open(metadata_file, encoding='utf-8') as f:
                 metadata = json.load(f)
 
             # 検証済みフィルター
@@ -419,7 +419,7 @@ class Enhanced321BackupManager:
             # 日数フィルター
             if days is not None:
                 timestamp = datetime.fromisoformat(metadata['timestamp'])
-                if datetime.now() - timestamp > timedelta(days=days):
+                if datetime.now(timezone.utc) - timestamp > timedelta(days=days):
                     continue
 
             backups.append(metadata['backup_name'])
@@ -445,7 +445,7 @@ class Enhanced321BackupManager:
         Returns:
             (成功フラグ, メッセージ)
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
 
         logger.info(f"Starting restore from {backup_name} at {location.value}")
 
@@ -467,11 +467,13 @@ class Enhanced321BackupManager:
             # 復元ディレクトリ作成
             restore_dir.mkdir(parents=True, exist_ok=True)
 
-            # 解凍
+            # 解凍 — filter='data' を指定して Tar Slip / device-file 系の
+            # 不正エントリを拒否する。Python 3.12+ ではフィルタ無し extractall
+            # は DeprecationWarning、3.14+ では例外。
             with tarfile.open(backup_file, 'r:*') as tar:
-                tar.extractall(restore_dir)
+                tar.extractall(restore_dir, filter='data')
 
-            duration = (datetime.now() - start_time).total_seconds()
+            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
 
             # RTO達成チェック
             rto_achieved = duration <= (self.rto.target_minutes * 60)
@@ -505,7 +507,7 @@ class Enhanced321BackupManager:
         Returns:
             テスト結果
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
 
         logger.info(f"Starting {test_type.value} recovery test")
 
@@ -517,7 +519,7 @@ class Enhanced321BackupManager:
                     test_type=test_type,
                     backup_id="none",
                     start_time=start_time,
-                    end_time=datetime.now(),
+                    end_time=datetime.now(timezone.utc),
                     success=False,
                     rpo_achieved=False,
                     rto_achieved=False,
@@ -544,7 +546,7 @@ class Enhanced321BackupManager:
             errors.append(str(e))
             success = False
 
-        end_time = datetime.now()
+        end_time = datetime.now(timezone.utc)
         duration = (end_time - start_time).total_seconds()
 
         # RPO/RTO評価
@@ -620,21 +622,21 @@ class Enhanced321BackupManager:
         if not metadata_file.exists():
             return False
 
-        with open(metadata_file) as f:
+        with open(metadata_file, encoding='utf-8') as f:
             metadata = json.load(f)
 
         timestamp = datetime.fromisoformat(metadata['timestamp'])
-        age_minutes = (datetime.now() - timestamp).total_seconds() / 60
+        age_minutes = (datetime.now(timezone.utc) - timestamp).total_seconds() / 60
 
         return age_minutes <= self.rpo.target_minutes
 
     def cleanup_old_backups(self, retention_days: int = 30) -> int:
         """古いバックアップをクリーンアップ"""
         deleted_count = 0
-        cutoff_date = datetime.now() - timedelta(days=retention_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
 
         for metadata_file in self.metadata_dir.glob('*_metadata.json'):
-            with open(metadata_file) as f:
+            with open(metadata_file, encoding='utf-8') as f:
                 metadata = json.load(f)
 
             timestamp = datetime.fromisoformat(metadata['timestamp'])
@@ -643,7 +645,7 @@ class Enhanced321BackupManager:
                 backup_name = metadata['backup_name']
 
                 # 各ロケーションから削除
-                for location, config in self.backup_locations.items():
+                for config in self.backup_locations.values():
                     backup_file = config.path / f"{backup_name}.tar.gz"
                     if backup_file.exists():
                         backup_file.unlink()

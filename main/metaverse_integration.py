@@ -5,24 +5,67 @@ VR/AR環境でのシームレスなアバター統合機能を提供
 """
 
 import asyncio
-import logging
+import time
 import json
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from quantum_safe_manager import get_quantum_safe_manager
+except ImportError:
+    get_quantum_safe_manager = None
 
-from .quantum_safe_manager import get_quantum_safe_manager
-from .edge_ai_manager import get_edge_ai_manager, ModelCompressionConfig
-from .blockchain_audit import get_blockchain_audit_manager, BlockchainAuditEvent
-from .ar_cloud_manager import get_ar_cloud_manager
-from .bci_manager import get_bci_manager
-from .global_edge_manager import get_global_edge_manager
-from .integrated_security import get_security_manager, get_ai_security_manager
-from .i18n_manager import get_i18n_manager
-from .performance_monitor import get_hybrid_system_manager
-from .avatar_agent import get_agentic_ai_manager
+try:
+    from edge_ai_manager import ModelCompressionConfig, get_edge_ai_manager
+except ImportError:
+    get_edge_ai_manager = None
+    ModelCompressionConfig = None
+
+try:
+    from blockchain_audit import BlockchainAuditEvent, get_blockchain_audit_manager
+except ImportError:
+    get_blockchain_audit_manager = None
+    BlockchainAuditEvent = None
+
+try:
+    from ar_cloud_manager import get_ar_cloud_manager
+except ImportError:
+    get_ar_cloud_manager = None
+
+try:
+    from bci_manager import get_bci_manager
+except ImportError:
+    get_bci_manager = None
+
+try:
+    from global_edge_manager import get_global_edge_manager
+except ImportError:
+    get_global_edge_manager = None
+
+from integrated_security import get_security_manager
+
+try:
+    from integrated_security import get_ai_security_manager
+except ImportError:
+    get_ai_security_manager = None
+
+try:
+    from i18n_manager import get_i18n_manager
+except ImportError:
+    get_i18n_manager = None
+
+try:
+    from performance_monitor import get_hybrid_system_manager
+except ImportError:
+    get_hybrid_system_manager = None
+
+try:
+    from avatar_agent import get_agentic_ai_manager
+except ImportError:
+    get_agentic_ai_manager = None
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +255,7 @@ class MetaverseIntegration:
         Returns:
             統合結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # 2026年機能統合
@@ -255,7 +298,7 @@ class MetaverseIntegration:
             platform_files = await self._generate_platform_files_2026(globally_optimized_data, request)
 
             # 処理時間を計算
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             result = MetaverseAvatarResult(
                 success=True,
@@ -278,7 +321,7 @@ class MetaverseIntegration:
                     "ar_cloud_enhanced": True,
                     "bci_integrated": True,
                     "global_edge_optimized": True,
-                    "integration_timestamp": datetime.now().isoformat()
+                    "integration_timestamp": datetime.now(timezone.utc).isoformat()
                 },
                 platform_specific_files=platform_files,
                 processing_time=processing_time
@@ -310,7 +353,7 @@ class MetaverseIntegration:
 
         except Exception as e:
             logger.error(f"Metaverse integration failed: {e}")
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             return MetaverseAvatarResult(
                 success=False,
@@ -574,6 +617,7 @@ const metaverseAI = new MetaverseAgenticAI(avatar, '{request.environment}');
                 "energy_optimization": True
             }
         }
+        return features
 
     async def _validate_request_2026(self, request: MetaverseAvatarRequest):
         """2026年対応のリクエスト検証"""
@@ -685,7 +729,7 @@ const metaverseAI = new MetaverseAgenticAI(avatar, '{request.environment}');
         """Edge AI最適化を追加"""
         edge_optimized_data = avatar_data.copy()
 
-        if self.edge_ai_manager:
+        if self.edge_ai_manager and self.global_edge_manager:
             # 最適なエッジノードを検索
             user_location = (35.6762, 139.6503)  # デフォルト東京
             route = await self.global_edge_manager.find_optimal_route(user_location, "avatar_data")
@@ -708,8 +752,8 @@ const metaverseAI = new MetaverseAgenticAI(avatar, '{request.environment}');
         if self.blockchain_audit_manager:
             # 監査イベントを作成
             audit_event = BlockchainAuditEvent(
-                event_id=f"audit_{request.avatar_id}_{int(datetime.now().timestamp())}",
-                timestamp=datetime.now(),
+                event_id=f"audit_{request.avatar_id}_{int(datetime.now(timezone.utc).timestamp())}",
+                timestamp=datetime.now(timezone.utc),
                 event_type="metaverse_integration",
                 user_id=request.user_id,
                 details={
@@ -781,9 +825,7 @@ const metaverseAI = new MetaverseAgenticAI(avatar, '{request.environment}');
         globally_optimized_data = avatar_data.copy()
 
         if self.global_edge_manager:
-            # グローバル配信最適化
-            edge_status = self.global_edge_manager.get_global_edge_status()
-
+            self.global_edge_manager.get_global_edge_status()
             globally_optimized_data["global_optimization"] = {
                 "cdn_enabled": True,
                 "cache_strategy": "aggressive",
@@ -988,7 +1030,7 @@ class ARCloudAvatar {
                 "enabled": self.ar_cloud_manager is not None,
                 "total_maps": self.ar_cloud_manager.total_maps if self.ar_cloud_manager else 0,
                 "total_anchors": self.ar_cloud_manager.total_anchors if self.ar_cloud_manager else 0,
-                "spatial_mapping": True if self.ar_cloud_manager else False
+                "spatial_mapping": bool(self.ar_cloud_manager)
             },
             "bci_integration": {
                 "enabled": self.bci_manager is not None,
@@ -1025,7 +1067,7 @@ class ARCloudAvatar {
             "metadata": {
                 "created_for": request.platform,
                 "environment": request.environment,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
         }
 
@@ -1071,7 +1113,7 @@ class ARCloudAvatar {
         files = {}
 
         # Unityパッケージファイルの生成（シミュレーション）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "unity" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1085,7 +1127,7 @@ class ARCloudAvatar {
 
         # メタデータファイル
         metadata_file = user_dir / f"avatar_metadata_{timestamp}.json"
-        with open(metadata_file, 'w', encoding='utf-8') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(avatar_data, f, ensure_ascii=False, indent=2)
         files["metadata"] = str(metadata_file)
 
@@ -1096,7 +1138,7 @@ class ARCloudAvatar {
         files = {}
 
         # Unreal Engineアセットファイルの生成（シミュレーション）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "unreal" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1110,7 +1152,7 @@ class ARCloudAvatar {
 
         # メタデータファイル
         metadata_file = user_dir / f"avatar_metadata_{timestamp}.json"
-        with open(metadata_file, 'w', encoding='utf-8') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(avatar_data, f, ensure_ascii=False, indent=2)
         files["metadata"] = str(metadata_file)
 
@@ -1121,7 +1163,7 @@ class ARCloudAvatar {
         files = {}
 
         # WebXR対応ファイルの生成（シミュレーション）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "webxr" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1139,7 +1181,7 @@ class ARCloudAvatar {
 
         # メタデータファイル
         metadata_file = user_dir / f"avatar_metadata_{timestamp}.json"
-        with open(metadata_file, 'w', encoding='utf-8') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(avatar_data, f, ensure_ascii=False, indent=2)
         files["metadata"] = str(metadata_file)
 
@@ -1150,7 +1192,7 @@ class ARCloudAvatar {
         files = {}
 
         # Oculus対応ファイルの生成（シミュレーション）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "oculus" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1164,7 +1206,7 @@ class ARCloudAvatar {
 
         # メタデータファイル
         metadata_file = user_dir / f"avatar_metadata_{timestamp}.json"
-        with open(metadata_file, 'w', encoding='utf-8') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(avatar_data, f, ensure_ascii=False, indent=2)
         files["metadata"] = str(metadata_file)
 
@@ -1175,7 +1217,7 @@ class ARCloudAvatar {
         files = {}
 
         # SteamVR対応ファイルの生成（シミュレーション）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         user_dir = self.models_dir / "steamvr" / request.user_id
         user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1189,7 +1231,7 @@ class ARCloudAvatar {
 
         # メタデータファイル
         metadata_file = user_dir / f"avatar_metadata_{timestamp}.json"
-        with open(metadata_file, 'w', encoding='utf-8') as f:
+        with open(metadata_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(avatar_data, f, ensure_ascii=False, indent=2)
         files["metadata"] = str(metadata_file)
 
@@ -1226,13 +1268,16 @@ class ARCloudAvatar {
 
 # グローバルインスタンス管理
 _metaverse_integration_instance = None
+_metaverse_integration_instance_lock = asyncio.Lock()
 
 async def get_metaverse_integration() -> MetaverseIntegration:
     """メタバース統合システムのインスタンスを取得"""
     global _metaverse_integration_instance
 
     if _metaverse_integration_instance is None:
-        _metaverse_integration_instance = MetaverseIntegration()
-        await _metaverse_integration_instance.initialize()
+        async with _metaverse_integration_instance_lock:
+            if _metaverse_integration_instance is None:
+                _metaverse_integration_instance = MetaverseIntegration()
+                await _metaverse_integration_instance.initialize()
 
     return _metaverse_integration_instance

@@ -4,11 +4,22 @@ Cocoa Shared Libraries
 """
 
 from .config import ConfigManager, get_config
+from .exceptions import CocoaError, SecurityError, ValidationError
 from .logger import get_logger, setup_logging
-from .database import DatabaseManager, get_db
-from .models import BaseModel, Avatar, User, Preset
-from .exceptions import CocoaError, ValidationError, SecurityError
-from .utils import generate_id, validate_uuid, sanitize_input
+from .utils import generate_id, sanitize_input, validate_uuid
+
+try:
+    from .database import DatabaseManager, get_db
+    from .models import Avatar, BaseModel, Preset, User
+    _SQLALCHEMY_AVAILABLE = True
+except (ImportError, Exception):
+    _SQLALCHEMY_AVAILABLE = False
+    DatabaseManager = None
+    get_db = None
+    Avatar = None
+    BaseModel = None
+    Preset = None
+    User = None
 
 """
 Shared Services for Microservices Architecture
@@ -19,13 +30,16 @@ Shared Services for Microservices Architecture
 - 共通モデルと設定
 """
 
-import asyncio
-import json
 import logging
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
-import aiohttp
-import socket
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
+
+try:
+    import aiohttp
+    _AIOHTTP_AVAILABLE = True
+except ImportError:
+    aiohttp = None
+    _AIOHTTP_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +55,11 @@ class ServiceRegistry:
     def register_service(self, service_name: str, service_info: Dict[str, Any]) -> bool:
         """サービスを登録"""
         try:
-            service_info['registered_at'] = datetime.utcnow().isoformat()
-            service_info['last_heartbeat'] = datetime.utcnow().isoformat()
+            service_info['registered_at'] = datetime.now(timezone.utc).isoformat()
+            service_info['last_heartbeat'] = datetime.now(timezone.utc).isoformat()
 
             self.services[service_name] = service_info
-            self.heartbeats[service_name] = datetime.utcnow()
+            self.heartbeats[service_name] = datetime.now(timezone.utc)
 
             logger.info(f"サービス登録: {service_name}")
             return True
@@ -66,8 +80,8 @@ class ServiceRegistry:
     def heartbeat(self, service_name: str) -> bool:
         """サービスからのハートビートを記録"""
         if service_name in self.services:
-            self.heartbeats[service_name] = datetime.utcnow()
-            self.services[service_name]['last_heartbeat'] = datetime.utcnow().isoformat()
+            self.heartbeats[service_name] = datetime.now(timezone.utc)
+            self.services[service_name]['last_heartbeat'] = datetime.now(timezone.utc).isoformat()
             return True
         return False
 
@@ -77,7 +91,7 @@ class ServiceRegistry:
             return None
 
         # タイムアウトチェック
-        if datetime.utcnow() - self.heartbeats[service_name] > timedelta(seconds=self.service_timeout):
+        if datetime.now(timezone.utc) - self.heartbeats[service_name] > timedelta(seconds=self.service_timeout):
             logger.warning(f"サービスタイムアウト: {service_name}")
             self.unregister_service(service_name)
             return None
@@ -87,7 +101,7 @@ class ServiceRegistry:
     def get_all_services(self) -> Dict[str, Dict[str, Any]]:
         """全サービス情報を取得"""
         # タイムアウトチェック
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         timeout_services = [
             name for name, heartbeat in self.heartbeats.items()
             if current_time - heartbeat > timedelta(seconds=self.service_timeout)
@@ -103,7 +117,7 @@ class ServiceRegistry:
         total_services = len(self.services)
         healthy_services = len([
             name for name, heartbeat in self.heartbeats.items()
-            if datetime.utcnow() - heartbeat <= timedelta(seconds=self.service_timeout)
+            if datetime.now(timezone.utc) - heartbeat <= timedelta(seconds=self.service_timeout)
         ])
 
         return {
@@ -119,10 +133,11 @@ class ServiceCommunicator:
 
     def __init__(self, service_registry: ServiceRegistry):
         self.registry = service_registry
-        self.session: Optional[aiohttp.ClientSession] = None
+        self.session = None
 
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
+        if _AIOHTTP_AVAILABLE:
+            self.session = aiohttp.ClientSession()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):

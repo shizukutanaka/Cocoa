@@ -9,12 +9,13 @@
 - 型安全性とバリデーション
 """
 
-import os
 import json
+import logging
+import os
+import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
-from dataclasses import dataclass
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class APIConfig:
     host: str = os.environ.get("API_HOST", "0.0.0.0")
     port: int = int(os.environ.get("API_PORT", "8000"))
     debug: bool = os.environ.get("API_DEBUG", "false").lower() == "true"
-    cors_origins: list = None
+    cors_origins: Optional[list] = None
 
     def __post_init__(self):
         if self.cors_origins is None:
@@ -54,13 +55,11 @@ class SecurityConfig:
     session_timeout_minutes: int = int(os.environ.get("SESSION_TIMEOUT", "60"))
 
     def validate(self):
-        """本番環境での検証"""
-        env = os.environ.get("ENVIRONMENT", "development")
-        if env == "production":
-            if self.secret_key == "change-me-in-production":
-                raise ValueError("SECRET_KEY must be set in production")
-            if self.encryption_key == "change-me-in-production":
-                raise ValueError("ENCRYPTION_KEY must be set in production")
+        """本番環境用の設定値検証（呼び元が適切なタイミングで呼ぶこと）"""
+        if self.secret_key == "change-me-in-production":
+            raise ValueError("SECRET_KEY must be set in production")
+        if self.encryption_key == "change-me-in-production":
+            raise ValueError("ENCRYPTION_KEY must be set in production")
 
 
 @dataclass
@@ -100,7 +99,7 @@ class Config:
     def from_file(cls, path: str) -> "Config":
         """設定ファイルから読み込み"""
         try:
-            with open(path, 'r') as f:
+            with open(path, encoding="utf-8") as f:
                 config_dict = json.load(f)
 
             config = cls()
@@ -174,13 +173,16 @@ class Config:
 
 # グローバル設定インスタンス
 _config_instance: Optional[Config] = None
+_config_instance_lock = threading.Lock()
 
 
 def get_config() -> Config:
     """グローバル設定インスタンスを取得"""
     global _config_instance
     if _config_instance is None:
-        _config_instance = Config()
+        with _config_instance_lock:
+            if _config_instance is None:
+                _config_instance = Config()
     return _config_instance
 
 

@@ -4,17 +4,18 @@ Multi Avatar Manager Module for Cocoa
 複数アバターの同時管理と複雑な交信シーン作成
 """
 
-import logging
+import asyncio
 import json
+import logging
 import sqlite3
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from .integrated_security import get_security_manager
-from .ai_avatar_generator import get_ai_avatar_generator
-from .video_creator import get_video_creator
+from ai_avatar_generator import get_ai_avatar_generator
+from integrated_security import get_security_manager
+from video_creator import get_video_creator
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -82,7 +83,7 @@ class MultiAvatarScene:
         if self.audio_tracks is None:
             self.audio_tracks = []
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class SceneTimeline:
@@ -227,7 +228,7 @@ class MultiAvatarManager:
         Returns:
             シーンID
         """
-        scene_id = f"scene_{int(datetime.now().timestamp() * 1000)}"
+        scene_id = f"scene_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
 
         # アバターインスタンス作成
         avatars = []
@@ -394,7 +395,7 @@ class MultiAvatarManager:
             return None
 
         scene = self.scenes[scene_id]
-        timeline_id = f"timeline_{scene_id}_{int(datetime.now().timestamp())}"
+        timeline_id = f"timeline_{scene_id}_{int(datetime.now(timezone.utc).timestamp())}"
 
         # スクリプトからイベント生成
         events = []
@@ -488,11 +489,11 @@ class MultiAvatarManager:
 
         # 出力パス設定
         if not output_path:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             output_path = f"data/multi_avatar_scenes/scene_{scene_id}_{timestamp}.mp4"
 
         # 実行ID生成
-        execution_id = f"exec_{scene_id}_{int(datetime.now().timestamp())}"
+        execution_id = f"exec_{scene_id}_{int(datetime.now(timezone.utc).timestamp())}"
 
         try:
             # 実行開始記録
@@ -542,9 +543,7 @@ class MultiAvatarManager:
             avatar_videos = await self._generate_avatar_videos(scene, timeline)
 
             # シーン合成
-            final_video = await self._composite_scene_elements(scene, avatar_videos, timeline, output_path)
-
-            return final_video
+            return await self._composite_scene_elements(scene, avatar_videos, timeline, output_path)
 
         except Exception as e:
             logger.error(f"Scene composition failed: {e}")
@@ -572,27 +571,15 @@ class MultiAvatarManager:
                 continue
 
             # スクリプト作成
-            script_parts = []
-            for event in avatar_events:
-                if event['action'] == 'speak':
-                    script_parts.append(event['content'])
+            script_parts = [
+                event['content']
+                for event in avatar_events
+                if event['action'] == 'speak'
+            ]
 
             script = ' '.join(script_parts)
 
             if script.strip():
-                # 動画作成リクエスト
-                request = {
-                    'user_id': 'multi_avatar_system',
-                    'script': script,
-                    'avatar_style': avatar.avatar_id.split('_')[0] if '_' in avatar.avatar_id else 'professional',
-                    'voice_settings': avatar.voice_settings,
-                    'video_settings': {
-                        'resolution': '1080p',
-                        'fps': 30,
-                        'background': 'transparent'  # 透明背景
-                    }
-                }
-
                 # 動画生成（簡易実装）
                 # 実際にはvideo_creatorを使用
                 video_path = f"data/temp/avatar_{avatar.instance_id}_video.mp4"
@@ -623,11 +610,9 @@ class MultiAvatarManager:
             background_path = await self._create_scene_background(scene)
 
             # アバター配置
-            composite_path = await self._arrange_avatars_in_scene(
+            return await self._arrange_avatars_in_scene(
                 scene, avatar_videos, background_path, timeline, output_path
             )
-
-            return composite_path
 
         except Exception as e:
             logger.error(f"Scene element composition failed: {e}")
@@ -684,7 +669,7 @@ class MultiAvatarManager:
             from PIL import Image
 
             # 背景読み込み
-            if background_path and Path(background_path).exists():
+            if background_path and Path(background_path).exists():  # noqa: ASYNC240
                 background = Image.open(background_path)
             else:
                 background = Image.new('RGB', scene.resolution, (240, 240, 240))
@@ -696,10 +681,9 @@ class MultiAvatarManager:
                     # 実際には各タイムラインでの位置を考慮
                     x, y = avatar.position
                     # アバター画像を配置
-                    pass
 
             # シーン要素配置
-            for element in scene.elements:
+            for _element in scene.elements:
                 # 要素配置（テキスト、プロップなど）
                 pass
 
@@ -726,7 +710,7 @@ class MultiAvatarManager:
                 execution_id,
                 scene_id,
                 'running',
-                datetime.now().isoformat()
+                datetime.now(timezone.utc).isoformat()
             ))
 
             conn.commit()
@@ -743,7 +727,7 @@ class MultiAvatarManager:
             ''', (
                 'completed',
                 output_path,
-                datetime.now().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 execution_id
             ))
 
@@ -761,7 +745,7 @@ class MultiAvatarManager:
             ''', (
                 'failed',
                 error_message,
-                datetime.now().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 execution_id
             ))
 
@@ -810,13 +794,16 @@ class MultiAvatarManager:
 
 # グローバルインスタンス管理
 _multi_avatar_manager = None
+_multi_avatar_manager_lock = asyncio.Lock()
 
 async def get_multi_avatar_manager() -> MultiAvatarManager:
     """複数アバター管理システムのインスタンスを取得"""
     global _multi_avatar_manager
 
     if _multi_avatar_manager is None:
-        _multi_avatar_manager = MultiAvatarManager()
-        await _multi_avatar_manager.initialize()
+        async with _multi_avatar_manager_lock:
+            if _multi_avatar_manager is None:
+                _multi_avatar_manager = MultiAvatarManager()
+                await _multi_avatar_manager.initialize()
 
     return _multi_avatar_manager

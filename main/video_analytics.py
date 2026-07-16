@@ -5,18 +5,18 @@ Video Analytics Module for Cocoa
 """
 
 import asyncio
-import logging
 import json
+import logging
+import queue
 import sqlite3
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass
-from datetime import datetime, timedelta
 import statistics
 import threading
-import queue
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class VideoMetrics:
         if self.drop_off_points is None:
             self.drop_off_points = []
         if self.last_updated is None:
-            self.last_updated = datetime.now()
+            self.last_updated = datetime.now(timezone.utc)
 
 @dataclass
 class AnalyticsReport:
@@ -69,7 +69,7 @@ class AnalyticsReport:
 
     def __post_init__(self):
         if self.generated_at is None:
-            self.generated_at = datetime.now()
+            self.generated_at = datetime.now(timezone.utc)
 
 class VideoAnalyticsService:
     """
@@ -242,7 +242,7 @@ class VideoAnalyticsService:
                 # ドロップオフポイント更新
                 self._update_drop_off_points(metrics, event.position)
 
-            metrics.last_updated = datetime.now()
+            metrics.last_updated = datetime.now(timezone.utc)
 
     def _update_drop_off_points(self, metrics: VideoMetrics, position: float):
         """ドロップオフポイントを更新"""
@@ -301,7 +301,7 @@ class VideoAnalyticsService:
         if not force_refresh:
             with self.cache_lock:
                 cached = self.metrics_cache.get(video_id)
-                if cached and (datetime.now() - cached.last_updated).seconds < self.cache_ttl:
+                if cached and (datetime.now(timezone.utc) - cached.last_updated).total_seconds() < self.cache_ttl:
                     return cached
 
         # データベースから読み込み
@@ -338,9 +338,8 @@ class VideoAnalyticsService:
                     engagement_score=row[6],
                     last_updated=datetime.fromisoformat(row[7])
                 )
-            else:
-                # 新規作成
-                return VideoMetrics(video_id=video_id)
+            # 新規作成
+            return VideoMetrics(video_id=video_id)
 
     async def _calculate_realtime_metrics(self, metrics: VideoMetrics):
         """リアルタイムメトリクスを計算"""
@@ -383,7 +382,7 @@ class VideoAnalyticsService:
                     watch_times.append(row[1])
 
             if play_events:
-                metrics.completion_rate = len(complete_events) / len(play_events)
+                metrics.completion_rate = min(len(complete_events) / len(play_events), 1.0)
 
             if watch_times:
                 metrics.average_watch_time = statistics.mean(watch_times)
@@ -447,7 +446,7 @@ class VideoAnalyticsService:
         """
         # 日付範囲設定
         if not start_date or not end_date:
-            end_date = datetime.now()
+            end_date = datetime.now(timezone.utc)
             if report_type == 'daily':
                 start_date = end_date - timedelta(days=1)
             elif report_type == 'weekly':
@@ -468,7 +467,7 @@ class VideoAnalyticsService:
 
         # レポート作成
         report = AnalyticsReport(
-            report_id=f"report_{video_id}_{report_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            report_id=f"report_{video_id}_{report_type}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
             video_id=video_id,
             report_type=report_type,
             start_date=start_date,
@@ -633,9 +632,8 @@ class VideoAnalyticsService:
             cursor.execute(query, params)
             rows = cursor.fetchall()
 
-            reports = []
-            for row in rows:
-                reports.append(AnalyticsReport(
+            return [
+                AnalyticsReport(
                     report_id=row[0],
                     video_id=row[1],
                     report_type=row[2],
@@ -644,9 +642,9 @@ class VideoAnalyticsService:
                     metrics=json.loads(row[5]),
                     insights=json.loads(row[6]),
                     generated_at=datetime.fromisoformat(row[7])
-                ))
-
-            return reports
+                )
+                for row in rows
+            ]
 
     async def export_analytics(self, video_id: str, format: str = 'json') -> Optional[str]:
         """
@@ -674,7 +672,7 @@ class VideoAnalyticsService:
 
         export_data = {
             "video_id": video_id,
-            "exported_at": datetime.now().isoformat(),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
             "current_metrics": {
                 "total_views": metrics.total_views,
                 "unique_viewers": metrics.unique_viewers,
@@ -705,14 +703,14 @@ class VideoAnalyticsService:
 
         # エクスポートディレクトリ
         export_dir = Path("data/analytics_exports")
-        export_dir.mkdir(parents=True, exist_ok=True)
+        export_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"analytics_{video_id}_{timestamp}.{format}"
         export_path = export_dir / filename
 
         if format == 'json':
-            with open(export_path, 'w', encoding='utf-8') as f:
+            with open(export_path, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                 json.dump(export_data, f, ensure_ascii=False, indent=2)
         elif format == 'csv':
             # CSVエクスポートの実装
@@ -724,34 +722,37 @@ class VideoAnalyticsService:
         """CSV形式でエクスポート"""
         import csv
 
-        with open(export_path, 'w', newline='', encoding='utf-8') as f:
+        from csv_safety import sanitize_csv_cell
+
+        with open(export_path, 'w', newline='', encoding='utf-8') as f:  # noqa: ASYNC230
             writer = csv.writer(f)
 
             # ヘッダー
             writer.writerow(['Metric', 'Value'])
 
-            # 現在のメトリクス
+            # 現在のメトリクス（CSV インジェクション対策で各セルをサニタイズ）
             current_metrics = data['current_metrics']
             for key, value in current_metrics.items():
                 if isinstance(value, list):
                     value = str(value)
-                writer.writerow([key, value])
+                writer.writerow([sanitize_csv_cell(key), sanitize_csv_cell(value)])
 
             # レポート情報
             writer.writerow([])
             writer.writerow(['Reports'])
             for report in data['reports']:
-                writer.writerow([f"Report {report['report_id']}", report['type']])
+                writer.writerow([sanitize_csv_cell(f"Report {report['report_id']}"),
+                                 sanitize_csv_cell(report['type'])])
 
     async def _update_metrics_cache(self):
         """メトリクスキャッシュを定期的に更新"""
         # 古いキャッシュエントリをクリーンアップ
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
 
         with self.cache_lock:
             to_remove = []
             for video_id, metrics in self.metrics_cache.items():
-                if (current_time - metrics.last_updated).seconds > self.cache_ttl:
+                if (current_time - metrics.last_updated).total_seconds() > self.cache_ttl:
                     to_remove.append(video_id)
 
             for video_id in to_remove:
@@ -759,7 +760,7 @@ class VideoAnalyticsService:
 
     async def cleanup_old_data(self, days_to_keep: int = 90):
         """古いデータをクリーンアップ"""
-        cutoff_date = datetime.now() - timedelta(days=days_to_keep)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
 
         with sqlite3.connect(str(self.db_path)) as conn:
             cursor = conn.cursor()
@@ -785,13 +786,16 @@ class VideoAnalyticsService:
 
 # グローバルインスタンス管理
 _video_analytics_service = None
+_video_analytics_service_lock = asyncio.Lock()
 
 async def get_video_analytics_service() -> VideoAnalyticsService:
     """動画アナリティクスサービスのインスタンスを取得"""
     global _video_analytics_service
 
     if _video_analytics_service is None:
-        _video_analytics_service = VideoAnalyticsService()
-        await _video_analytics_service.initialize()
+        async with _video_analytics_service_lock:
+            if _video_analytics_service is None:
+                _video_analytics_service = VideoAnalyticsService()
+                await _video_analytics_service.initialize()
 
     return _video_analytics_service

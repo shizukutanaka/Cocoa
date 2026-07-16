@@ -5,17 +5,32 @@ Emotional Intelligence Module for Avatar System
 """
 
 import asyncio
+import time
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-import numpy as np
-from transformers import pipeline
-import face_recognition
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
 
-from .integrated_security import get_security_manager
+try:
+    from transformers import pipeline
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+
+try:
+    import face_recognition
+    FACE_RECOGNITION_AVAILABLE = True
+except ImportError:
+    FACE_RECOGNITION_AVAILABLE = False
+
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -245,7 +260,7 @@ class EmotionalIntelligence:
         Returns:
             分析結果と適応応答
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # セキュリティチェック
@@ -285,7 +300,7 @@ class EmotionalIntelligence:
             )
 
             # 処理時間を計算
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             result = EmotionAnalysisResult(
                 success=True,
@@ -298,7 +313,7 @@ class EmotionalIntelligence:
                     "input_type": request.input_type,
                     "primary_emotion": primary_emotion,
                     "confidence": confidence,
-                    "analysis_timestamp": datetime.now().isoformat(),
+                    "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
                     "processing_time": processing_time
                 }
             )
@@ -319,7 +334,7 @@ class EmotionalIntelligence:
 
         except Exception as e:
             logger.error(f"Emotion analysis failed: {e}")
-            processing_time = asyncio.get_event_loop().time() - start_time
+            processing_time = time.monotonic() - start_time
 
             return EmotionAnalysisResult(
                 success=False,
@@ -342,7 +357,7 @@ class EmotionalIntelligence:
         if request.input_type == "text" and not request.input_data.strip():
             raise ValueError("Text input cannot be empty")
 
-        if request.input_type == "image" and not Path(request.input_data).exists():
+        if request.input_type == "image" and not Path(request.input_data).exists():  # noqa: ASYNC240
             raise FileNotFoundError(f"Image file not found: {request.input_data}")
 
         if request.input_type == "voice" and not request.input_data:
@@ -412,7 +427,7 @@ class EmotionalIntelligence:
             ])
 
         # 感情の強さに基づく追加提案
-        max_score = max(emotion_scores.values())
+        max_score = max(emotion_scores.values()) if emotion_scores else 0.0
         if max_score > 0.8:
             suggestions.append("感情の強さが非常に高いため、特別な注意を払う")
         elif max_score < 0.3:
@@ -471,7 +486,7 @@ class EmotionalIntelligence:
                 ),
                 "response_style": "empathetic" if emotion_result.primary_emotion in ["sadness", "fear"] else "engaging",
                 "engagement_level": "high" if emotion_result.confidence > 0.7 else "normal",
-                "adaptation_timestamp": datetime.now().isoformat()
+                "adaptation_timestamp": datetime.now(timezone.utc).isoformat()
             }
 
             return adaptation
@@ -482,13 +497,16 @@ class EmotionalIntelligence:
 
 # グローバルインスタンス管理
 _emotional_intelligence_instance = None
+_emotional_intelligence_lock = asyncio.Lock()
 
 async def get_emotional_intelligence() -> EmotionalIntelligence:
     """感情認識システムのインスタンスを取得"""
     global _emotional_intelligence_instance
 
     if _emotional_intelligence_instance is None:
-        _emotional_intelligence_instance = EmotionalIntelligence()
-        await _emotional_intelligence_instance.initialize_models()
+        async with _emotional_intelligence_lock:
+            if _emotional_intelligence_instance is None:
+                _emotional_intelligence_instance = EmotionalIntelligence()
+                await _emotional_intelligence_instance.initialize_models()
 
     return _emotional_intelligence_instance

@@ -4,21 +4,39 @@ Voice Cloning Module for Cocoa
 ユーザーの音声をクローンしてアバターに使用するシステム
 """
 
-import os
 import asyncio
+import time
+import json
 import logging
+import os
 import shutil
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
-from datetime import datetime
-import json
-import numpy as np
-import torch
-import torchaudio
-from scipy.io import wavfile
 
-from .integrated_security import get_security_manager
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+
+try:
+    import torch
+    import torchaudio
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
+    torchaudio = None
+try:
+    from scipy.io import wavfile
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+    wavfile = None
+
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -37,7 +55,7 @@ class VoiceSample:
 
     def __post_init__(self):
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class VoiceCloneRequest:
@@ -74,7 +92,7 @@ class VoiceCloningEngine:
 
         # Tortoise TTS関連
         self.tts = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if (TORCH_AVAILABLE and torch and torch.cuda.is_available()) else "cpu"
 
         # 音声データ管理
         self.voice_samples_dir = Path("data/voice_samples")
@@ -135,7 +153,7 @@ class VoiceCloningEngine:
         quality_score = self._assess_audio_quality(audio_path)
 
         # サンプルID生成
-        sample_id = f"sample_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        sample_id = f"sample_{user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
         # 保存先パス
         user_dir = self.voice_samples_dir / user_id
@@ -173,7 +191,7 @@ class VoiceCloningEngine:
         Returns:
             クローン結果
         """
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
 
         try:
             # セキュリティチェック
@@ -186,7 +204,7 @@ class VoiceCloningEngine:
                 raise ValueError("At least 3 voice samples required for cloning")
 
             # 音声ID生成
-            voice_id = f"voice_{request.user_id}_{request.voice_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            voice_id = f"voice_{request.user_id}_{request.voice_name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
             # トレーニングデータ準備
             training_data = await self._prepare_training_data(voice_samples, request)
@@ -207,7 +225,7 @@ class VoiceCloningEngine:
             )
 
             # トレーニング時間を記録
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
             result.training_time = end_time - start_time
 
             # 監査ログ
@@ -217,11 +235,11 @@ class VoiceCloningEngine:
 
         except Exception as e:
             logger.error(f"Voice cloning failed: {e}")
-            end_time = asyncio.get_event_loop().time()
+            end_time = time.monotonic()
 
             return VoiceCloneResult(
                 success=False,
-                voice_id=f"failed_{datetime.now().timestamp()}",
+                voice_id=f"failed_{datetime.now(timezone.utc).timestamp()}",
                 voice_name=request.voice_name,
                 error_message=str(e),
                 training_time=end_time - start_time
@@ -247,7 +265,7 @@ class VoiceCloningEngine:
                 raise ValueError(f"Voice model not found: {voice_id}")
 
             # 出力ファイルパス
-            output_filename = f"speech_{voice_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+            output_filename = f"speech_{voice_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.wav"
             output_path = self.temp_dir / output_filename
 
             if self.tts:
@@ -265,11 +283,11 @@ class VoiceCloningEngine:
 
     async def _validate_audio_file(self, audio_path: str):
         """音声ファイルの妥当性を検証"""
-        if not Path(audio_path).exists():
+        if not Path(audio_path).exists():  # noqa: ASYNC240
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
         # ファイルサイズチェック（最大50MB）
-        if os.path.getsize(audio_path) > 50 * 1024 * 1024:
+        if os.path.getsize(audio_path) > 50 * 1024 * 1024:  # noqa: ASYNC240
             raise ValueError("Audio file too large (max 50MB)")
 
         # 音声情報を取得して検証
@@ -284,7 +302,7 @@ class VoiceCloningEngine:
                 raise ValueError("Invalid sample rate (8000-48000 Hz)")
 
         except Exception as e:
-            raise ValueError(f"Invalid audio file: {e}")
+            raise ValueError(f"Invalid audio file: {e}") from e
 
     def _get_audio_info(self, audio_path: str) -> Tuple[float, int]:
         """音声ファイルの情報を取得"""
@@ -308,7 +326,7 @@ class VoiceCloningEngine:
                 duration = waveform.shape[1] / sample_rate
                 return duration, sample_rate
             except Exception as e2:
-                raise ValueError(f"Could not read audio file: {e2}")
+                raise ValueError(f"Could not read audio file: {e2}") from e2
 
     def _assess_audio_quality(self, audio_path: str) -> float:
         """音声品質を評価（0.0-1.0）"""
@@ -377,7 +395,7 @@ class VoiceCloningEngine:
             "created_at": sample.created_at.isoformat()
         }
 
-        with open(metadata_path, 'w', encoding='utf-8') as f:
+        with open(metadata_path, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(metadata, f, ensure_ascii=False, indent=2)
 
     async def _get_user_voice_samples(self, user_id: str) -> List[VoiceSample]:
@@ -389,7 +407,7 @@ class VoiceCloningEngine:
         samples = []
         for json_file in user_dir.glob("*.json"):
             try:
-                with open(json_file, 'r', encoding='utf-8') as f:
+                with open(json_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     metadata = json.load(f)
 
                 audio_path = json_file.with_suffix('.wav')
@@ -456,7 +474,7 @@ class VoiceCloningEngine:
         # 基本的な統計情報を保存
         model_data = {
             "training_data": training_data,
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "model_type": "basic_fallback"
         }
 
@@ -481,11 +499,10 @@ class VoiceCloningEngine:
                 }
 
                 # 一時ファイルを削除
-                Path(audio_path).unlink(missing_ok=True)
+                Path(audio_path).unlink(missing_ok=True)  # noqa: ASYNC240
 
                 return metrics
-            else:
-                return {"error": "Speech generation failed"}
+            return {"error": "Speech generation failed"}
 
         except Exception as e:
             logger.error(f"Quality evaluation failed: {e}")
@@ -548,9 +565,9 @@ class VoiceCloningEngine:
                 metadata_file = voice_dir / "metadata.json"
                 if metadata_file.exists():
                     try:
-                        with open(metadata_file, 'r', encoding='utf-8') as f:
+                        with open(metadata_file, encoding='utf-8') as f:  # noqa: ASYNC230
                             metadata = json.load(f)
-                    except (IOError, json.JSONDecodeError) as e:
+                    except (OSError, json.JSONDecodeError) as e:
                         logger.warning(f"Failed to load voice metadata from {metadata_file}: {e}")
 
                 voices.append({
@@ -581,13 +598,16 @@ class VoiceCloningEngine:
 
 # グローバルインスタンス管理
 _voice_cloning_engine = None
+_voice_cloning_engine_lock = asyncio.Lock()
 
 async def get_voice_cloning_engine() -> VoiceCloningEngine:
     """音声クローニングエンジンのインスタンスを取得"""
     global _voice_cloning_engine
 
     if _voice_cloning_engine is None:
-        _voice_cloning_engine = VoiceCloningEngine()
-        await _voice_cloning_engine.initialize()
+        async with _voice_cloning_engine_lock:
+            if _voice_cloning_engine is None:
+                _voice_cloning_engine = VoiceCloningEngine()
+                await _voice_cloning_engine.initialize()
 
     return _voice_cloning_engine

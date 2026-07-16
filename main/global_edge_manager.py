@@ -5,14 +5,15 @@ Global Edge Network Manager for Cocoa
 """
 
 import asyncio
-import logging
 import json
-import uuid
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+import logging
+import os
 import time
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import numpy as np
@@ -104,12 +105,12 @@ class GlobalEdgeManager:
             "oceania": ["ap-southeast-2"]
         }
 
-        # CDN設定
-        self.cdn_domains = [
-            "cdn.cocoa-avatar.com",
-            "edge.cocoa-avatar.com",
-            "global.cocoa-avatar.com"
-        ]
+        # CDN設定: この project は cdn.cocoa-avatar.com 等のドメインを
+        # 所有・運用していないため、ハードコードされた架空ドメインではなく
+        # 環境変数 COCOA_CDN_DOMAINS（カンマ区切り）から読み込む。未設定なら
+        # 空リスト（CDN未設定）。
+        cdn_env = os.getenv("COCOA_CDN_DOMAINS", "").strip()
+        self.cdn_domains = [d.strip() for d in cdn_env.split(",") if d.strip()]
 
         # 最適化設定
         self.route_cache_ttl = 300  # 5分
@@ -123,14 +124,17 @@ class GlobalEdgeManager:
         self.average_latency_ms = 0
         self.optimized_routes = 0
 
+        # バックグラウンドタスク参照（GC防止）
+        self._background_tasks: list = []
+
         logger.info("Global Edge Manager initialized")
 
     async def initialize(self):
         """グローバルエッジマネージャーの初期化"""
         await self._initialize_edge_nodes()
         await self._load_traffic_routes()
-        await self._start_health_monitoring()
-        await self._start_analytics_collection()
+        self._background_tasks.append(asyncio.create_task(self._start_health_monitoring()))
+        self._background_tasks.append(asyncio.create_task(self._start_analytics_collection()))
 
     async def _initialize_edge_nodes(self):
         """エッジノードを初期化"""
@@ -192,8 +196,8 @@ class GlobalEdgeManager:
                 bandwidth_mbps=1000,
                 status="active",
                 services=node_data["services"],
-                last_health_check=datetime.now(),
-                created_at=datetime.now()
+                last_health_check=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc)
             )
 
             self.edge_nodes[node.node_id] = node
@@ -206,7 +210,7 @@ class GlobalEdgeManager:
         if routes_dir.exists():
             for route_file in routes_dir.glob("*.json"):
                 try:
-                    with open(route_file, 'r', encoding='utf-8') as f:
+                    with open(route_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
 
                         route = TrafficRoute(
@@ -246,7 +250,7 @@ class GlobalEdgeManager:
 
                 # 負荷状態の更新
                 node.latency_ms = latency
-                node.last_health_check = datetime.now()
+                node.last_health_check = datetime.now(timezone.utc)
 
                 # ステータス更新
                 if latency > 200:  # 200ms以上は問題あり
@@ -292,7 +296,7 @@ class GlobalEdgeManager:
         for node_id, node in self.edge_nodes.items():
             if node.status == "active":
                 analytics = EdgeAnalytics(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     node_id=node_id,
                     metrics={
                         "cpu_usage": node.current_load.get("cpu", 0),
@@ -317,7 +321,7 @@ class GlobalEdgeManager:
                 self.analytics_data[node_id].append(analytics)
 
                 # 古いデータを削除（24時間分保持）
-                cutoff_time = datetime.now() - timedelta(hours=24)
+                cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
                 self.analytics_data[node_id] = [
                     a for a in self.analytics_data[node_id]
                     if a.timestamp > cutoff_time
@@ -376,16 +380,16 @@ class GlobalEdgeManager:
         # 簡易的な地域判定
         if -180 <= lng <= -30 and 15 <= lat <= 75:  # 北米
             return "north_america"
-        elif -90 <= lng <= -30 and -60 <= lat <= 15:  # 南米
+        if -90 <= lng <= -30 and -60 <= lat <= 15:  # 南米
             return "south_america"
-        elif -30 <= lng <= 60 and 30 <= lat <= 75:  # 欧州
+        if -30 <= lng <= 60 and 30 <= lat <= 75:  # 欧州
             return "europe"
-        elif 60 <= lng <= 180 and -50 <= lat <= 50:  # アジア太平洋
+        if 60 <= lng <= 180 and -50 <= lat <= 50:  # アジア太平洋
             return "asia_pacific"
-        elif 30 <= lng <= 60 and -40 <= lat <= 30:  # 中東・アフリカ
+        if 30 <= lng <= 60 and -40 <= lat <= 30:  # 中東・アフリカ
             return "middle_east_africa"
-        else:  # オセアニア
-            return "oceania"
+        # オセアニア
+        return "oceania"
 
     async def _create_optimal_route(self, source_region: str, content_type: str,
                                   priority: str) -> Optional[TrafficRoute]:
@@ -432,7 +436,7 @@ class GlobalEdgeManager:
             bandwidth_capacity_mbps=avg_bandwidth,
             cost_per_gb=cost_per_gb,
             reliability_score=reliability,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
 
         return route
@@ -455,7 +459,7 @@ class GlobalEdgeManager:
         }
 
         route_file = routes_dir / f"{route.route_id}.json"
-        with open(route_file, 'w', encoding='utf-8') as f:
+        with open(route_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(route_data, f, indent=2, ensure_ascii=False)
 
     async def cache_content(self, content_id: str, content_data: bytes,
@@ -484,17 +488,17 @@ class GlobalEdgeManager:
 
             # キャッシュエントリを作成
             cache_key = f"{content_type}_{content_id}_{hash(content_data)}"
-            cache_expires = datetime.now() + timedelta(hours=24)  # 24時間有効
+            cache_expires = datetime.now(timezone.utc) + timedelta(hours=24)  # 24時間有効
 
             cache = ContentCache(
                 content_id=content_id,
                 cache_key=cache_key,
                 content_type=content_type,
                 size_bytes=len(compressed_data),
-                cached_at=datetime.now(),
+                cached_at=datetime.now(timezone.utc),
                 expires_at=cache_expires,
                 access_count=0,
-                last_accessed=datetime.now(),
+                last_accessed=datetime.now(timezone.utc),
                 compression_ratio=compression_ratio
             )
 
@@ -504,7 +508,6 @@ class GlobalEdgeManager:
             for node_id in optimal_nodes:
                 await self._deploy_to_edge_node(node_id, cache_key, compressed_data)
 
-            self.cache_misses += 1  # 新規キャッシュ
             logger.info(f"Content cached: {content_id} in {len(optimal_nodes)} nodes")
 
             return True
@@ -543,7 +546,7 @@ class GlobalEdgeManager:
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         cache_file = cache_dir / f"{cache_key}.cache"
-        with open(cache_file, 'wb') as f:
+        with open(cache_file, 'wb') as f:  # noqa: ASYNC230
             f.write(data)
 
     async def get_cached_content(self, content_id: str, content_type: str,
@@ -572,14 +575,14 @@ class GlobalEdgeManager:
                 if cache_dir.exists():
                     for cache_file in cache_dir.glob(f"{content_id}*.cache"):
                         try:
-                            with open(cache_file, 'rb') as f:
+                            with open(cache_file, 'rb') as f:  # noqa: ASYNC230
                                 data = f.read()
 
                             # キャッシュを更新
                             cache_key = cache_file.stem
                             if cache_key in self.content_cache:
                                 self.content_cache[cache_key].access_count += 1
-                                self.content_cache[cache_key].last_accessed = datetime.now()
+                                self.content_cache[cache_key].last_accessed = datetime.now(timezone.utc)
 
                             # 解凍
                             import gzip
@@ -613,7 +616,7 @@ class GlobalEdgeManager:
             分析データ
         """
         try:
-            cutoff_time = datetime.now() - timedelta(hours=time_range_hours)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=time_range_hours)
 
             # 地域フィルタ
             if region:
@@ -632,7 +635,7 @@ class GlobalEdgeManager:
             }
 
             # 地域別パフォーマンス
-            for region_name, region_nodes in self.regions.items():
+            for region_name in self.regions:
                 region_analytics = []
                 for node_id in node_ids:
                     if node_id in self.analytics_data:
@@ -641,8 +644,14 @@ class GlobalEdgeManager:
                             if a.timestamp > cutoff_time
                         ]
                         if recent_data:
-                            avg_performance = np.mean([a.performance_score for a in recent_data])
-                            avg_latency = np.mean([a.metrics.get("latency_ms", 0) for a in recent_data])
+                            scores = [a.performance_score for a in recent_data]
+                            latencies = [a.metrics.get("latency_ms", 0) for a in recent_data]
+                            if NUMPY_AVAILABLE:
+                                avg_performance = float(np.mean(scores))
+                                avg_latency = float(np.mean(latencies))
+                            else:
+                                avg_performance = sum(scores) / len(scores)
+                                avg_latency = sum(latencies) / len(latencies)
                             region_analytics.append({
                                 "node_id": node_id,
                                 "performance_score": avg_performance,
@@ -651,9 +660,17 @@ class GlobalEdgeManager:
                             })
 
                 if region_analytics:
+                    perf_scores = [a["performance_score"] for a in region_analytics]
+                    latency_vals = [a["average_latency"] for a in region_analytics]
+                    if NUMPY_AVAILABLE:
+                        avg_perf = float(np.mean(perf_scores))
+                        avg_lat = float(np.mean(latency_vals))
+                    else:
+                        avg_perf = sum(perf_scores) / len(perf_scores)
+                        avg_lat = sum(latency_vals) / len(latency_vals)
                     analytics["regional_performance"][region_name] = {
-                        "average_performance": np.mean([a["performance_score"] for a in region_analytics]),
-                        "average_latency": np.mean([a["average_latency"] for a in region_analytics]),
+                        "average_performance": avg_perf,
+                        "average_latency": avg_lat,
                         "node_count": len(region_analytics),
                         "nodes": region_analytics
                     }
@@ -678,25 +695,28 @@ class GlobalEdgeManager:
                     "nodes": len([n for n in self.edge_nodes.values() if n.region == region]),
                     "active_nodes": len([n for n in self.edge_nodes.values() if n.region == region and n.status == "active"])
                 }
-                for region in self.regions.keys()
+                for region in self.regions
             },
             "cdn_domains": self.cdn_domains,
-            "supported_services": list(set(
+            "supported_services": list({
                 service for node in self.edge_nodes.values()
                 for service in node.services
-            )),
+            }),
             "analytics_data_points": sum(len(data) for data in self.analytics_data.values())
         }
 
 # グローバルインスタンス
 _global_edge_manager = None
+_global_edge_manager_lock = asyncio.Lock()
 
 async def get_global_edge_manager() -> GlobalEdgeManager:
     """グローバルエッジマネージャーのインスタンスを取得"""
     global _global_edge_manager
 
     if _global_edge_manager is None:
-        _global_edge_manager = GlobalEdgeManager()
-        await _global_edge_manager.initialize()
+        async with _global_edge_manager_lock:
+            if _global_edge_manager is None:
+                _global_edge_manager = GlobalEdgeManager()
+                await _global_edge_manager.initialize()
 
     return _global_edge_manager

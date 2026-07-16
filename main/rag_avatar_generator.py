@@ -3,16 +3,28 @@ RAG-Enhanced Avatar Generator for Cocoa
 Retrieval-Augmented Generationを活用した高度なアバター生成システム
 """
 
+import asyncio
+import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
-from datetime import datetime
-import json
 
-from sentence_transformers import SentenceTransformer
-import chromadb
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+    SentenceTransformer = None
 
-from .integrated_security import get_security_manager
+try:
+    import chromadb
+    CHROMADB_AVAILABLE = True
+except ImportError:
+    CHROMADB_AVAILABLE = False
+    chromadb = None
+
+from integrated_security import get_security_manager
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +36,7 @@ class AvatarRAGSystem:
 
     def __init__(self, embedding_model: str = "all-MiniLM-L6-v2"):
         self.security_manager = get_security_manager()
-        self.embedding_model = SentenceTransformer(embedding_model)
+        self.embedding_model = SentenceTransformer(embedding_model) if SENTENCE_TRANSFORMERS_AVAILABLE else None
         self.vector_store = None
         self.chroma_client = None
         self.collection = None
@@ -87,6 +99,8 @@ class AvatarRAGSystem:
         """ベクターストアを初期化"""
         try:
             # ChromaDBクライアントの初期化
+            if not CHROMADB_AVAILABLE:
+                raise RuntimeError("chromadb not available")
             self.chroma_client = chromadb.PersistentClient(path=str(self.cache_dir / "chroma_db"))
 
             # コレクションの作成または取得
@@ -250,7 +264,7 @@ class AvatarRAGSystem:
             if feedback:
                 preference_data = {
                     "user_id": user_id,
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "avatar_style": avatar_metadata.get("style"),
                     "customizations": avatar_metadata.get("customizations"),
                     "feedback_score": feedback.get("score", 0),
@@ -259,7 +273,7 @@ class AvatarRAGSystem:
                 }
 
                 # ベクターストアに追加
-                doc_id = f"user_pref_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                doc_id = f"user_pref_{user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
                 self.collection.add(
                     documents=[json.dumps(preference_data, ensure_ascii=False)],
@@ -291,7 +305,8 @@ class AvatarRAGSystem:
             # コンテキストに基づいた提案を生成
             suggestions = []
 
-            if user_preferences and "documents" in user_preferences:
+            pref_docs = (user_preferences or {}).get("documents", [[]])
+            if pref_docs and pref_docs[0]:
                 # 過去の好みから提案を生成
                 suggestions = await self._generate_suggestions_from_preferences(
                     user_preferences, current_context, count
@@ -324,10 +339,9 @@ class AvatarRAGSystem:
             where={"type": "knowledge_base"}
         )
 
-        if similar_docs and "documents" in similar_docs:
-            documents = similar_docs["documents"][0]
-
-            for doc in documents[:count]:
+        kb_docs = (similar_docs or {}).get("documents", [[]])
+        if kb_docs and kb_docs[0]:
+            for doc in kb_docs[0][:count]:
                 # 提案フォーマットを作成
                 suggestion = f"提案: {doc} - {context}を反映したスタイル"
                 suggestions.append(suggestion)
@@ -363,6 +377,7 @@ class AvatarRAGSystem:
 
 # グローバルインスタンス
 _rag_system = None
+_rag_system_lock = asyncio.Lock()
 
 async def get_rag_system() -> AvatarRAGSystem:
     """RAGシステムのインスタンスを取得"""
@@ -370,7 +385,9 @@ async def get_rag_system() -> AvatarRAGSystem:
     global _rag_system
 
     if _rag_system is None:
-        _rag_system = AvatarRAGSystem()
-        await _rag_system.initialize_vector_store()
+        async with _rag_system_lock:
+            if _rag_system is None:
+                _rag_system = AvatarRAGSystem()
+                await _rag_system.initialize_vector_store()
 
     return _rag_system

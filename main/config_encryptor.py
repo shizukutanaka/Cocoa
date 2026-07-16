@@ -3,17 +3,24 @@
 軽量で実用的な設定ファイルの暗号化・復号化機能を提供
 """
 
+import base64
 import json
 import os
-import time
 import secrets
+import time
 from pathlib import Path
-from typing import Dict, Any, Optional
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-import base64
+from typing import Any, Dict, Optional
+
+try:
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    CRYPTO_AVAILABLE = True
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
+    CRYPTO_AVAILABLE = False
 import logging
 
 logger = logging.getLogger(__name__)
@@ -32,9 +39,6 @@ class ConfigEncryptor:
 
         # キーをバイト列に変換
         self.key_bytes = self.key.encode('utf-8') if isinstance(self.key, str) else self.key
-
-        # ソルトの生成
-        self.salt = secrets.token_bytes(16)
 
     def _derive_key(self, salt: bytes) -> bytes:
         """パスワードから暗号化キーを派生"""
@@ -56,7 +60,7 @@ class ConfigEncryptor:
                 return False
 
             # 設定ファイルの読み込み
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, encoding='utf-8') as f:
                 config_data = json.load(f)
 
             # 機密フィールドの抽出とマスク
@@ -117,11 +121,12 @@ class ConfigEncryptor:
 
     def _encrypt_data(self, data: bytes) -> bytes:
         """データを暗号化"""
-        # 初期化ベクターの生成
+        # ソルトと初期化ベクターを呼び出しごとに生成（再使用禁止）
+        salt = secrets.token_bytes(16)
         iv = secrets.token_bytes(12)
 
         # キーの派生
-        key = self._derive_key(self.salt)
+        key = self._derive_key(salt)
 
         # AES-GCM暗号化の設定
         cipher = Cipher(algorithms.AES(key), modes.GCM(iv), backend=default_backend())
@@ -132,7 +137,7 @@ class ConfigEncryptor:
 
         # 暗号化データをエンコード（salt + iv + tag + ciphertext）
         encrypted_data = (
-            self.salt +
+            salt +
             iv +
             encryptor.tag +
             ciphertext
@@ -234,9 +239,8 @@ class ConfigEncryptor:
             if self.encrypt_config_file(backup_path, encrypted_backup):
                 logger.info(f"セキュアバックアップを作成しました: {backup_path}")
                 return True
-            else:
-                logger.error(f"バックアップの暗号化に失敗しました: {backup_path}")
-                return False
+            logger.error(f"バックアップの暗号化に失敗しました: {backup_path}")
+            return False
 
         except Exception as e:
             logger.error(f"セキュアバックアップ作成エラー: {e}")
@@ -260,7 +264,6 @@ def create_secure_config_backup(config_path: str, key: Optional[str] = None) -> 
     encryptor = ConfigEncryptor(key)
 
     # バックアップパスの生成
-    config_obj = Path(config_path)
     backup_path = f"{config_path}.backup.{int(time.time())}"
 
     return encryptor.create_secure_backup(config_path, backup_path)

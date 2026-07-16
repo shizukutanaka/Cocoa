@@ -5,16 +5,20 @@ AR Cloud Manager for Cocoa
 """
 
 import asyncio
-import logging
 import json
-import uuid
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+import logging
 import math
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
 
 try:
     import open3d as o3d
@@ -24,7 +28,7 @@ except ImportError:
     logging.warning("Open3D not available. 3D reconstruction features will be limited.")
 
 try:
-    import pyproj
+    import pyproj  # noqa: F401
     PYPROJ_AVAILABLE = True
 except ImportError:
     PYPROJ_AVAILABLE = False
@@ -66,9 +70,9 @@ class ARContent:
 @dataclass
 class PointCloudData:
     """ポイントクラウドデータ"""
-    points: np.ndarray  # N x 3
-    colors: np.ndarray  # N x 3
-    normals: Optional[np.ndarray] = None
+    points: "Any"  # N x 3 ndarray
+    colors: "Any"  # N x 3 ndarray
+    normals: "Optional[Any]" = None
     timestamp: datetime = None
     device_id: str = ""
     location: Tuple[float, float, float] = None
@@ -122,13 +126,16 @@ class ARCloudManager:
         self.total_content = 0
         self.data_processed_mb = 0
 
+        # バックグラウンドタスク参照（GC防止）
+        self._background_tasks: list = []
+
         logger.info("AR Cloud Manager initialized")
 
     async def initialize(self):
         """ARクラウドマネージャーの初期化"""
         await self._load_existing_maps()
         await self._initialize_spatial_system()
-        await self._start_maintenance_tasks()
+        self._background_tasks.append(asyncio.create_task(self._start_maintenance_tasks()))
 
     async def _load_existing_maps(self):
         """既存のARマップを読み込み"""
@@ -136,7 +143,7 @@ class ARCloudManager:
         if maps_dir.exists():
             for map_file in maps_dir.glob("*.json"):
                 try:
-                    with open(map_file, 'r', encoding='utf-8') as f:
+                    with open(map_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
 
                         # ポイントクラウドを読み込み
@@ -258,8 +265,8 @@ class ARCloudManager:
             anchors=[],
             content=[],
             mesh_data=None,
-            created_at=datetime.now(),
-            last_updated=datetime.now(),
+            created_at=datetime.now(timezone.utc),
+            last_updated=datetime.now(timezone.utc),
             version="1.0.0"
         )
 
@@ -327,7 +334,7 @@ class ARCloudManager:
         }
 
         map_file = maps_dir / f"{ar_map.map_id}.json"
-        with open(map_file, 'w', encoding='utf-8') as f:
+        with open(map_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(map_data, f, indent=2, ensure_ascii=False)
 
     async def add_spatial_anchor(self, map_id: str, position: Tuple[float, float, float],
@@ -350,7 +357,7 @@ class ARCloudManager:
             raise ValueError(f"Map not found: {map_id}")
 
         anchor_id = f"anchor_{uuid.uuid4().hex[:16]}"
-        created_at = datetime.now()
+        created_at = datetime.now(timezone.utc)
         expires_at = created_at + timedelta(hours=self.anchor_expiry_hours)
 
         anchor = SpatialAnchor(
@@ -378,7 +385,7 @@ class ARCloudManager:
     async def _update_spatial_map(self, map_id: str):
         """空間マップを更新"""
         if map_id in self.spatial_maps:
-            self.spatial_maps[map_id].last_updated = datetime.now()
+            self.spatial_maps[map_id].last_updated = datetime.now(timezone.utc)
             await self._save_spatial_map(self.spatial_maps[map_id])
 
     async def add_ar_content(self, map_id: str, content_type: str, position: Tuple[float, float, float],
@@ -402,7 +409,7 @@ class ARCloudManager:
             raise ValueError(f"Map not found: {map_id}")
 
         content_id = f"content_{uuid.uuid4().hex[:16]}"
-        created_at = datetime.now()
+        created_at = datetime.now(timezone.utc)
 
         content = ARContent(
             content_id=content_id,
@@ -446,7 +453,7 @@ class ARCloudManager:
         try:
             # マップIDが指定されていない場合は作成
             if map_id is None or map_id not in self.spatial_maps:
-                map_name = f"auto_map_{device_id}_{int(datetime.now().timestamp())}"
+                map_name = f"auto_map_{device_id}_{int(datetime.now(timezone.utc).timestamp())}"
                 map_id = await self.create_spatial_map(map_name, "local")
 
             # 既存のポイントクラウドと統合
@@ -509,7 +516,7 @@ class ARCloudManager:
         return PointCloudData(
             points=combined_points,
             colors=combined_colors,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             device_id=f"combined_{cloud1.device_id}_{cloud2.device_id}",
             location=cloud1.location  # 最初のクラウドの位置を使用
         )
@@ -545,7 +552,7 @@ class ARCloudManager:
                 "vertices": vertices.tolist(),
                 "triangles": triangles.tolist(),
                 "vertex_colors": vertex_colors.tolist() if vertex_colors is not None else None,
-                "generated_at": datetime.now().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
 
         except Exception as e:
@@ -587,7 +594,7 @@ class ARCloudManager:
                     "map_id": best_map_id,
                     "pose": best_pose,
                     "confidence": best_confidence,
-                    "timestamp": datetime.now()
+                    "timestamp": datetime.now(timezone.utc)
                 }
 
                 result = {
@@ -670,7 +677,7 @@ class ARCloudManager:
 
             if distance <= radius:
                 # コンテンツを更新
-                content.last_accessed = datetime.now()
+                content.last_accessed = datetime.now(timezone.utc)
                 content.access_count += 1
 
                 nearby_content.append({
@@ -696,7 +703,7 @@ class ARCloudManager:
 
     async def _cleanup_expired_anchors(self):
         """期限切れアンカーをクリーンアップ"""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         expired_anchors = []
 
         for anchor_id, anchor in list(self.spatial_anchors.items()):
@@ -716,7 +723,7 @@ class ARCloudManager:
 
     async def _cleanup_old_content(self):
         """古いコンテンツをクリーンアップ"""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         retention_period = timedelta(days=self.content_retention_days)
 
         old_content = []
@@ -771,13 +778,16 @@ class ARCloudManager:
 
 # グローバルインスタンス
 _ar_cloud_manager = None
+_ar_cloud_manager_lock = asyncio.Lock()
 
 async def get_ar_cloud_manager() -> ARCloudManager:
     """ARクラウドマネージャーのインスタンスを取得"""
     global _ar_cloud_manager
 
     if _ar_cloud_manager is None:
-        _ar_cloud_manager = ARCloudManager()
-        await _ar_cloud_manager.initialize()
+        async with _ar_cloud_manager_lock:
+            if _ar_cloud_manager is None:
+                _ar_cloud_manager = ARCloudManager()
+                await _ar_cloud_manager.initialize()
 
     return _ar_cloud_manager

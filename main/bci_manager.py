@@ -4,22 +4,35 @@ Brain-Computer Interface Manager for Cocoa
 次世代入力デバイスに対応したBCIシステム
 """
 
-import logging
+import asyncio
 import json
-import uuid
-from pathlib import Path
-from typing import Dict, List, Any
-from dataclasses import dataclass
-from datetime import datetime
+import logging
 import queue
-import numpy as np
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List
 
 try:
-    import mne
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
+    nn = None
+    F = None
+
+try:
+    import mne  # noqa: F401
     MNE_AVAILABLE = True
 except ImportError:
     MNE_AVAILABLE = False
@@ -40,7 +53,7 @@ class BCISignal:
     """BCI信号データ"""
     timestamp: datetime
     signal_type: str  # "eeg", "fnirs", "ecog", "neuralink"
-    channels: np.ndarray  # チャンネルデータ
+    channels: "Any"  # チャンネルデータ
     sampling_rate: float
     device_id: str
     user_id: str
@@ -52,7 +65,7 @@ class ThoughtPattern:
     """思考パターン"""
     pattern_id: str
     pattern_type: str  # "movement", "speech", "emotion", "attention"
-    signal_signature: np.ndarray
+    signal_signature: "Any"
     confidence_threshold: float
     action_mapping: Dict[str, Any]
     training_data: List[BCISignal]
@@ -74,7 +87,7 @@ class BCICommand:
 class BCIProfile:
     """BCIユーザープロファイル"""
     user_id: str
-    baseline_signals: Dict[str, np.ndarray]
+    baseline_signals: Dict[str, "Any"]
     trained_patterns: List[str]
     calibration_data: Dict[str, Any]
     preferences: Dict[str, Any]
@@ -89,17 +102,15 @@ class EEGProcessor:
         self.filters = {}
         self.features = {}
 
-    def preprocess_eeg(self, signal: BCISignal) -> np.ndarray:
+    def preprocess_eeg(self, signal: BCISignal) -> "Any":
         """EEG信号の前処理"""
         # ノイズ除去
         filtered = self._apply_filters(signal)
 
         # 特徴抽出
-        features = self._extract_features(filtered, signal.sampling_rate)
+        return self._extract_features(filtered, signal.sampling_rate)
 
-        return features
-
-    def _apply_filters(self, signal: BCISignal) -> np.ndarray:
+    def _apply_filters(self, signal: BCISignal) -> "Any":
         """フィルタ適用"""
         # バンドパスフィルタ（1-40Hz）
         if signal.signal_type == "eeg":
@@ -112,12 +123,12 @@ class EEGProcessor:
 
         return filtered
 
-    def _notch_filter(self, data: np.ndarray, freq: float, fs: float) -> np.ndarray:
+    def _notch_filter(self, data: "Any", freq: float, fs: float) -> "Any":
         """ノッチフィルタ"""
         # 簡易的な50Hzノイズ除去
         return data
 
-    def _extract_features(self, data: np.ndarray, sampling_rate: float) -> np.ndarray:
+    def _extract_features(self, data: "Any", sampling_rate: float) -> "Any":
         """特徴抽出"""
         features = []
 
@@ -137,17 +148,17 @@ class EEGProcessor:
                 'gamma': (30, 40)
             }
 
-            for band_name, (low, high) in bands.items():
+            for (low, high) in bands.values():
                 band_power = np.mean(power[(freqs >= low) & (freqs <= high)])
                 features.append(band_power)
 
         return np.array(features)
 
-class NeuralNetwork(nn.Module):
+class NeuralNetwork(nn.Module if TORCH_AVAILABLE and nn else object):
     """BCI用ニューラルネットワーク"""
 
     def __init__(self, input_size: int, hidden_size: int, output_size: int):
-        super(NeuralNetwork, self).__init__()
+        super().__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, output_size)
@@ -158,8 +169,7 @@ class NeuralNetwork(nn.Module):
         x = self.dropout(x)
         x = F.relu(self.fc2(x))
         x = self.dropout(x)
-        x = self.fc3(x)
-        return x
+        return self.fc3(x)
 
 class BCIManager:
     """
@@ -235,7 +245,7 @@ class BCIManager:
         if profile_dir.exists():
             for profile_file in profile_dir.glob("*.json"):
                 try:
-                    with open(profile_file, 'r', encoding='utf-8') as f:
+                    with open(profile_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
 
                         profile = BCIProfile(
@@ -278,7 +288,7 @@ class BCIManager:
                 "device_id": device_id,
                 "device_type": device_type,
                 "capabilities": capabilities,
-                "registered_at": datetime.now(),
+                "registered_at": datetime.now(timezone.utc),
                 "status": "active",
                 "calibration_status": "none"
             }
@@ -327,12 +337,12 @@ class BCIManager:
             logger.error(f"BCI signal processing failed: {e}")
             return []
 
-    async def _recognize_thought_patterns(self, signal: BCISignal, features: np.ndarray) -> List[BCICommand]:
+    async def _recognize_thought_patterns(self, signal: BCISignal, features: "Any") -> List[BCICommand]:
         """思考パターンを認識"""
         commands = []
 
         # 各訓練済みパターンに対して推論
-        for pattern_id, pattern in self.thought_patterns.items():
+        for pattern in self.thought_patterns.values():
             if pattern.pattern_id in self.models:
                 model = self.models[pattern.pattern_id]
 
@@ -367,7 +377,7 @@ class BCIManager:
 
         command.command_id = command_id
         command.confidence = confidence
-        command.timestamp = datetime.now()
+        command.timestamp = datetime.now(timezone.utc)
 
         return command
 
@@ -382,7 +392,7 @@ class BCIManager:
             command_type="move",
             parameters={"direction": direction, "speed": speed, "duration": 1.0},
             confidence=confidence,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
     def _generate_speech_command(self, pattern: ThoughtPattern, confidence: float) -> BCICommand:
@@ -395,7 +405,7 @@ class BCIManager:
             command_type="speech",
             parameters={"text": text, "language": language},
             confidence=confidence,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
     def _generate_selection_command(self, pattern: ThoughtPattern, confidence: float) -> BCICommand:
@@ -408,7 +418,7 @@ class BCIManager:
             command_type="select",
             parameters={"target": target, "action": action},
             confidence=confidence,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
     def _generate_generic_command(self, pattern: ThoughtPattern, confidence: float) -> BCICommand:
@@ -418,7 +428,7 @@ class BCIManager:
             command_type="generic",
             parameters=pattern.action_mapping,
             confidence=confidence,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
     async def _execute_bci_command(self, command: BCICommand):
@@ -498,7 +508,7 @@ class BCIManager:
             パターンID
         """
         try:
-            pattern_id = f"pattern_{user_id}_{pattern_type}_{int(datetime.now().timestamp())}"
+            pattern_id = f"pattern_{user_id}_{pattern_type}_{int(datetime.now(timezone.utc).timestamp())}"
 
             # 特徴を抽出
             all_features = []
@@ -531,7 +541,7 @@ class BCIManager:
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
             model.train()
-            for epoch in range(100):
+            for _epoch in range(100):
                 optimizer.zero_grad()
                 outputs = model(X)
                 loss = criterion(outputs, y)
@@ -546,7 +556,7 @@ class BCIManager:
                 "hidden_size": hidden_size,
                 "output_size": output_size,
                 "state_dict": model.state_dict(),
-                "training_date": datetime.now().isoformat()
+                "training_date": datetime.now(timezone.utc).isoformat()
             }, model_path)
 
             # パターンを登録
@@ -558,8 +568,8 @@ class BCIManager:
                 action_mapping=target_action,
                 training_data=training_signals,
                 accuracy=0.95,  # 訓練時の精度
-                created_at=datetime.now(),
-                last_updated=datetime.now()
+                created_at=datetime.now(timezone.utc),
+                last_updated=datetime.now(timezone.utc)
             )
 
             self.thought_patterns[pattern_id] = pattern
@@ -574,12 +584,12 @@ class BCIManager:
                     calibration_data={},
                     preferences={},
                     skill_level="beginner",
-                    created_at=datetime.now(),
-                    last_calibration=datetime.now()
+                    created_at=datetime.now(timezone.utc),
+                    last_calibration=datetime.now(timezone.utc)
                 )
 
             self.user_profiles[user_id].trained_patterns.append(pattern_id)
-            self.user_profiles[user_id].last_calibration = datetime.now()
+            self.user_profiles[user_id].last_calibration = datetime.now(timezone.utc)
             self.user_profiles[user_id].skill_level = self._update_skill_level(user_id)
 
             self.training_sessions += 1
@@ -603,12 +613,11 @@ class BCIManager:
 
         if pattern_count < 3:
             return "beginner"
-        elif pattern_count < 7:
+        if pattern_count < 7:
             return "intermediate"
-        elif pattern_count < 12:
+        if pattern_count < 12:
             return "advanced"
-        else:
-            return "expert"
+        return "expert"
 
     async def _save_user_profile(self, profile: BCIProfile):
         """ユーザープロファイルを保存"""
@@ -627,7 +636,7 @@ class BCIManager:
         }
 
         profile_file = profile_dir / f"{profile.user_id}.json"
-        with open(profile_file, 'w', encoding='utf-8') as f:
+        with open(profile_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(profile_data, f, indent=2, ensure_ascii=False)
 
     async def calibrate_bci_system(self, user_id: str, device_id: str,
@@ -665,14 +674,14 @@ class BCIManager:
                 trained_patterns=[],
                 calibration_data={
                     "device_id": device_id,
-                    "calibration_date": datetime.now().isoformat(),
+                    "calibration_date": datetime.now(timezone.utc).isoformat(),
                     "signal_count": len(calibration_signals),
                     "quality_scores": [s.quality_score for s in calibration_signals]
                 },
                 preferences={"sensitivity": "medium", "feedback": "visual"},
                 skill_level="beginner",
-                created_at=datetime.now(),
-                last_calibration=datetime.now()
+                created_at=datetime.now(timezone.utc),
+                last_calibration=datetime.now(timezone.utc)
             )
 
             self.user_profiles[user_id] = profile
@@ -681,7 +690,7 @@ class BCIManager:
             # デバイスステータスを更新
             if device_id in self.connected_devices:
                 self.connected_devices[device_id]["calibration_status"] = "completed"
-                self.connected_devices[device_id]["calibration_date"] = datetime.now()
+                self.connected_devices[device_id]["calibration_date"] = datetime.now(timezone.utc)
 
             result = {
                 "calibration_completed": True,
@@ -726,13 +735,16 @@ class BCIManager:
 
 # グローバルインスタンス
 _bci_manager = None
+_bci_manager_lock = asyncio.Lock()
 
 async def get_bci_manager() -> BCIManager:
     """BCIマネージャーのインスタンスを取得"""
     global _bci_manager
 
     if _bci_manager is None:
-        _bci_manager = BCIManager()
-        await _bci_manager.initialize()
+        async with _bci_manager_lock:
+            if _bci_manager is None:
+                _bci_manager = BCIManager()
+                await _bci_manager.initialize()
 
     return _bci_manager

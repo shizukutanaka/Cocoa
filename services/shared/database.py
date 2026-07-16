@@ -4,12 +4,26 @@
 """
 
 import logging
-from typing import AsyncGenerator, Optional
 from contextlib import asynccontextmanager
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from typing import AsyncGenerator, Optional
 
-from .models import Base
+try:
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+        async_sessionmaker,
+        create_async_engine,
+    )
+    SQLALCHEMY_AVAILABLE = True
+except ImportError:
+    SQLALCHEMY_AVAILABLE = False
+    AsyncSession = None
+    async_sessionmaker = None
+    create_async_engine = None
+
 from .config import get_config
+
+if SQLALCHEMY_AVAILABLE:
+    from .models import Base
 
 
 class DatabaseManager:

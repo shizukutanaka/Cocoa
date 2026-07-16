@@ -6,14 +6,14 @@ Project Health Checker for Cocoa
 このスクリプトはプロジェクト全体の健全性をチェックし、
 改善点を自動的に検出・報告します。
 """
-import sys
-import os
-import json
-import subprocess
-from pathlib import Path
-from typing import Dict, List, Any
 import hashlib
+import json
+import os
+import subprocess
+import sys
 import time
+from pathlib import Path
+from typing import Any, Dict, List
 
 
 class CocoaHealthChecker:
@@ -100,7 +100,9 @@ class CocoaHealthChecker:
 
         # locales内の言語ファイル
         locales_files = list(locales_dir.glob('*.json'))
-        main_lang_files = [f for f in main_dir.glob('*.json') if f.name.endswith('.json') and len(f.name) == 6]  # xx.json
+        # 2文字言語コードのファイル (例: ja.json, en.json) を検出する。
+        # ステム長で判定する ("ja.json" -> stem "ja" -> len 2)。
+        main_lang_files = [f for f in main_dir.glob('*.json') if len(f.stem) == 2]
 
         if main_lang_files:
             self.warnings.append({
@@ -139,7 +141,7 @@ class CocoaHealthChecker:
                             duplicates.append((str(filepath), str(hashes[file_hash])))
                         else:
                             hashes[file_hash] = filepath
-                    except:
+                    except Exception:
                         pass
 
         if duplicates:
@@ -173,7 +175,7 @@ class CocoaHealthChecker:
                     lines = result.stdout.strip().split('\n')
                     if lines and lines[0]:
                         security_issues.extend(lines)
-            except:
+            except Exception:
                 pass
 
         if security_issues:
@@ -209,10 +211,11 @@ class CocoaHealthChecker:
             self.passed_checks.append(f"Pythonファイル{len(python_files)}個の構文チェックが完了しました")
 
         # 大きなファイルの警告
-        large_files = []
-        for py_file in python_files:
-            if py_file.stat().st_size > 100000:  # 100KB以上
-                large_files.append((str(py_file), py_file.stat().st_size))
+        large_files = [
+            (str(py_file), py_file.stat().st_size)
+            for py_file in python_files
+            if py_file.stat().st_size > 100000  # 100KB以上
+        ]
 
         if large_files:
             self.warnings.append({
@@ -230,7 +233,7 @@ class CocoaHealthChecker:
 
             # 依存関係の解析
             try:
-                with open(req_file, 'r') as f:
+                with open(req_file) as f:
                     deps = [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
                 if len(deps) > 50:

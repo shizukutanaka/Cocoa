@@ -4,14 +4,20 @@ Template Library Module for Cocoa
 多様なアバター・動画テンプレートライブラリ
 """
 
+import asyncio
 import json
 import logging
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Union
-from dataclasses import dataclass
-from datetime import datetime
 
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
+from template_filters import (
+    sanitize_template_id,
+    validate_avatar_template,
+    validate_video_template,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -37,7 +43,7 @@ class AvatarTemplate:
         if self.tags is None:
             self.tags = []
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class VideoTemplate:
@@ -64,7 +70,7 @@ class VideoTemplate:
         if self.tags is None:
             self.tags = []
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 class TemplateCategory:
     """テンプレートカテゴリ"""
@@ -147,8 +153,12 @@ class TemplateLibrary:
         # アバターテンプレート読み込み
         for template_file in self.avatar_templates_dir.glob("*.json"):
             try:
-                with open(template_file, 'r', encoding='utf-8') as f:
+                with open(template_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     data = json.load(f)
+                    schema = validate_avatar_template(data)
+                    if not schema["valid"]:
+                        logger.warning(f"Skipping invalid avatar template {template_file}: {schema['errors']}")
+                        continue
                     template = AvatarTemplate(**data)
                     self.avatar_templates[template.template_id] = template
             except Exception as e:
@@ -157,8 +167,12 @@ class TemplateLibrary:
         # 動画テンプレート読み込み
         for template_file in self.video_templates_dir.glob("*.json"):
             try:
-                with open(template_file, 'r', encoding='utf-8') as f:
+                with open(template_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     data = json.load(f)
+                    schema = validate_video_template(data)
+                    if not schema["valid"]:
+                        logger.warning(f"Skipping invalid video template {template_file}: {schema['errors']}")
+                        continue
                     template = VideoTemplate(**data)
                     self.video_templates[template.template_id] = template
             except Exception as e:
@@ -963,9 +977,9 @@ class TemplateLibrary:
         """アバターテンプレートを保存"""
         self.avatar_templates[template.template_id] = template
 
-        template_file = self.avatar_templates_dir / f"{template.template_id}.json"
+        template_file = self.avatar_templates_dir / f"{sanitize_template_id(template.template_id)}.json"
         try:
-            with open(template_file, 'w', encoding='utf-8') as f:
+            with open(template_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                 json.dump({
                     "template_id": template.template_id,
                     "name": template.name,
@@ -989,9 +1003,9 @@ class TemplateLibrary:
         """動画テンプレートを保存"""
         self.video_templates[template.template_id] = template
 
-        template_file = self.video_templates_dir / f"{template.template_id}.json"
+        template_file = self.video_templates_dir / f"{sanitize_template_id(template.template_id)}.json"
         try:
-            with open(template_file, 'w', encoding='utf-8') as f:
+            with open(template_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
                 json.dump({
                     "template_id": template.template_id,
                     "name": template.name,
@@ -1078,7 +1092,7 @@ class TemplateLibrary:
             custom_config.update(customizations.get("config", {}))
 
             custom_template = AvatarTemplate(
-                template_id=f"custom_{base_template_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                template_id=f"custom_{base_template_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
                 name=customizations.get("name", f"{base_template.name} (カスタム)"),
                 description=customizations.get("description", base_template.description),
                 category=customizations.get("category", base_template.category),
@@ -1091,7 +1105,7 @@ class TemplateLibrary:
             await self.save_avatar_template(custom_template)
             return custom_template
 
-        elif template_type == "video":
+        if template_type == "video":
             base_template = self.video_templates.get(base_template_id)
             if not base_template:
                 return None
@@ -1104,7 +1118,7 @@ class TemplateLibrary:
             custom_video_settings.update(customizations.get("video_settings", {}))
 
             custom_template = VideoTemplate(
-                template_id=f"custom_{base_template_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                template_id=f"custom_{base_template_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
                 name=customizations.get("name", f"{base_template.name} (カスタム)"),
                 description=customizations.get("description", base_template.description),
                 category=customizations.get("category", base_template.category),
@@ -1127,29 +1141,29 @@ class TemplateLibrary:
             template = self.avatar_templates[template_id]
 
             # ファイル削除
-            template_file = self.avatar_templates_dir / f"{template_id}.json"
+            template_file = self.avatar_templates_dir / f"{sanitize_template_id(template_id)}.json"
             if template_file.exists():
                 template_file.unlink()
 
             # サムネイル削除
-            if template.thumbnail_path and Path(template.thumbnail_path).exists():
-                Path(template.thumbnail_path).unlink()
+            if template.thumbnail_path and Path(template.thumbnail_path).exists():  # noqa: ASYNC240
+                Path(template.thumbnail_path).unlink()  # noqa: ASYNC240
 
             del self.avatar_templates[template_id]
             logger.info(f"Deleted avatar template: {template_id}")
             return True
 
-        elif template_type == "video" and template_id in self.video_templates:
+        if template_type == "video" and template_id in self.video_templates:
             template = self.video_templates[template_id]
 
             # ファイル削除
-            template_file = self.video_templates_dir / f"{template_id}.json"
+            template_file = self.video_templates_dir / f"{sanitize_template_id(template_id)}.json"
             if template_file.exists():
                 template_file.unlink()
 
             # サムネイル削除
-            if template.thumbnail_path and Path(template.thumbnail_path).exists():
-                Path(template.thumbnail_path).unlink()
+            if template.thumbnail_path and Path(template.thumbnail_path).exists():  # noqa: ASYNC240
+                Path(template.thumbnail_path).unlink()  # noqa: ASYNC240
 
             del self.video_templates[template_id]
             logger.info(f"Deleted video template: {template_id}")
@@ -1178,13 +1192,16 @@ class TemplateLibrary:
 
 # グローバルインスタンス管理
 _template_library = None
+_template_library_lock = asyncio.Lock()
 
 async def get_template_library() -> TemplateLibrary:
     """テンプレートライブラリのインスタンスを取得"""
     global _template_library
 
     if _template_library is None:
-        _template_library = TemplateLibrary()
-        await _template_library.initialize()
+        async with _template_library_lock:
+            if _template_library is None:
+                _template_library = TemplateLibrary()
+                await _template_library.initialize()
 
     return _template_library

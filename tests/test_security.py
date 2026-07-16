@@ -2,18 +2,18 @@
 Cocoa セキュリティテスト
 市販レベルのセキュリティ検証
 """
-import unittest
 import hashlib
+import json
 import os
 import tempfile
-import json
+import unittest
 from pathlib import Path
 
 # テスト用環境変数設定
 os.environ['COCOA_DEVELOPMENT_MODE'] = 'true'
 os.environ['COCOA_SECRET_KEY'] = 'test_secret_key_for_testing_only'
 os.environ['COCOA_ADMIN_USER'] = 'test_admin'
-os.environ['COCOA_ADMIN_PASS'] = hashlib.sha256('test_password_123'.encode()).hexdigest()
+os.environ['COCOA_ADMIN_PASS'] = hashlib.sha256(b'test_password_123').hexdigest()
 
 class SecurityTestCase(unittest.TestCase):
     """セキュリティテストケース"""
@@ -114,8 +114,6 @@ class SecurityTestCase(unittest.TestCase):
 
         # セッション作成
         session_id = sm.create_session("test_user", "127.0.0.1")
-        session = sm.active_sessions[session_id]
-
         # セッション検証
         valid, session_info = sm.validate_session(session_id, "127.0.0.1")
         self.assertTrue(valid)

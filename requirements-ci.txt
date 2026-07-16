@@ -1,0 +1,32 @@
+# Lean dependency set for CI and local test runs.
+#
+# requirements.txt pulls in torch/transformers/diffusers/web3/oqs/pqcrystals/
+# sklearn/numpy/sqlalchemy/alembic etc. for the ~60 main/ modules that are not
+# reachable from either real entry point (main/api_server.py, main/main.py) --
+# see FEATURE_AUDIT.md 4-1. Installing all of that just to run the test suite
+# makes CI slow and fragile (several of those need a C/Rust toolchain to
+# build) for no benefit: every one of those imports is already guarded with
+# try/except in the modules that reference them, so the app degrades
+# gracefully without them regardless of which requirements file installed it.
+#
+# This file only lists what the REACHABLE modules actually need to import
+# cleanly and run their real code paths (not just the try/except fallback) --
+# confirmed with the same reachability BFS FEATURE_AUDIT.md 4-1 used, then
+# grepping for third-party imports across just that module set. Versions are
+# copied from requirements.txt's existing pins so this isn't a second source
+# of truth for what version of each package to run.
+
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.2
+PyJWT==2.8.0
+bcrypt==4.1.2
+cryptography==41.0.7
+qrcode==7.4.2
+psutil==5.9.8
+redis==5.0.1
+prometheus-client==0.19.0
+aiohttp==3.9.1
+requests==2.31.0
+SQLAlchemy==2.0.23
+alembic==1.13.1

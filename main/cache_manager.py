@@ -4,13 +4,15 @@
 """
 
 import asyncio
-import time
-import json
+import contextlib
 import hashlib
-from typing import Any, Dict, Optional, Callable
-from pathlib import Path
-import threading
+import json
 import logging
+import threading
+import time
+from functools import wraps
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,13 @@ class MemoryCache:
                 self.access_order.remove(key)
             self.access_order.append(key)
 
+    def delete(self, key: str) -> None:
+        """キャッシュからキーを削除"""
+        with self.lock:
+            self.cache.pop(key, None)
+            with contextlib.suppress(ValueError):
+                self.access_order.remove(key)
+
     def clear(self) -> None:
         """キャッシュをクリア"""
         with self.lock:
@@ -126,7 +135,7 @@ class FileCache:
                 return None
 
             # キャッシュファイルの読み込み
-            with open(cache_path, 'r', encoding='utf-8') as f:
+            with open(cache_path, encoding='utf-8') as f:
                 cache_data = json.load(f)
 
             return cache_data['value']
@@ -231,9 +240,7 @@ class CacheManager:
 
     def invalidate(self, key: str) -> None:
         """キャッシュからキーを削除"""
-        self.memory_cache.cache.pop(key, None)
-        if key in self.memory_cache.access_order:
-            self.memory_cache.access_order.remove(key)
+        self.memory_cache.delete(key)
 
         cache_path = self.file_cache._get_cache_path(key)
         if cache_path.exists():
@@ -262,30 +269,41 @@ class CacheManager:
 
 # グローバルキャッシュインスタンス
 _cache_manager: Optional[CacheManager] = None
+_cache_manager_lock = threading.Lock()
 
 def get_cache_manager() -> CacheManager:
     """キャッシュマネージャーを取得"""
     global _cache_manager
     if _cache_manager is None:
-        _cache_manager = CacheManager()
+        with _cache_manager_lock:
+            if _cache_manager is None:
+                _cache_manager = CacheManager()
     return _cache_manager
+
+
+# Sentinel that the cached() / async_cached() decorators store in the cache
+# when the wrapped function returns None.  Without this, a None return value
+# is indistinguishable from a cache miss (both make get() return None), so
+# the function would be called on every invocation instead of only once.
+_CACHED_NONE = object()
 
 
 def cached(ttl_seconds: int = 300, use_file_cache: bool = False):
     """キャッシュデコレーター"""
     def decorator(func: Callable) -> Callable:
+        @wraps(func)
         def wrapper(*args, **kwargs):
             cache_manager = get_cache_manager()
             cache_key = cache_manager.memory_cache._get_cache_key(func, args, kwargs)
 
-            # キャッシュから取得を試みる
             cached_result = cache_manager.get(cache_key)
+            if cached_result is _CACHED_NONE:
+                return None
             if cached_result is not None:
                 return cached_result
 
-            # 関数を実行して結果をキャッシュに保存
             result = func(*args, **kwargs)
-            cache_manager.set(cache_key, result, use_file_cache)
+            cache_manager.set(cache_key, _CACHED_NONE if result is None else result, use_file_cache)
             return result
 
         return wrapper
@@ -419,28 +437,26 @@ class AsyncCacheManager:
             self.file_cache.set(key, value)
 
 
-async def async_cached(ttl_seconds: int = 300, use_file_cache: bool = False):
+def async_cached(ttl_seconds: int = 300, use_file_cache: bool = False):
     """非同期キャッシュデコレーター"""
     def decorator(func: Callable) -> Callable:
+        @wraps(func)
         async def wrapper(*args, **kwargs):
-            # 同期関数を非同期関数として扱うための処理
             if asyncio.iscoroutinefunction(func):
-                # 非同期関数の場合
                 cache_manager = get_cache_manager()
-                cache_key = await cache_manager.memory_cache._get_cache_key(func, args, kwargs)
+                # _get_cache_key is sync on MemoryCache — no await
+                cache_key = cache_manager.memory_cache._get_cache_key(func, args, kwargs)
 
-                # キャッシュから取得を試みる
-                cached_result = await cache_manager.get(cache_key)
+                cached_result = cache_manager.get(cache_key)
+                if cached_result is _CACHED_NONE:
+                    return None
                 if cached_result is not None:
                     return cached_result
 
-                # 関数を実行して結果をキャッシュに保存
                 result = await func(*args, **kwargs)
-                await cache_manager.set(cache_key, result, use_file_cache)
+                cache_manager.set(cache_key, _CACHED_NONE if result is None else result, use_file_cache)
                 return result
-            else:
-                # 同期関数の場合、通常のキャッシュ機能を使用
-                return cached(ttl_seconds, use_file_cache)(func)(*args, **kwargs)
+            return cached(ttl_seconds, use_file_cache)(func)(*args, **kwargs)
 
         return wrapper
     return decorator

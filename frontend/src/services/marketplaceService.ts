@@ -1,0 +1,235 @@
+import client from "./apiClient";
+import type {
+  CreatorAnalytics,
+  EarningsSummary,
+  Listing,
+  Paginated,
+  PriceHistoryEntry,
+  PromoCode,
+  PromoLookup,
+  PublishListingInput,
+  Review,
+  ReviewReply,
+  ReviewsResponse,
+  UpdateListingInput,
+} from "../types/api";
+
+export interface BrowseParams {
+  q?: string;
+  tags?: string;
+  category?: string;
+  sort_by?: "newest" | "downloads" | "rating" | "price_asc" | "price_desc";
+  limit?: number;
+  offset?: number;
+  is_free?: boolean;
+  platform?: string;
+}
+
+export async function browseMarketplace(params: BrowseParams): Promise<Paginated<Listing>> {
+  const { data } = await client.get("/api/marketplace", { params });
+  return data;
+}
+
+export async function getListing(listingId: string): Promise<Listing> {
+  const { data } = await client.get(`/api/marketplace/${listingId}`);
+  return data;
+}
+
+export async function getFeatured(limit = 12): Promise<{ items: Listing[]; total: number }> {
+  const { data } = await client.get("/api/marketplace/featured", { params: { limit } });
+  return data;
+}
+
+export async function addFavorite(listingId: string) {
+  await client.post(`/api/marketplace/${listingId}/favorite`);
+}
+
+export async function removeFavorite(listingId: string) {
+  await client.delete(`/api/marketplace/${listingId}/favorite`);
+}
+
+export async function listFavorites(): Promise<{ items: Listing[]; total: number }> {
+  const { data } = await client.get("/api/marketplace/favorites");
+  return data;
+}
+
+export async function listReviews(
+  listingId: string,
+  sortBy: "newest" | "helpful" | "rating_high" | "rating_low" = "newest"
+): Promise<ReviewsResponse> {
+  const { data } = await client.get(`/api/marketplace/${listingId}/reviews`, {
+    params: { sort_by: sortBy, limit: 50, offset: 0 },
+  });
+  return data;
+}
+
+export async function postReview(listingId: string, stars: number, text: string) {
+  const { data } = await client.post(`/api/marketplace/${listingId}/reviews`, { stars, text });
+  return data as { listing_id: string; average_rating: number; review: Review };
+}
+
+export async function deleteMyReview(listingId: string) {
+  await client.delete(`/api/marketplace/${listingId}/reviews/mine`);
+}
+
+export async function voteReviewHelpful(reviewId: string, helpful: boolean) {
+  const { data } = await client.post(`/api/marketplace/reviews/${reviewId}/helpful`, { helpful });
+  return data;
+}
+
+export async function getReviewReplies(reviewId: string): Promise<{ items: ReviewReply[]; total: number }> {
+  const { data } = await client.get(`/api/marketplace/reviews/${reviewId}/replies`);
+  return data;
+}
+
+export async function postReviewReply(reviewId: string, text: string): Promise<ReviewReply> {
+  const { data } = await client.post(`/api/marketplace/reviews/${reviewId}/replies`, { text });
+  return data;
+}
+
+export async function deleteReviewReply(reviewId: string, replyId: string) {
+  await client.delete(`/api/marketplace/reviews/${reviewId}/replies/${replyId}`);
+}
+
+export async function myListings(includeInactive = true, limit = 50, offset = 0): Promise<Paginated<Listing>> {
+  const { data } = await client.get("/api/marketplace/mine", {
+    params: { include_inactive: includeInactive, limit, offset },
+  });
+  return data;
+}
+
+export async function publishListing(input: PublishListingInput): Promise<Listing> {
+  const { data } = await client.post("/api/marketplace/publish", input);
+  return data;
+}
+
+export async function updateListing(listingId: string, patch: UpdateListingInput): Promise<Listing> {
+  const { data } = await client.patch(`/api/marketplace/${listingId}`, patch);
+  return data;
+}
+
+export async function unpublishListing(listingId: string) {
+  await client.delete(`/api/marketplace/${listingId}`);
+}
+
+export async function getCategories(): Promise<{ items: Array<{ category: string; count: number }>; total: number }> {
+  const { data } = await client.get("/api/marketplace/categories");
+  return data;
+}
+
+export async function getSuggestions(prefix: string, limit = 8): Promise<string[]> {
+  const { data } = await client.get("/api/search/suggest", { params: { prefix, limit } });
+  return data.suggestions ?? [];
+}
+
+export async function getRelated(listingId: string, limit = 6): Promise<Listing[]> {
+  const { data } = await client.get(`/api/marketplace/${listingId}/related`, { params: { limit } });
+  return data.items ?? [];
+}
+
+export async function getTrending(limit = 6, days = 7): Promise<Listing[]> {
+  const { data } = await client.get("/api/marketplace/trending", { params: { limit, days } });
+  return data.items ?? [];
+}
+
+export async function getPriceHistory(listingId: string): Promise<PriceHistoryEntry[]> {
+  const { data } = await client.get(`/api/marketplace/${listingId}/price-history`);
+  return data.items ?? [];
+}
+
+export async function getMyCreatorAnalytics(): Promise<CreatorAnalytics> {
+  const { data } = await client.get("/api/marketplace/analytics/me");
+  return data;
+}
+
+export async function getMyEarnings(days = 30): Promise<EarningsSummary> {
+  const { data } = await client.get("/api/marketplace/earnings/me", { params: { days } });
+  return data;
+}
+
+export const LISTING_REPORT_REASONS = [
+  { value: "inappropriate", label: "不適切なコンテンツ" },
+  { value: "spam", label: "スパム" },
+  { value: "copyright", label: "著作権侵害" },
+  { value: "misleading", label: "誤解を招く説明" },
+  { value: "malware", label: "マルウェアの疑い" },
+  { value: "other", label: "その他" },
+] as const;
+
+export const REVIEW_REPORT_REASONS = [
+  { value: "spam", label: "スパム" },
+  { value: "offensive", label: "不快な内容" },
+  { value: "false_info", label: "誤った情報" },
+  { value: "other", label: "その他" },
+] as const;
+
+export async function reportListing(listingId: string, reason: string, details = "") {
+  const { data } = await client.post(`/api/marketplace/${listingId}/report`, { reason, details });
+  return data;
+}
+
+export async function reportReview(reviewId: string, reason: string, details = "") {
+  const { data } = await client.post(`/api/marketplace/reviews/${reviewId}/report`, { reason, details });
+  return data;
+}
+
+export async function transferListing(listingId: string, newOwnerId: string, newOwnerUsername: string): Promise<Listing> {
+  const { data } = await client.post(`/api/marketplace/${listingId}/transfer`, {
+    new_owner_id: newOwnerId,
+    new_owner_username: newOwnerUsername,
+  });
+  return data;
+}
+
+export async function setStockLimit(listingId: string, stockLimit: number | null): Promise<Listing> {
+  const { data } = await client.put(`/api/marketplace/${listingId}/stock`, { stock_limit: stockLimit });
+  return data;
+}
+
+// Only CC BY / CC BY-SA listings can be cloned -- check listing.license_type
+// before showing a clone action, matching the server-side gate.
+export const CLONEABLE_LICENSES = ["cc_by", "cc_by_sa"];
+
+export async function cloneListing(listingId: string): Promise<Listing> {
+  const { data } = await client.post(`/api/marketplace/${listingId}/clone`);
+  return data.listing;
+}
+
+export interface DownloadHistoryEntry {
+  listing_id: string;
+  downloaded_at: string;
+  name?: string;
+  owner_username?: string;
+  is_active?: boolean;
+}
+
+export async function getDownloadHistory(limit = 20, offset = 0): Promise<Paginated<DownloadHistoryEntry>> {
+  const { data } = await client.get("/api/marketplace/downloads/history", { params: { limit, offset } });
+  return data;
+}
+
+export async function createPromoCode(input: {
+  code: string;
+  discount_percent: number;
+  listing_id?: string | null;
+  max_uses?: number | null;
+  expires_at?: string | null;
+}): Promise<PromoCode> {
+  const { data } = await client.post("/api/marketplace/promo-codes", input);
+  return data;
+}
+
+export async function listMyPromoCodes(): Promise<{ items: PromoCode[]; total: number }> {
+  const { data } = await client.get("/api/marketplace/promo-codes/mine");
+  return data;
+}
+
+export async function deactivatePromoCode(codeId: string): Promise<PromoCode> {
+  const { data } = await client.delete(`/api/marketplace/promo-codes/${codeId}`);
+  return data;
+}
+
+export async function lookupPromoCode(listingId: string, code: string): Promise<PromoLookup> {
+  const { data } = await client.get(`/api/marketplace/${listingId}/promo/${encodeURIComponent(code)}`);
+  return data;
+}

@@ -4,8 +4,9 @@ Virtual Backgrounds Module for Cocoa
 仮想背景統合システム
 """
 
-import logging
+import asyncio
 import json
+import logging
 import shutil
 from pathlib import Path
 
@@ -15,12 +16,20 @@ try:
 except ImportError:
     aiofiles = None
     AIOFILES_AVAILABLE = False
-from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from datetime import datetime
-from PIL import Image, ImageEnhance, ImageFilter
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
-from .integrated_security import get_security_manager
+try:
+    from PIL import Image, ImageEnhance, ImageFilter
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    Image = None
+    ImageEnhance = None
+    ImageFilter = None
+
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -46,7 +55,7 @@ class BackgroundTemplate:
         if self.settings is None:
             self.settings = {}
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class BackgroundConfig:
@@ -67,7 +76,7 @@ class BackgroundConfig:
         if self.branding is None:
             self.branding = {}
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 class BackgroundProcessor:
     """
@@ -80,9 +89,9 @@ class BackgroundProcessor:
         self.max_image_size = (4096, 4096)  # 最大画像サイズ
         self.thumbnail_size = (300, 200)
 
-    async def apply_background(self, foreground_image: Image.Image,
+    async def apply_background(self, foreground_image: "Any",
                              background_config: BackgroundConfig,
-                             output_size: Tuple[int, int] = (1920, 1080)) -> Image.Image:
+                             output_size: Tuple[int, int] = (1920, 1080)) -> "Any":
         """
         背景を適用
 
@@ -119,7 +128,7 @@ class BackgroundProcessor:
             logger.error(f"Background application failed: {e}")
             raise
 
-    async def _load_background_image(self, config: BackgroundConfig) -> Image.Image:
+    async def _load_background_image(self, config: BackgroundConfig) -> "Any":
         """背景画像を読み込み"""
         if config.template_id:
             # テンプレートから読み込み
@@ -127,14 +136,14 @@ class BackgroundProcessor:
             if template_path.exists():
                 return Image.open(template_path).convert('RGB')
 
-        if config.custom_image_path and Path(config.custom_image_path).exists():
+        if config.custom_image_path and Path(config.custom_image_path).exists():  # noqa: ASYNC240
             # カスタム画像から読み込み
             return Image.open(config.custom_image_path).convert('RGB')
 
         # デフォルト背景
         return self._create_default_background()
 
-    def _create_default_background(self) -> Image.Image:
+    def _create_default_background(self) -> "Any":
         """デフォルト背景を作成"""
         # グラデーション背景
         width, height = 1920, 1080
@@ -150,7 +159,7 @@ class BackgroundProcessor:
 
         return image
 
-    def _fit_foreground(self, foreground: Image.Image, output_size: Tuple[int, int]) -> Image.Image:
+    def _fit_foreground(self, foreground: "Any", output_size: Tuple[int, int]) -> "Any":
         """前景画像をフィット"""
         # アバター画像の場合、適切なサイズにリサイズ
         fg_width, fg_height = foreground.size
@@ -168,8 +177,8 @@ class BackgroundProcessor:
 
         return foreground.resize((new_width, new_height), Image.LANCZOS)
 
-    def _composite_images(self, background: Image.Image, foreground: Image.Image,
-                         config: BackgroundConfig) -> Image.Image:
+    def _composite_images(self, background: "Any", foreground: "Any",
+                         config: BackgroundConfig) -> "Any":
         """画像を合成"""
         # 新しい画像作成
         result = background.copy()
@@ -206,7 +215,7 @@ class BackgroundProcessor:
 
         return result
 
-    async def _apply_effects(self, image: Image.Image, effects: List[Dict[str, Any]]) -> Image.Image:
+    async def _apply_effects(self, image: "Any", effects: List[Dict[str, Any]]) -> "Any":
         """エフェクトを適用"""
         result = image.copy()
 
@@ -239,86 +248,87 @@ class BackgroundProcessor:
 
         return result
 
-    async def _apply_branding(self, image: Image.Image, branding: Dict[str, Any]) -> Image.Image:
+    async def _apply_branding(self, image: "Any", branding: Dict[str, Any]) -> "Any":
         """ブランディングを適用"""
         result = image.copy()
 
-        # ロゴ追加
         logo_path = branding.get('logo_path')
-        if logo_path and Path(logo_path).exists():
-            logo = Image.open(logo_path).convert('RGBA')
+        if logo_path and Path(logo_path).exists():  # noqa: ASYNC240
+            result = self._apply_branding_logo(result, branding, logo_path)
 
-            # ロゴサイズ調整
-            logo_width = branding.get('logo_width', 200)
-            logo.thumbnail((logo_width, logo_width), Image.LANCZOS)
-
-            # ロゴ位置
-            position = branding.get('logo_position', 'top_right')
-            bg_width, bg_height = result.size
-            logo_w, logo_h = logo.size
-
-            if position == 'top_left':
-                x, y = 20, 20
-            elif position == 'top_right':
-                x, y = bg_width - logo_w - 20, 20
-            elif position == 'bottom_left':
-                x, y = 20, bg_height - logo_h - 20
-            elif position == 'bottom_right':
-                x, y = bg_width - logo_w - 20, bg_height - logo_h - 20
-            else:
-                x, y = bg_width - logo_w - 20, 20
-
-            # ロゴ合成
-            if result.mode != 'RGBA':
-                result = result.convert('RGBA')
-            result.paste(logo, (x, y), logo)
-
-        # テキスト追加
         text_overlay = branding.get('text_overlay')
         if text_overlay:
-            from PIL import ImageDraw, ImageFont
-
-            draw = ImageDraw.Draw(result)
-
-            # フォント設定
-            try:
-                font_path = branding.get('font_path', "arial.ttf")
-                font_size = branding.get('font_size', 48)
-                font = ImageFont.truetype(font_path, font_size)
-            except (OSError, IOError) as e:
-                logger.debug(f"Failed to load font {branding.get('font_path')}: {e}")
-                font = ImageFont.load_default()
-
-            # テキスト設定
-            text = text_overlay.get('text', '')
-            text_color = text_overlay.get('color', '#FFFFFF')
-            text_position = text_overlay.get('position', 'bottom_center')
-
-            # テキストサイズ取得
-            bbox = draw.textbbox((0, 0), text, font=font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-
-            # 位置設定
-            bg_width, bg_height = result.size
-
-            if text_position == 'top_center':
-                x, y = (bg_width - text_width) // 2, 20
-            elif text_position == 'bottom_center':
-                x, y = (bg_width - text_width) // 2, bg_height - text_height - 20
-            elif text_position == 'center':
-                x, y = (bg_width - text_width) // 2, (bg_height - text_height) // 2
-            else:
-                x, y = 20, bg_height - text_height - 20
-
-            # テキスト描画（影付き）
-            shadow_offset = text_overlay.get('shadow_offset', 2)
-            if shadow_offset > 0:
-                draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill='#000000')
-
-            draw.text((x, y), text, font=font, fill=text_color)
+            self._apply_branding_text(result, branding, text_overlay)
 
         return result
+
+    def _apply_branding_logo(self, result: "Any", branding: Dict[str, Any], logo_path: str) -> "Any":
+        """ブランディングのロゴ合成を行い、合成後の画像を返す。"""
+        logo = Image.open(logo_path).convert('RGBA')
+
+        # ロゴサイズ調整
+        logo_width = branding.get('logo_width', 200)
+        logo.thumbnail((logo_width, logo_width), Image.LANCZOS)
+
+        # ロゴ位置
+        position = branding.get('logo_position', 'top_right')
+        bg_width, bg_height = result.size
+        logo_w, logo_h = logo.size
+
+        positions = {
+            'top_left': (20, 20),
+            'top_right': (bg_width - logo_w - 20, 20),
+            'bottom_left': (20, bg_height - logo_h - 20),
+            'bottom_right': (bg_width - logo_w - 20, bg_height - logo_h - 20),
+        }
+        x, y = positions.get(position, (bg_width - logo_w - 20, 20))
+
+        # ロゴ合成
+        if result.mode != 'RGBA':
+            result = result.convert('RGBA')
+        result.paste(logo, (x, y), logo)
+        return result
+
+    def _apply_branding_text(self, result: "Any", branding: Dict[str, Any], text_overlay: Dict[str, Any]) -> None:
+        """ブランディングのテキストオーバーレイを描画する。"""
+        from PIL import ImageDraw, ImageFont
+
+        draw = ImageDraw.Draw(result)
+
+        # フォント設定
+        try:
+            font_path = branding.get('font_path', "arial.ttf")
+            font_size = branding.get('font_size', 48)
+            font = ImageFont.truetype(font_path, font_size)
+        except OSError as e:
+            logger.debug(f"Failed to load font {branding.get('font_path')}: {e}")
+            font = ImageFont.load_default()
+
+        # テキスト設定
+        text = text_overlay.get('text', '')
+        text_color = text_overlay.get('color', '#FFFFFF')
+        text_position = text_overlay.get('position', 'bottom_center')
+
+        # テキストサイズ取得
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+
+        # 位置設定
+        bg_width, bg_height = result.size
+        positions = {
+            'top_center': ((bg_width - text_width) // 2, 20),
+            'bottom_center': ((bg_width - text_width) // 2, bg_height - text_height - 20),
+            'center': ((bg_width - text_width) // 2, (bg_height - text_height) // 2),
+        }
+        x, y = positions.get(text_position, (20, bg_height - text_height - 20))
+
+        # テキスト描画（影付き）
+        shadow_offset = text_overlay.get('shadow_offset', 2)
+        if shadow_offset > 0:
+            draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill='#000000')
+
+        draw.text((x, y), text, font=font, fill=text_color)
 
 class VirtualBackgroundsService:
     """
@@ -357,9 +367,9 @@ class VirtualBackgroundsService:
         """テンプレートを読み込み"""
         metadata_file = Path("data/backgrounds/templates_metadata.json")
 
-        if metadata_file.exists():
+        if metadata_file.exists():  # noqa: ASYNC240
             try:
-                with open(metadata_file, 'r', encoding='utf-8') as f:
+                with open(metadata_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     templates_data = json.load(f)
 
                 for template_data in templates_data:
@@ -504,40 +514,23 @@ class VirtualBackgroundsService:
         # メタデータを保存
         await self._save_all_templates_metadata()
 
-    async def _generate_template_image(self, template: BackgroundTemplate) -> Optional[Image.Image]:
+    # カテゴリ別の (テンプレートIDキーワード -> 生成メソッド名) マッピング
+    _TEMPLATE_GENERATORS = {
+        "office": (("modern", "_create_modern_office_bg"), ("conference", "_create_conference_room_bg")),
+        "studio": (("green", "_create_green_screen_bg"), ("gradient", "_create_gradient_bg")),
+        "outdoor": (("park", "_create_park_bg"), ("city", "_create_city_bg")),
+        "abstract": (("geometric", "_create_geometric_bg"), ("blur", "_create_blur_bg")),
+        "brand": (("minimal", "_create_minimal_brand_bg"), ("luxury", "_create_luxury_brand_bg")),
+    }
+
+    async def _generate_template_image(self, template: BackgroundTemplate) -> "Optional[Any]":
         """テンプレート画像を生成"""
         try:
             width, height = 1920, 1080
 
-            if template.category == "office":
-                if "modern" in template.template_id:
-                    return self._create_modern_office_bg(width, height)
-                elif "conference" in template.template_id:
-                    return self._create_conference_room_bg(width, height)
-
-            elif template.category == "studio":
-                if "green" in template.template_id:
-                    return self._create_green_screen_bg(width, height)
-                elif "gradient" in template.template_id:
-                    return self._create_gradient_bg(width, height)
-
-            elif template.category == "outdoor":
-                if "park" in template.template_id:
-                    return self._create_park_bg(width, height)
-                elif "city" in template.template_id:
-                    return self._create_city_bg(width, height)
-
-            elif template.category == "abstract":
-                if "geometric" in template.template_id:
-                    return self._create_geometric_bg(width, height)
-                elif "blur" in template.template_id:
-                    return self._create_blur_bg(width, height)
-
-            elif template.category == "brand":
-                if "minimal" in template.template_id:
-                    return self._create_minimal_brand_bg(width, height)
-                elif "luxury" in template.template_id:
-                    return self._create_luxury_brand_bg(width, height)
+            for keyword, method_name in self._TEMPLATE_GENERATORS.get(template.category, ()):
+                if keyword in template.template_id:
+                    return getattr(self, method_name)(width, height)
 
             # デフォルト背景
             return self.processor._create_default_background()
@@ -546,7 +539,7 @@ class VirtualBackgroundsService:
             logger.error(f"Template image generation failed for {template.template_id}: {e}")
             return None
 
-    def _create_modern_office_bg(self, width: int, height: int) -> Image.Image:
+    def _create_modern_office_bg(self, width: int, height: int) -> "Any":
         """モダンオフィス背景を作成"""
         image = Image.new('RGB', (width, height), '#F8F9FA')
 
@@ -564,7 +557,7 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_conference_room_bg(self, width: int, height: int) -> Image.Image:
+    def _create_conference_room_bg(self, width: int, height: int) -> "Any":
         """会議室背景を作成"""
         image = Image.new('RGB', (width, height), '#FFFFFF')
 
@@ -588,11 +581,11 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_green_screen_bg(self, width: int, height: int) -> Image.Image:
+    def _create_green_screen_bg(self, width: int, height: int) -> "Any":
         """グリーンスクリーン背景を作成"""
         return Image.new('RGB', (width, height), '#00FF00')
 
-    def _create_gradient_bg(self, width: int, height: int) -> Image.Image:
+    def _create_gradient_bg(self, width: int, height: int) -> "Any":
         """グラデーション背景を作成"""
         image = Image.new('RGB', (width, height))
 
@@ -607,7 +600,7 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_park_bg(self, width: int, height: int) -> Image.Image:
+    def _create_park_bg(self, width: int, height: int) -> "Any":
         """公園背景を作成"""
         image = Image.new('RGB', (width, height), '#90EE90')
 
@@ -625,7 +618,7 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_city_bg(self, width: int, height: int) -> Image.Image:
+    def _create_city_bg(self, width: int, height: int) -> "Any":
         """都市背景を作成"""
         image = Image.new('RGB', (width, height), '#87CEEB')
 
@@ -645,7 +638,7 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_geometric_bg(self, width: int, height: int) -> Image.Image:
+    def _create_geometric_bg(self, width: int, height: int) -> "Any":
         """幾何学背景を作成"""
         image = Image.new('RGB', (width, height), '#FFFFFF')
 
@@ -661,7 +654,6 @@ class VirtualBackgroundsService:
                 # 六角形を描画
                 points = []
                 for i in range(6):
-                    angle = i * 60
                     px = x + hex_size * (1 + (i % 2) * 0.5)
                     py = y + hex_size * (1 + (i // 2) * 0.5)
                     points.extend([px, py])
@@ -671,7 +663,7 @@ class VirtualBackgroundsService:
 
         return image
 
-    def _create_blur_bg(self, width: int, height: int) -> Image.Image:
+    def _create_blur_bg(self, width: int, height: int) -> "Any":
         """ぼかし背景を作成"""
         # カラフルなベース画像を作成
         base_image = Image.new('RGB', (width, height))
@@ -693,11 +685,11 @@ class VirtualBackgroundsService:
         # ぼかし適用
         return base_image.filter(ImageFilter.GaussianBlur(10))
 
-    def _create_minimal_brand_bg(self, width: int, height: int) -> Image.Image:
+    def _create_minimal_brand_bg(self, width: int, height: int) -> "Any":
         """ミニマルブランド背景を作成"""
         return Image.new('RGB', (width, height), '#F8F9FA')
 
-    def _create_luxury_brand_bg(self, width: int, height: int) -> Image.Image:
+    def _create_luxury_brand_bg(self, width: int, height: int) -> "Any":
         """ラグジュアリーブランド背景を作成"""
         image = Image.new('RGB', (width, height), '#1A1A1A')
 
@@ -733,9 +725,8 @@ class VirtualBackgroundsService:
 
     async def _save_all_templates_metadata(self):
         """全テンプレートメタデータを保存"""
-        templates_data = []
-        for template in self.templates.values():
-            templates_data.append({
+        templates_data = [
+            {
                 "template_id": template.template_id,
                 "name": template.name,
                 "description": template.description,
@@ -747,7 +738,9 @@ class VirtualBackgroundsService:
                 "settings": template.settings,
                 "created_at": template.created_at.isoformat(),
                 "usage_count": template.usage_count
-            })
+            }
+            for template in self.templates.values()
+        ]
 
         metadata_file = Path("data/backgrounds/templates_metadata.json")
         async with aiofiles.open(metadata_file, 'w', encoding='utf-8') as f:
@@ -803,7 +796,7 @@ class VirtualBackgroundsService:
 
             # 出力パス設定
             if not output_path:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
                 output_path = f"data/backgrounds/output/background_applied_{timestamp}.png"
 
             # ディレクトリ作成
@@ -838,11 +831,11 @@ class VirtualBackgroundsService:
         """
         try:
             # 画像検証
-            if not Path(image_path).exists():
+            if not Path(image_path).exists():  # noqa: ASYNC240
                 raise FileNotFoundError(f"Background image not found: {image_path}")
 
             # テンプレートID生成
-            template_id = f"custom_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            template_id = f"custom_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
             # 画像をコピー
             template_image_path = self.custom_dir / f"{template_id}.png"
@@ -883,11 +876,11 @@ class VirtualBackgroundsService:
 
         # ファイル削除
         try:
-            if template.image_path and Path(template.image_path).exists():
-                Path(template.image_path).unlink()
+            if template.image_path and Path(template.image_path).exists():  # noqa: ASYNC240
+                Path(template.image_path).unlink()  # noqa: ASYNC240
 
-            if template.thumbnail_path and Path(template.thumbnail_path).exists():
-                Path(template.thumbnail_path).unlink()
+            if template.thumbnail_path and Path(template.thumbnail_path).exists():  # noqa: ASYNC240
+                Path(template.thumbnail_path).unlink()  # noqa: ASYNC240
 
             # メタデータファイル削除
             metadata_file = self.templates_dir / f"{template_id}_metadata.json"
@@ -907,13 +900,16 @@ class VirtualBackgroundsService:
 
 # グローバルインスタンス管理
 _virtual_backgrounds_service = None
+_virtual_backgrounds_service_lock = asyncio.Lock()
 
 async def get_virtual_backgrounds_service() -> VirtualBackgroundsService:
     """仮想背景サービスのインスタンスを取得"""
     global _virtual_backgrounds_service
 
     if _virtual_backgrounds_service is None:
-        _virtual_backgrounds_service = VirtualBackgroundsService()
-        await _virtual_backgrounds_service.initialize()
+        async with _virtual_backgrounds_service_lock:
+            if _virtual_backgrounds_service is None:
+                _virtual_backgrounds_service = VirtualBackgroundsService()
+                await _virtual_backgrounds_service.initialize()
 
     return _virtual_backgrounds_service

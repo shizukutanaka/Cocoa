@@ -289,7 +289,7 @@ class ConfigValidator:
                     "config": None
                 }
 
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, encoding='utf-8') as f:
                 config = json.load(f)
 
             # JSONパースエラーのチェック
@@ -306,36 +306,8 @@ class ConfigValidator:
             warnings = []
             validated_config = copy.deepcopy(config)
 
-            # 各フィールドの検証
-            for field_name, rules in self.validation_rules.items():
-                field_value = config.get(field_name)
-
-                # 必須フィールドのチェック
-                if rules.get("required", False) and field_name not in config:
-                    errors.append(f"必須フィールド '{field_name}' が存在しません")
-                    continue
-
-                # フィールドが存在する場合の検証
-                if field_name in config:
-                    field_errors, field_warnings, validated_value = self._validate_field(
-                        field_name, field_value, rules
-                    )
-                    errors.extend(field_errors)
-                    warnings.extend(field_warnings)
-
-                    if validated_value is not None:
-                        validated_config[field_name] = validated_value
-
-            streaming_config_path = Path(config_path).with_name("streaming.json")
-            if streaming_config_path.exists():
-                try:
-                    with streaming_config_path.open(encoding="utf-8") as s_handle:
-                        streaming_config = json.load(s_handle)
-                    self._validate_streaming(streaming_config, errors, warnings)
-                except json.JSONDecodeError as s_exc:
-                    errors.append(f"streaming.json のJSON解析に失敗しました: {s_exc}")
-                except Exception as s_exc:  # noqa: BLE001
-                    warnings.append(f"streaming.json の読み込みで問題が発生しました: {s_exc}")
+            self._validate_all_fields(config, validated_config, errors, warnings)
+            self._try_load_streaming_config(config_path, errors, warnings)
 
             self._apply_post_validation(config, validated_config, errors, warnings)
 
@@ -371,6 +343,47 @@ class ConfigValidator:
                 "warnings": [],
                 "config": None
             }
+
+    def _validate_all_fields(
+        self,
+        config: Dict[str, Any],
+        validated_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """validation_rules の全フィールドをループ検証する"""
+        for field_name, rules in self.validation_rules.items():
+            field_value = config.get(field_name)
+            if rules.get("required", False) and field_name not in config:
+                errors.append(f"必須フィールド '{field_name}' が存在しません")
+                continue
+            if field_name in config:
+                field_errors, field_warnings, validated_value = self._validate_field(
+                    field_name, field_value, rules
+                )
+                errors.extend(field_errors)
+                warnings.extend(field_warnings)
+                if validated_value is not None:
+                    validated_config[field_name] = validated_value
+
+    def _try_load_streaming_config(
+        self,
+        config_path: str,
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """streaming.json が存在すれば読み込んで検証する"""
+        streaming_config_path = Path(config_path).with_name("streaming.json")
+        if not streaming_config_path.exists():
+            return
+        try:
+            with streaming_config_path.open(encoding="utf-8") as s_handle:
+                streaming_config = json.load(s_handle)
+            self._validate_streaming(streaming_config, errors, warnings)
+        except json.JSONDecodeError as s_exc:
+            errors.append(f"streaming.json のJSON解析に失敗しました: {s_exc}")
+        except Exception as s_exc:
+            warnings.append(f"streaming.json の読み込みで問題が発生しました: {s_exc}")
 
     def _validate_streaming(self, streaming_config: Any, errors: List[str], warnings: List[str]) -> None:
         if not isinstance(streaming_config, dict):
@@ -412,109 +425,20 @@ class ConfigValidator:
                 errors.append(f"フィールド '{field_name}' はnullを許容していません")
                 return errors, warnings, None
 
-            # 型チェック
-            if field_type == "string":
-                if not isinstance(value, str):
-                    errors.append(f"フィールド '{field_name}' は文字列である必要があります")
+            # 型別の検証（type_ok=False の場合は検証済み値を返さない）
+            validators = {
+                "string": self._check_string_field,
+                "integer": self._check_integer_field,
+                "number": self._check_number_field,
+                "boolean": self._check_boolean_field,
+                "array": self._check_array_field,
+                "object": self._check_object_field,
+            }
+            validator = validators.get(field_type)
+            if validator is not None:
+                type_ok = validator(field_name, value, rules, errors, warnings, validated_value)
+                if not type_ok:
                     return errors, warnings, None
-
-                # 文字列の長さチェック
-                min_length = rules.get("min_length")
-                if min_length is not None and len(value) < min_length:
-                    errors.append(f"フィールド '{field_name}' は{min_length}文字以上である必要があります")
-
-                max_length = rules.get("max_length")
-                if max_length is not None and len(value) > max_length:
-                    errors.append(f"フィールド '{field_name}' は{max_length}文字以下である必要があります")
-
-                # パターンチェック
-                pattern = rules.get("pattern")
-                if pattern and not self._match_pattern(value, pattern):
-                    errors.append(f"フィールド '{field_name}' の形式が正しくありません")
-
-                # 許可値チェック
-                allowed_values = rules.get("allowed_values")
-                if allowed_values and value not in allowed_values:
-                    errors.append(f"フィールド '{field_name}' の値が許可されていません: {allowed_values}")
-
-            elif field_type == "integer":
-                if not isinstance(value, int):
-                    errors.append(f"フィールド '{field_name}' は整数である必要があります")
-                    return errors, warnings, None
-
-                # 範囲チェック
-                min_val = rules.get("min")
-                if min_val is not None and value < min_val:
-                    errors.append(f"フィールド '{field_name}' は{min_val}以上である必要があります")
-
-                max_val = rules.get("max")
-                if max_val is not None and value > max_val:
-                    errors.append(f"フィールド '{field_name}' は{max_val}以下である必要があります")
-
-                allowed_values = rules.get("allowed_values")
-                if allowed_values and value not in allowed_values:
-                    errors.append(f"フィールド '{field_name}' の値が許可されていません: {allowed_values}")
-
-            elif field_type == "number":
-                if not isinstance(value, (int, float)):
-                    errors.append(f"フィールド '{field_name}' は数値である必要があります")
-                    return errors, warnings, None
-
-                min_val = rules.get("min")
-                if min_val is not None and value < min_val:
-                    errors.append(f"フィールド '{field_name}' は{min_val}以上である必要があります")
-
-                max_val = rules.get("max")
-                if max_val is not None and value > max_val:
-                    errors.append(f"フィールド '{field_name}' は{max_val}以下である必要があります")
-
-            elif field_type == "boolean":
-                if not isinstance(value, bool):
-                    errors.append(f"フィールド '{field_name}' は真偽値である必要があります")
-                    return errors, warnings, None
-
-            elif field_type == "array":
-                if not isinstance(value, list):
-                    errors.append(f"フィールド '{field_name}' は配列である必要があります")
-                    return errors, warnings, None
-
-                # 配列要素の型チェック
-                item_type = rules.get("item_type")
-                if item_type:
-                    for i, item in enumerate(value):
-                        expected_type = str if item_type == "string" else int if item_type == "integer" else type(None)
-                        if not isinstance(item, expected_type):
-                            errors.append(f"フィールド '{field_name}[{i}]' の型が正しくありません")
-
-                min_items = rules.get("min_items")
-                if min_items is not None and len(value) < min_items:
-                    errors.append(f"フィールド '{field_name}' の要素数は{min_items}以上である必要があります")
-
-                max_items = rules.get("max_items")
-                if max_items is not None and len(value) > max_items:
-                    errors.append(f"フィールド '{field_name}' の要素数は{max_items}以下である必要があります")
-
-            elif field_type == "object":
-                if not isinstance(value, dict):
-                    errors.append(f"フィールド '{field_name}' はオブジェクトである必要があります")
-                    return errors, warnings, None
-
-                # ネストされたスキーマの検証
-                schema = rules.get("schema", {})
-                for sub_field, sub_rules in schema.items():
-                    if sub_rules.get("required") and sub_field not in value:
-                        errors.append(f"必須フィールド '{field_name}.{sub_field}' が存在しません")
-                        continue
-
-                    if sub_field in value:
-                        sub_errors, sub_warnings, sub_validated = self._validate_field(
-                            f"{field_name}.{sub_field}", value[sub_field], sub_rules
-                        )
-                        errors.extend(sub_errors)
-                        warnings.extend(sub_warnings)
-
-                        if sub_validated is not None:
-                            validated_value[sub_field] = sub_validated
 
             return errors, warnings, validated_value
 
@@ -522,10 +446,118 @@ class ConfigValidator:
             errors.append(f"フィールド '{field_name}' の検証中にエラーが発生しました: {str(e)}")
             return errors, warnings, None
 
+    def _check_string_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, str):
+            errors.append(f"フィールド '{field_name}' は文字列である必要があります")
+            return False
+
+        min_length = rules.get("min_length")
+        if min_length is not None and len(value) < min_length:
+            errors.append(f"フィールド '{field_name}' は{min_length}文字以上である必要があります")
+
+        max_length = rules.get("max_length")
+        if max_length is not None and len(value) > max_length:
+            errors.append(f"フィールド '{field_name}' は{max_length}文字以下である必要があります")
+
+        pattern = rules.get("pattern")
+        if pattern and not self._match_pattern(value, pattern):
+            errors.append(f"フィールド '{field_name}' の形式が正しくありません")
+
+        allowed_values = rules.get("allowed_values")
+        if allowed_values and value not in allowed_values:
+            errors.append(f"フィールド '{field_name}' の値が許可されていません: {allowed_values}")
+        return True
+
+    def _check_integer_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, int) or isinstance(value, bool):
+            errors.append(f"フィールド '{field_name}' は整数である必要があります")
+            return False
+
+        min_val = rules.get("min")
+        if min_val is not None and value < min_val:
+            errors.append(f"フィールド '{field_name}' は{min_val}以上である必要があります")
+
+        max_val = rules.get("max")
+        if max_val is not None and value > max_val:
+            errors.append(f"フィールド '{field_name}' は{max_val}以下である必要があります")
+
+        allowed_values = rules.get("allowed_values")
+        if allowed_values and value not in allowed_values:
+            errors.append(f"フィールド '{field_name}' の値が許可されていません: {allowed_values}")
+        return True
+
+    def _check_number_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, (int, float)):
+            errors.append(f"フィールド '{field_name}' は数値である必要があります")
+            return False
+
+        min_val = rules.get("min")
+        if min_val is not None and value < min_val:
+            errors.append(f"フィールド '{field_name}' は{min_val}以上である必要があります")
+
+        max_val = rules.get("max")
+        if max_val is not None and value > max_val:
+            errors.append(f"フィールド '{field_name}' は{max_val}以下である必要があります")
+        return True
+
+    def _check_boolean_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, bool):
+            errors.append(f"フィールド '{field_name}' は真偽値である必要があります")
+            return False
+        return True
+
+    def _check_array_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, list):
+            errors.append(f"フィールド '{field_name}' は配列である必要があります")
+            return False
+
+        item_type = rules.get("item_type")
+        if item_type:
+            for i, item in enumerate(value):
+                expected_type = str if item_type == "string" else int if item_type == "integer" else type(None)
+                if not isinstance(item, expected_type):
+                    errors.append(f"フィールド '{field_name}[{i}]' の型が正しくありません")
+
+        min_items = rules.get("min_items")
+        if min_items is not None and len(value) < min_items:
+            errors.append(f"フィールド '{field_name}' の要素数は{min_items}以上である必要があります")
+
+        max_items = rules.get("max_items")
+        if max_items is not None and len(value) > max_items:
+            errors.append(f"フィールド '{field_name}' の要素数は{max_items}以下である必要があります")
+        return True
+
+    def _check_object_field(self, field_name, value, rules, errors, warnings, validated_value) -> bool:
+        if not isinstance(value, dict):
+            errors.append(f"フィールド '{field_name}' はオブジェクトである必要があります")
+            return False
+
+        # ネストされたスキーマの検証
+        schema = rules.get("schema", {})
+        for sub_field, sub_rules in schema.items():
+            if sub_rules.get("required") and sub_field not in value:
+                errors.append(f"必須フィールド '{field_name}.{sub_field}' が存在しません")
+                continue
+
+            if sub_field in value:
+                sub_errors, sub_warnings, sub_validated = self._validate_field(
+                    f"{field_name}.{sub_field}", value[sub_field], sub_rules
+                )
+                errors.extend(sub_errors)
+                warnings.extend(sub_warnings)
+
+                if sub_validated is not None:
+                    validated_value[sub_field] = sub_validated
+        return True
+
     def _match_pattern(self, value: str, pattern: str) -> bool:
         """パターンマッチング"""
         try:
-            return bool(re.match(pattern, value))
+            # fullmatch（match ではなく）を使う。re.match は文字列の先頭しか
+            # 固定しないため、末尾のゴミ（例: "[0-9]+" が "123abc" を通す）や、
+            # `$` の「末尾改行の手前にもマッチする」仕様による
+            # "1.2.3\n" のようなインジェクションを許してしまう。
+            return bool(re.fullmatch(pattern, value))
         except re.error:
             return False
 
@@ -596,7 +628,32 @@ class ConfigValidator:
         warnings: List[str],
     ) -> None:
         """構造間の整合性検証やパス検証などの後処理を行う"""
+        self._validate_web_admin_section(original_config, validated_config, errors, warnings)
 
+        language = original_config.get("language")
+        if isinstance(language, str) and language.lower() not in {"ja", "en"}:
+            warnings.append(
+                f"language '{language}' は未対応です。デフォルトにフォールバックされる可能性があります。"
+            )
+
+        self._validate_backup_section(original_config, warnings, errors)
+        self._validate_plugins_section(original_config, warnings)
+        self._validate_security_section(original_config, validated_config, errors, warnings)
+
+        # billing / notification / rate_limiting のクロスフィールド検証
+        security_cfg = original_config.get("security")
+        if not isinstance(security_cfg, dict):
+            security_cfg = {}
+        self._validate_password_policy(security_cfg, errors, warnings, original_config, validated_config)
+
+    def _validate_web_admin_section(
+        self,
+        original_config: Dict[str, Any],
+        validated_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """web_admin セクション（host / debug / ssl）の検証"""
         web_admin_config = original_config.get("web_admin")
         web_admin_validated = validated_config.get("web_admin") if isinstance(validated_config.get("web_admin"), dict) else None
         if isinstance(web_admin_config, dict):
@@ -605,7 +662,7 @@ class ConfigValidator:
                 warnings.append(
                     "web_admin.host が '0.0.0.0' もしくは空です。公開環境では安全なアドレスを指定してください。"
                 )
-            if isinstance(host, str) and (host.startswith("http://") or host.startswith("https://")):
+            if isinstance(host, str) and host.startswith(("http://", "https://")):
                 errors.append("web_admin.host にはURLではなくホスト名のみを指定してください。")
 
             if web_admin_config.get("enabled") and not isinstance(host, str):
@@ -621,42 +678,49 @@ class ConfigValidator:
                 if not isinstance(ssl_validated, dict):
                     ssl_validated = {}
                     web_admin_validated["ssl"] = ssl_validated
+                self._validate_web_admin_ssl(ssl_config, ssl_validated, errors, warnings)
 
-                ssl_enabled = ssl_config.get("enabled")
-                if ssl_enabled is True:
-                    cert_path = ssl_config.get("cert_path")
-                    key_path = ssl_config.get("key_path")
+    def _validate_web_admin_ssl(
+        self,
+        ssl_config: Dict[str, Any],
+        ssl_validated: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """web_admin.ssl の cert/key パス検証"""
+        ssl_enabled = ssl_config.get("enabled")
+        if ssl_enabled:
+            cert_path = ssl_config.get("cert_path")
+            key_path = ssl_config.get("key_path")
+            if not cert_path:
+                errors.append("web_admin.ssl.enabled が true の場合は cert_path を設定してください。")
+            else:
+                normalized_cert = self._validate_secure_file_path(
+                    "web_admin.ssl.cert_path", cert_path, errors, warnings
+                )
+                if normalized_cert:
+                    ssl_validated["cert_path"] = normalized_cert
+            if not key_path:
+                errors.append("web_admin.ssl.enabled が true の場合は key_path を設定してください。")
+            else:
+                normalized_key = self._validate_secure_file_path(
+                    "web_admin.ssl.key_path", key_path, errors, warnings
+                )
+                if normalized_key:
+                    ssl_validated["key_path"] = normalized_key
+        elif not ssl_enabled:
+            if ssl_config.get("cert_path") or ssl_config.get("key_path"):
+                warnings.append(
+                    "web_admin.ssl.enabled が false の状態で cert_path または key_path が設定されています。不要な機密情報を削除してください。"
+                )
 
-                    if not cert_path:
-                        errors.append("web_admin.ssl.enabled が true の場合は cert_path を設定してください。")
-                    else:
-                        normalized_cert = self._validate_secure_file_path(
-                            "web_admin.ssl.cert_path", cert_path, errors, warnings
-                        )
-                        if normalized_cert:
-                            ssl_validated["cert_path"] = normalized_cert
-
-                    if not key_path:
-                        errors.append("web_admin.ssl.enabled が true の場合は key_path を設定してください。")
-                    else:
-                        normalized_key = self._validate_secure_file_path(
-                            "web_admin.ssl.key_path", key_path, errors, warnings
-                        )
-                        if normalized_key:
-                            ssl_validated["key_path"] = normalized_key
-
-                elif ssl_enabled is False:
-                    if ssl_config.get("cert_path") or ssl_config.get("key_path"):
-                        warnings.append(
-                            "web_admin.ssl.enabled が false の状態で cert_path または key_path が設定されています。不要な機密情報を削除してください。"
-                        )
-
-        language = original_config.get("language")
-        if isinstance(language, str) and language.lower() not in {"ja", "en"}:
-            warnings.append(
-                f"language '{language}' は未対応です。デフォルトにフォールバックされる可能性があります。"
-            )
-
+    def _validate_backup_section(
+        self,
+        original_config: Dict[str, Any],
+        warnings: List[str],
+        errors: List[str],
+    ) -> None:
+        """backup セクション（保存先パス）の検証"""
         backup_config = original_config.get("backup")
         if isinstance(backup_config, dict) and backup_config.get("enabled"):
             backup_path = backup_config.get("backup_path")
@@ -676,6 +740,12 @@ class ConfigValidator:
                     elif not resolved.is_dir():
                         errors.append("backup.backup_path にはディレクトリを指定してください。")
 
+    def _validate_plugins_section(
+        self,
+        original_config: Dict[str, Any],
+        warnings: List[str],
+    ) -> None:
+        """plugins セクション（重複・設定パス）の検証"""
         plugins_config = original_config.get("plugins")
         if isinstance(plugins_config, dict):
             enabled_plugins = plugins_config.get("enabled")
@@ -696,41 +766,65 @@ class ConfigValidator:
                         f"plugins.config_path '{config_candidate}' が存在しません。プラグイン設定を確認してください。"
                     )
 
+    def _validate_security_section(
+        self,
+        original_config: Dict[str, Any],
+        validated_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """security セクション（IPリスト・監査ログ・2FA）の検証"""
         security_config = original_config.get("security")
         security_validated = validated_config.get("security")
         if isinstance(security_config, dict) and isinstance(security_validated, dict):
-            allowed = security_config.get("allowed_ips", [])
-            blocked = security_config.get("blocked_ips", [])
-            normalized_allowed = self._normalize_ip_entries(
-                "security.allowed_ips", allowed, errors, warnings
+            normalized_allowed = self._check_security_ip_lists(
+                security_config, security_validated, errors, warnings
             )
-            normalized_blocked = self._normalize_ip_entries(
-                "security.blocked_ips", blocked, errors, warnings
-            )
-            if normalized_allowed is not None:
-                security_validated["allowed_ips"] = normalized_allowed
-            if normalized_blocked is not None:
-                security_validated["blocked_ips"] = normalized_blocked
-            if isinstance(allowed, list) and isinstance(blocked, list):
-                overlaps = set(allowed).intersection(blocked)
-                if overlaps:
-                    errors.append(
-                        "allowed_ips と blocked_ips に重複があります: " + ", ".join(sorted(overlaps))
-                    )
-            if security_config.get("enable_audit_log") is False:
-                errors.append("security.enable_audit_log は true に設定してください。国家レベル運用では監査ログが必須です。")
-            if security_config.get("enable_2fa") is False:
-                errors.append("security.enable_2fa は true に設定してください。多要素認証を無効化することは許可されていません。")
-            if normalized_allowed is not None:
-                if not normalized_allowed:
-                    warnings.append("security.allowed_ips が空です。許可リストを設定してアクセス境界を明確にしてください。")
-                overly_broad = [entry for entry in normalized_allowed if entry in {"0.0.0.0/0", "::/0"}]
-                if overly_broad:
-                    errors.append(
-                        "security.allowed_ips に全許可ネットワークが含まれています: " + ", ".join(overly_broad)
-                    )
-            if security_config.get("max_login_attempts", 5) > 10:
-                warnings.append("security.max_login_attempts が高すぎます。10以下に調整してください。")
+            self._check_security_mandatory_flags(security_config, normalized_allowed, errors, warnings)
+
+    def _check_security_ip_lists(
+        self,
+        security_config: Dict[str, Any],
+        security_validated: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> Optional[List[str]]:
+        """IP 許可・拒否リストを検証し normalized_allowed を返す"""
+        allowed = security_config.get("allowed_ips", [])
+        blocked = security_config.get("blocked_ips", [])
+        normalized_allowed = self._normalize_ip_entries("security.allowed_ips", allowed, errors, warnings)
+        normalized_blocked = self._normalize_ip_entries("security.blocked_ips", blocked, errors, warnings)
+        if normalized_allowed is not None:
+            security_validated["allowed_ips"] = normalized_allowed
+        if normalized_blocked is not None:
+            security_validated["blocked_ips"] = normalized_blocked
+        if isinstance(allowed, list) and isinstance(blocked, list):
+            overlaps = set(allowed).intersection(blocked)
+            if overlaps:
+                errors.append("allowed_ips と blocked_ips に重複があります: " + ", ".join(sorted(overlaps)))
+        return normalized_allowed
+
+    def _check_security_mandatory_flags(
+        self,
+        security_config: Dict[str, Any],
+        normalized_allowed: Optional[List[str]],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """監査ログ・2FA・過広 IP 許可・最大試行数を検証する"""
+        if not security_config.get("enable_audit_log"):
+            errors.append("security.enable_audit_log は true に設定してください。国家レベル運用では監査ログが必須です。")
+        if not security_config.get("enable_2fa"):
+            errors.append("security.enable_2fa は true に設定してください。多要素認証を無効化することは許可されていません。")
+        if normalized_allowed is not None:
+            if not normalized_allowed:
+                warnings.append("security.allowed_ips が空です。許可リストを設定してアクセス境界を明確にしてください。")
+            overly_broad = [e for e in normalized_allowed if e in {"0.0.0.0/0", "::/0"}]
+            if overly_broad:
+                errors.append("security.allowed_ips に全許可ネットワークが含まれています: " + ", ".join(overly_broad))
+        if security_config.get("max_login_attempts", 5) > 10:
+            warnings.append("security.max_login_attempts が高すぎます。10以下に調整してください。")
+
     def _validate_password_policy(
         self,
         security_config: Dict[str, Any],
@@ -742,49 +836,64 @@ class ConfigValidator:
         """パスワードポリシーおよび billing/notification/rate_limiting セクションの詳細な検証"""
         original_config = original_config or {}
         validated_config = validated_config or {}
+        self._validate_password_section(security_config, errors, warnings)
+        self._validate_billing_section(original_config, validated_config, errors, warnings)
+        self._validate_notification_section(original_config, validated_config, errors, warnings)
+        self._validate_rate_limiting_section(original_config, validated_config, errors, warnings)
+
+    def _validate_password_section(
+        self,
+        security_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """パスワードポリシー・ログイン試行・ロックアウト設定の検証"""
         password_config = security_config.get("password_policy", {})
         if not isinstance(password_config, dict):
             return
-
         min_length = password_config.get("min_length", 8)
         if min_length < 8:
             errors.append("パスワードの最小長は8文字以上に設定してください。")
         elif min_length > 128:
             warnings.append("パスワードの最小長が128文字を超えています。通常は12-16文字で十分です。")
+        self._check_password_requirements(password_config, warnings)
+        self._check_login_limits(security_config, warnings)
 
-        # 文字種別の要件チェック
+    def _check_password_requirements(self, password_config: Dict[str, Any], warnings: List[str]) -> None:
+        """文字種別要件の不足を警告する"""
         requirements = {
             "require_uppercase": "大文字",
             "require_lowercase": "小文字",
             "require_numbers": "数字",
-            "require_special_chars": "特殊文字"
+            "require_special_chars": "特殊文字",
         }
-
-        missing_requirements = []
-        for req_key, req_name in requirements.items():
-            if password_config.get(req_key, False):
-                continue
-            missing_requirements.append(req_name)
-
-        if missing_requirements:
+        missing = [name for key, name in requirements.items() if not password_config.get(key, False)]
+        if missing:
             warnings.append(
-                f"パスワードポリシーの要件が緩和されています。以下を有効化することを検討してください: {', '.join(missing_requirements)}"
+                f"パスワードポリシーの要件が緩和されています。以下を有効化することを検討してください: {', '.join(missing)}"
             )
 
-        # 最大試行回数チェック
+    def _check_login_limits(self, security_config: Dict[str, Any], warnings: List[str]) -> None:
+        """最大試行回数・ロックアウト時間の範囲を警告する"""
         max_attempts = security_config.get("max_login_attempts", 5)
         if max_attempts > 10:
             warnings.append("最大ログイン試行回数が高すぎます。DDoS攻撃のリスクが高まります。")
         elif max_attempts < 3:
             warnings.append("最大ログイン試行回数が低すぎます。アカウントロックアウトが頻発する可能性があります。")
-
-        # ロックアウト時間チェック
         lockout_minutes = security_config.get("lockout_duration_minutes", 15)
         if lockout_minutes > 60:
             warnings.append("ロックアウト時間が長すぎます。ユーザビリティが低下します。")
         elif lockout_minutes < 5:
             warnings.append("ロックアウト時間が短すぎます。ブルートフォース攻撃に対する防御が不十分です。")
 
+    def _validate_billing_section(
+        self,
+        original_config: Dict[str, Any],
+        validated_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """billing セクション（tiers / checkout / webhook）の検証"""
         billing_config = original_config.get("billing")
         billing_validated = (
             validated_config.get("billing")
@@ -794,181 +903,289 @@ class ConfigValidator:
         if isinstance(billing_config, dict):
             enabled = bool(billing_config.get("enabled"))
             tiers = billing_config.get("tiers")
-            default_price_tier = billing_config.get("default_price_tier")
-
-            if enabled:
-                if not isinstance(tiers, dict) or not tiers:
-                    errors.append("billing.enabled が true の場合は tiers を辞書で定義してください。")
-                else:
-                    price_ids: Dict[str, str] = {}
-                    for tier_key, tier_data in tiers.items():
-                        if not isinstance(tier_key, str) or not tier_key:
-                            errors.append("billing.tiers のキーは空ではない文字列である必要があります。")
-                            continue
-                        if not isinstance(tier_data, dict):
-                            errors.append(f"billing.tiers.{tier_key} はオブジェクトである必要があります。")
-                            continue
-
-                        price_id = tier_data.get("price_id")
-                        if not price_id:
-                            errors.append(f"billing.tiers.{tier_key}.price_id を設定してください。")
-                        elif not isinstance(price_id, str) or not price_id.startswith("price_"):
-                            errors.append(
-                                f"billing.tiers.{tier_key}.price_id は 'price_' で始まるStripe価格IDを指定してください。"
-                            )
-                        else:
-                            duplicated_key = price_ids.get(price_id)
-                            if duplicated_key and duplicated_key != tier_key:
-                                warnings.append(
-                                    f"billing.tiers で price_id '{price_id}' が複数のティア ({duplicated_key}, {tier_key}) に設定されています。"
-                                )
-                            price_ids[price_id] = tier_key
-
-                        description = tier_data.get("description")
-                        if description is not None and not isinstance(description, str):
-                            errors.append(
-                                f"billing.tiers.{tier_key}.description は文字列である必要があります。"
-                            )
-
-            if default_price_tier:
-                if not isinstance(default_price_tier, str):
-                    errors.append("billing.default_price_tier は文字列で指定してください。")
-                elif isinstance(tiers, dict) and default_price_tier not in tiers:
-                    errors.append(
-                        "billing.default_price_tier には tiers に定義されたキーを指定してください。"
-                    )
-            elif enabled:
-                warnings.append("billing.default_price_tier が未設定です。デフォルトプランが決定されません。")
-
             mode = billing_config.get("mode")
-            trial_period_days = billing_config.get("trial_period_days")
-            if mode == "buy_once" and trial_period_days:
-                warnings.append("buy_once モードでは trial_period_days は無視されます。")
-
-            checkout_config = billing_config.get("checkout")
-            if isinstance(checkout_config, dict):
-                for url_field in ("success_url", "cancel_url"):
-                    url_value = checkout_config.get(url_field)
-                    if not url_value:
-                        errors.append(f"billing.checkout.{url_field} を設定してください。")
-                        continue
-                    if not isinstance(url_value, str):
-                        errors.append(f"billing.checkout.{url_field} は文字列である必要があります。")
-                        continue
-                    parsed = urlparse(url_value)
-                    if parsed.scheme != "https":
-                        errors.append(f"billing.checkout.{url_field} には https スキームのURLを指定してください。")
-                    if not parsed.netloc:
-                        errors.append(
-                            f"billing.checkout.{url_field} に有効なホスト名が含まれていません。"
-                        )
-                    if parsed.hostname in {"localhost", "127.0.0.1"}:
-                        warnings.append(
-                            f"billing.checkout.{url_field} のホストがローカルアドレスです。本番環境では公開エンドポイントを指定してください。"
-                        )
-            elif enabled:
-                errors.append("billing.enabled が true の場合は checkout 設定を定義してください。")
-
-            webhook_config = billing_config.get("webhook")
-            if isinstance(webhook_config, dict):
-                if webhook_config.get("enabled") and not webhook_config.get("endpoint_secret_env"):
-                    warnings.append(
-                        "billing.webhook.enabled が true の場合は endpoint_secret_env を設定してください。"
-                    )
-
+            self._check_billing_tiers_and_default(billing_config, enabled, tiers, errors, warnings)
+            self._check_billing_mode_and_checkout(billing_config, enabled, mode, errors, warnings)
             if isinstance(billing_validated, dict):
                 billing_validated["mode"] = mode or "subscription"
 
+    def _check_billing_tiers_and_default(
+        self,
+        billing_config: Dict[str, Any],
+        enabled: bool,
+        tiers: Any,
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """billing.tiers の存在確認と default_price_tier の整合性を検証する"""
+        if enabled:
+            if not isinstance(tiers, dict) or not tiers:
+                errors.append("billing.enabled が true の場合は tiers を辞書で定義してください。")
+            else:
+                self._validate_billing_tiers(tiers, errors, warnings)
+        default_price_tier = billing_config.get("default_price_tier")
+        if default_price_tier:
+            if not isinstance(default_price_tier, str):
+                errors.append("billing.default_price_tier は文字列で指定してください。")
+            elif isinstance(tiers, dict) and default_price_tier not in tiers:
+                errors.append("billing.default_price_tier には tiers に定義されたキーを指定してください。")
+        elif enabled:
+            warnings.append("billing.default_price_tier が未設定です。デフォルトプランが決定されません。")
+
+    def _check_billing_mode_and_checkout(
+        self,
+        billing_config: Dict[str, Any],
+        enabled: bool,
+        mode: Any,
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """billing のモード・トライアル・checkout・webhook 設定を検証する"""
+        trial_period_days = billing_config.get("trial_period_days")
+        if mode == "buy_once" and trial_period_days:
+            warnings.append("buy_once モードでは trial_period_days は無視されます。")
+        checkout_config = billing_config.get("checkout")
+        if isinstance(checkout_config, dict):
+            self._validate_billing_checkout(checkout_config, errors, warnings)
+        elif enabled:
+            errors.append("billing.enabled が true の場合は checkout 設定を定義してください。")
+        webhook_config = billing_config.get("webhook")
+        if (
+            isinstance(webhook_config, dict)
+            and webhook_config.get("enabled")
+            and not webhook_config.get("endpoint_secret_env")
+        ):
+            warnings.append("billing.webhook.enabled が true の場合は endpoint_secret_env を設定してください。")
+
+    def _validate_billing_tiers(
+        self,
+        tiers: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """billing.tiers の各ティア定義（price_id / description）の検証"""
+        price_ids: Dict[str, str] = {}
+        for tier_key, tier_data in tiers.items():
+            if not isinstance(tier_key, str) or not tier_key:
+                errors.append("billing.tiers のキーは空ではない文字列である必要があります。")
+                continue
+            if not isinstance(tier_data, dict):
+                errors.append(f"billing.tiers.{tier_key} はオブジェクトである必要があります。")
+                continue
+
+            price_id = tier_data.get("price_id")
+            if not price_id:
+                errors.append(f"billing.tiers.{tier_key}.price_id を設定してください。")
+            elif not isinstance(price_id, str) or not price_id.startswith("price_"):
+                errors.append(
+                    f"billing.tiers.{tier_key}.price_id は 'price_' で始まるStripe価格IDを指定してください。"
+                )
+            else:
+                duplicated_key = price_ids.get(price_id)
+                if duplicated_key and duplicated_key != tier_key:
+                    warnings.append(
+                        f"billing.tiers で price_id '{price_id}' が複数のティア ({duplicated_key}, {tier_key}) に設定されています。"
+                    )
+                price_ids[price_id] = tier_key
+
+            description = tier_data.get("description")
+            if description is not None and not isinstance(description, str):
+                errors.append(
+                    f"billing.tiers.{tier_key}.description は文字列である必要があります。"
+                )
+
+    def _validate_billing_checkout(
+        self,
+        checkout_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """billing.checkout の success_url / cancel_url の検証"""
+        for url_field in ("success_url", "cancel_url"):
+            url_value = checkout_config.get(url_field)
+            if not url_value:
+                errors.append(f"billing.checkout.{url_field} を設定してください。")
+                continue
+            if not isinstance(url_value, str):
+                errors.append(f"billing.checkout.{url_field} は文字列である必要があります。")
+                continue
+            parsed = urlparse(url_value)
+            if parsed.scheme != "https":
+                errors.append(f"billing.checkout.{url_field} には https スキームのURLを指定してください。")
+            if not parsed.netloc:
+                errors.append(
+                    f"billing.checkout.{url_field} に有効なホスト名が含まれていません。"
+                )
+            if parsed.hostname in {"localhost", "127.0.0.1"}:
+                warnings.append(
+                    f"billing.checkout.{url_field} のホストがローカルアドレスです。本番環境では公開エンドポイントを指定してください。"
+                )
+
+    def _validate_notification_section(
+        self,
+        original_config: Dict[str, Any],
+        validated_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """notification セクション（email / webhook 送信先）の検証"""
         notification_config = original_config.get("notification")
         notification_validated = validated_config.get("notification")
-        if isinstance(notification_config, dict) and isinstance(notification_validated, dict):
-            if notification_config.get("enabled"):
-                email_conf = notification_config.get("email", {})
-                webhook_conf = notification_config.get("webhook", {})
+        if (isinstance(notification_config, dict)
+                and isinstance(notification_validated, dict)
+                and notification_config.get("enabled")):
+            email_conf = notification_config.get("email", {})
+            webhook_conf = notification_config.get("webhook", {})
 
-                email_ready = False
-                if isinstance(email_conf, dict):
-                    email_validated = notification_validated.setdefault("email", {})
-                    smtp_server = email_conf.get("smtp_server")
-                    from_address = email_conf.get("from_address")
-                    smtp_port = email_conf.get("smtp_port")
-                    to_addresses = email_conf.get("to_addresses")
-                    smtp_server_ok = False
-                    smtp_port_ok = False
+            email_ready = False
+            if isinstance(email_conf, dict):
+                email_ready = self._validate_notification_email(
+                    email_conf, notification_validated, errors, warnings
+                )
 
-                    if smtp_server:
-                        if not isinstance(smtp_server, str) or not smtp_server.strip():
-                            errors.append("notification.email.smtp_server は空白以外の文字列で指定してください。")
-                        elif smtp_port is None:
-                            errors.append("notification.email.smtp_server を使用する場合は smtp_port を指定してください。")
-                        else:
-                            email_validated["smtp_server"] = smtp_server.strip()
-                            smtp_server_ok = True
-                        email_ready = True
+            webhook_ready = False
+            if isinstance(webhook_conf, dict):
+                webhook_ready = self._validate_notification_webhook(
+                    webhook_conf, notification_validated, errors, warnings
+                )
 
-                    if from_address:
-                        if not isinstance(from_address, str) or not self._is_valid_email(from_address.strip()):
-                            errors.append("notification.email.from_address は有効なメールアドレスである必要があります。")
-                        else:
-                            email_validated["from_address"] = from_address.strip()
-                    elif smtp_server:
-                        errors.append("notification.email.from_address は通知メール送信時に必須です。")
+            if not (email_ready or webhook_ready):
+                errors.append("notification.enabled が true の場合は email または webhook の送信先を設定してください。")
 
-                    if isinstance(smtp_port, int):
-                        email_validated["smtp_port"] = smtp_port
-                        smtp_port_ok = True
-                    elif smtp_port is not None:
-                        errors.append("notification.email.smtp_port は整数で指定してください。")
+    def _validate_notification_email(
+        self,
+        email_conf: Dict[str, Any],
+        notification_validated: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> bool:
+        """notification.email（SMTP サーバー / 差出人 / 宛先）の検証。送信可能なら True を返す。"""
+        email_validated = notification_validated.setdefault("email", {})
+        smtp_server = email_conf.get("smtp_server")
+        from_address = email_conf.get("from_address")
+        smtp_port = email_conf.get("smtp_port")
+        to_addresses = email_conf.get("to_addresses")
 
-                    normalized_to = self._normalize_email_list(
-                        "notification.email.to_addresses", to_addresses, errors
-                    )
-                    if normalized_to:
-                        email_validated["to_addresses"] = normalized_to
-                        duplicates = self._find_duplicates(normalized_to)
-                        if duplicates:
-                            warnings.append(
-                                "notification.email.to_addresses に重複があります: " + ", ".join(duplicates)
-                            )
-                        email_ready = True
-                    elif smtp_server:
-                        errors.append("notification.email.to_addresses には1件以上の有効なメールアドレスを指定してください。")
+        smtp_server_ok = self._check_smtp_server_field(smtp_server, smtp_port, email_validated, errors)
+        smtp_port_ok = self._check_smtp_port_field(smtp_port, email_validated, errors)
+        email_ready = bool(smtp_server)
 
-                    email_ready = email_ready and smtp_server_ok and smtp_port_ok and bool(email_validated.get("from_address")) and bool(email_validated.get("to_addresses"))
+        if from_address:
+            if not isinstance(from_address, str) or not self._is_valid_email(from_address.strip()):
+                errors.append("notification.email.from_address は有効なメールアドレスである必要があります。")
+            else:
+                email_validated["from_address"] = from_address.strip()
+        elif smtp_server:
+            errors.append("notification.email.from_address は通知メール送信時に必須です。")
 
-                webhook_ready = False
-                if isinstance(webhook_conf, dict):
-                    webhook_validated = notification_validated.setdefault("webhook", {})
-                    url = webhook_conf.get("url")
-                    method = webhook_conf.get("method")
-                    if url:
-                        if not isinstance(url, str) or not self._is_valid_url(url.strip()):
-                            errors.append("notification.webhook.url は http(s):// 形式の有効なURLを指定してください。")
-                        else:
-                            webhook_validated["url"] = url.strip()
-                            webhook_ready = True
-                            if method:
-                                normalized_method = method.upper()
-                                allowed = {"GET", "POST", "PUT", "PATCH", "DELETE"}
-                                if normalized_method not in allowed:
-                                    errors.append(
-                                        "notification.webhook.method は GET/POST/PUT/PATCH/DELETE のいずれかで指定してください。"
-                                    )
-                                else:
-                                    webhook_validated["method"] = normalized_method
-                            else:
-                                webhook_validated["method"] = "POST"
-                            if webhook_validated["url"].lower().startswith("http://"):
-                                errors.append("notification.webhook.url は https:// で始まる必要があります。")
-                            parsed_url = urlparse(webhook_validated["url"])
-                            if parsed_url.hostname in {"localhost", "127.0.0.1"}:
-                                warnings.append("notification.webhook.url のホストがローカルアドレスです。本番運用では外部到達可能なエンドポイントを設定してください。")
-                    elif method:
-                        warnings.append("notification.webhook.method が指定されていますが url が未設定です。")
+        to_ready = self._check_email_recipients(to_addresses, smtp_server, email_validated, errors, warnings)
+        email_ready = email_ready or to_ready
 
-                if not (email_ready or webhook_ready):
-                    errors.append("notification.enabled が true の場合は email または webhook の送信先を設定してください。")
+        return (
+            email_ready and smtp_server_ok and smtp_port_ok
+            and bool(email_validated.get("from_address"))
+            and bool(email_validated.get("to_addresses"))
+        )
 
+    def _check_smtp_server_field(
+        self,
+        smtp_server: Any,
+        smtp_port: Any,
+        email_validated: Dict[str, Any],
+        errors: List[str],
+    ) -> bool:
+        """smtp_server の存在・型・port 依存を検証し smtp_server_ok を返す"""
+        if not smtp_server:
+            return False
+        if not isinstance(smtp_server, str) or not smtp_server.strip():
+            errors.append("notification.email.smtp_server は空白以外の文字列で指定してください。")
+            return False
+        if smtp_port is None:
+            errors.append("notification.email.smtp_server を使用する場合は smtp_port を指定してください。")
+            return False
+        email_validated["smtp_server"] = smtp_server.strip()
+        return True
+
+    def _check_smtp_port_field(
+        self,
+        smtp_port: Any,
+        email_validated: Dict[str, Any],
+        errors: List[str],
+    ) -> bool:
+        """smtp_port の型を検証し smtp_port_ok を返す"""
+        if isinstance(smtp_port, int):
+            email_validated["smtp_port"] = smtp_port
+            return True
+        if smtp_port is not None:
+            errors.append("notification.email.smtp_port は整数で指定してください。")
+        return False
+
+    def _check_email_recipients(
+        self,
+        to_addresses: Any,
+        smtp_server: Any,
+        email_validated: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> bool:
+        """to_addresses を検証し、有効なら email_validated に設定して True を返す"""
+        normalized_to = self._normalize_email_list("notification.email.to_addresses", to_addresses, errors)
+        if normalized_to:
+            email_validated["to_addresses"] = normalized_to
+            duplicates = self._find_duplicates(normalized_to)
+            if duplicates:
+                warnings.append("notification.email.to_addresses に重複があります: " + ", ".join(duplicates))
+            return True
+        if smtp_server:
+            errors.append("notification.email.to_addresses には1件以上の有効なメールアドレスを指定してください。")
+        return False
+
+    def _validate_notification_webhook(
+        self,
+        webhook_conf: Dict[str, Any],
+        notification_validated: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> bool:
+        """notification.webhook（URL / メソッド）の検証。送信可能なら True を返す。"""
+        webhook_ready = False
+        webhook_validated = notification_validated.setdefault("webhook", {})
+        url = webhook_conf.get("url")
+        method = webhook_conf.get("method")
+        if url:
+            if not isinstance(url, str) or not self._is_valid_url(url.strip()):
+                errors.append("notification.webhook.url は http(s):// 形式の有効なURLを指定してください。")
+            else:
+                webhook_validated["url"] = url.strip()
+                webhook_ready = True
+                if method:
+                    normalized_method = method.upper()
+                    allowed = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+                    if normalized_method not in allowed:
+                        errors.append(
+                            "notification.webhook.method は GET/POST/PUT/PATCH/DELETE のいずれかで指定してください。"
+                        )
+                    else:
+                        webhook_validated["method"] = normalized_method
+                else:
+                    webhook_validated["method"] = "POST"
+                if webhook_validated["url"].lower().startswith("http://"):
+                    errors.append("notification.webhook.url は https:// で始まる必要があります。")
+                parsed_url = urlparse(webhook_validated["url"])
+                if parsed_url.hostname in {"localhost", "127.0.0.1"}:
+                    warnings.append("notification.webhook.url のホストがローカルアドレスです。本番運用では外部到達可能なエンドポイントを設定してください。")
+        elif method:
+            warnings.append("notification.webhook.method が指定されていますが url が未設定です。")
+        return webhook_ready
+
+    def _validate_rate_limiting_section(
+        self,
+        original_config: Dict[str, Any],
+        validated_config: Dict[str, Any],
+        errors: List[str],
+        warnings: List[str],
+    ) -> None:
+        """rate_limiting セクションの整合性検証"""
         rate_limit_config = original_config.get("rate_limiting")
         rate_limit_validated = validated_config.get("rate_limiting")
         if isinstance(rate_limit_config, dict) and isinstance(rate_limit_validated, dict) and rate_limit_config.get("enabled"):
@@ -1072,8 +1289,10 @@ class ConfigValidator:
         _, address = parseaddr(value)
         if not address:
             return False
-        pattern = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
-        return re.match(pattern, address) is not None
+        pattern = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+        # fullmatch so a trailing newline ("a@b.com\n", which re.match + `$`
+        # would accept because `$` matches before a final newline) is rejected.
+        return re.fullmatch(pattern, address) is not None
 
     def _is_valid_url(self, value: str) -> bool:
         """URL形式の簡易検証"""
@@ -1168,9 +1387,9 @@ class ConfigValidator:
         }
 
     def _get_current_time(self) -> str:
-        """現在の時刻を取得"""
-        from datetime import datetime
-        return datetime.now().isoformat()
+        """現在の時刻を UTC で取得"""
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat()
 
     def export_rules(self, filename: str) -> bool:
         """検証ルールをエクスポート"""

@@ -4,23 +4,28 @@ API Integration Module for Cocoa
 外部システムとの自動動画作成ワークフロー統合
 """
 
-import os
-import logging
-import json
-import uuid
-from pathlib import Path
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
-from datetime import datetime
+import asyncio
 import hashlib
 import hmac
+import json
+import logging
+import os
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from aiohttp import web
-import aiofiles
+try:
+    import aiofiles
+    from aiohttp import web
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
 
-from .video_creator import get_video_creator, VideoCreationRequest
-from .template_library import get_template_library
-from .integrated_security import get_security_manager
+from integrated_security import get_security_manager
+from template_library import get_template_library
+from video_creator import VideoCreationRequest, get_video_creator
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -44,7 +49,7 @@ class IntegrationConfig:
         if self.api_keys is None:
             self.api_keys = {}
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 @dataclass
 class WorkflowTrigger:
@@ -73,7 +78,7 @@ class WorkflowExecution:
         if self.results is None:
             self.results = {}
         if self.started_at is None:
-            self.started_at = datetime.now()
+            self.started_at = datetime.now(timezone.utc)
 
 class APIIntegrationService:
     """
@@ -101,7 +106,9 @@ class APIIntegrationService:
         # 設定
         self.host = "0.0.0.0"
         self.port = 8081
-        self.webhook_secret = os.getenv("WEBHOOK_SECRET", "default_secret")
+        # No insecure default: an unset secret must make signature verification
+        # FAIL CLOSED, not validate against a publicly-known constant.
+        self.webhook_secret = os.getenv("WEBHOOK_SECRET") or None
 
         logger.info("API Integration Service initialized")
 
@@ -208,7 +215,7 @@ class APIIntegrationService:
 
         # 設定保存
         config_dir = Path("data/integrations")
-        config_dir.mkdir(parents=True, exist_ok=True)
+        config_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
         config_file = config_dir / f"{config.integration_id}.json"
         config_data = {
@@ -276,9 +283,9 @@ class APIIntegrationService:
 
             # シグネチャ検証（オプション）
             signature = request.headers.get('X-Signature', '')
-            if integration.config.get('verify_signature', False):
-                if not self._verify_webhook_signature(data, signature, integration):
-                    return web.json_response({"error": "Invalid signature"}, status=401)
+            if (integration.config.get('verify_signature', False)
+                    and not self._verify_webhook_signature(data, signature, integration)):
+                return web.json_response({"error": "Invalid signature"}, status=401)
 
             # ワークフロートリガー実行
             execution_results = await self._process_webhook_trigger(
@@ -322,17 +329,15 @@ class APIIntegrationService:
         # 関連するトリガーを検索
         for trigger in self.triggers.values():
             if (trigger.integration_id == integration_id and
-                trigger.event_type == event_type and
-                trigger.enabled):
-
-                # 条件チェック
-                if self._check_trigger_conditions(trigger.conditions, data):
-                    execution = await self._execute_workflow_trigger(trigger, data)
-                    executions.append({
-                        "trigger_id": trigger.trigger_id,
-                        "execution_id": execution.execution_id,
-                        "status": execution.status
-                    })
+                    trigger.event_type == event_type and
+                    trigger.enabled and
+                    self._check_trigger_conditions(trigger.conditions, data)):
+                execution = await self._execute_workflow_trigger(trigger, data)
+                executions.append({
+                    "trigger_id": trigger.trigger_id,
+                    "execution_id": execution.execution_id,
+                    "status": execution.status
+                })
 
         return executions
 
@@ -396,16 +401,16 @@ class APIIntegrationService:
 
             execution.status = "completed"
             execution.results = results
-            execution.completed_at = datetime.now()
+            execution.completed_at = datetime.now(timezone.utc)
 
         except Exception as e:
             execution.status = "failed"
             execution.error_message = str(e)
-            execution.completed_at = datetime.now()
+            execution.completed_at = datetime.now(timezone.utc)
             logger.error(f"Workflow execution failed: {e}")
 
         # トリガーの最終実行時間を更新
-        trigger.last_triggered = datetime.now()
+        trigger.last_triggered = datetime.now(timezone.utc)
 
         return execution
 
@@ -495,12 +500,17 @@ class APIIntegrationService:
 
         if isinstance(input_data, dict):
             return script_template.format(**input_data)
-        else:
-            return str(input_data)
+        return str(input_data)
 
     def _verify_webhook_signature(self, payload: str, signature: str, integration: IntegrationConfig) -> bool:
         """Webhookシグネチャを検証"""
-        secret = integration.api_keys.get('webhook_secret', self.webhook_secret)
+        # Prefer a per-integration secret, else the service-wide one. If neither
+        # is configured, deny: verifying against a hardcoded default would let
+        # anyone forge a valid signature.
+        secret = integration.api_keys.get('webhook_secret') or self.webhook_secret
+        if not secret:
+            logger.warning("Webhook signature rejected: no secret configured for integration")
+            return False
         expected_signature = hmac.new(
             secret.encode(),
             payload.encode(),
@@ -735,13 +745,16 @@ class APIIntegrationService:
 
 # グローバルインスタンス管理
 _api_integration_service = None
+_api_integration_service_lock = asyncio.Lock()
 
 async def get_api_integration_service() -> APIIntegrationService:
     """API統合サービスのインスタンスを取得"""
     global _api_integration_service
 
     if _api_integration_service is None:
-        _api_integration_service = APIIntegrationService()
-        await _api_integration_service.initialize()
+        async with _api_integration_service_lock:
+            if _api_integration_service is None:
+                _api_integration_service = APIIntegrationService()
+                await _api_integration_service.initialize()
 
     return _api_integration_service

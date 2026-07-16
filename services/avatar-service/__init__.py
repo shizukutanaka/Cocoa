@@ -3,21 +3,18 @@ Avatar Service
 アバターの管理、プリセット処理、AI生成などの機能を提供
 """
 
-import asyncio
 import logging
-from datetime import datetime
-from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
-from fastapi.responses import JSONResponse
-import uvicorn
 from contextlib import asynccontextmanager
-import json
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
-from services.shared.config import get_config, ConfigManager
-from services.shared.models import Avatar, Preset, User, PresetHistory
-from services.shared.database import DatabaseManager, get_db
+import uvicorn
+from fastapi import Depends, FastAPI, HTTPException
+
+from services.shared.config import get_config
+from services.shared.database import DatabaseManager
 from services.shared.logger import setup_logging
-
+from services.shared.models import Avatar, Preset, PresetHistory
 
 # グローバル変数
 app: Optional[FastAPI] = None
@@ -112,7 +109,7 @@ async def create_avatar(
 
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"アバター作成エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"アバター作成エラー: {str(e)}") from e
 
 
 @app.get("/api/v1/avatars")
@@ -136,7 +133,7 @@ async def list_avatars(
             # 管理者以外は自分のアバターか公開アバターのみ
             query = query.filter(
                 (Avatar.user_id == current_user["id"]) |
-                (Avatar.is_public == True)
+                (Avatar.is_public.is_(True))
             )
 
         if category:
@@ -159,7 +156,7 @@ async def list_avatars(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"アバター一覧取得エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"アバター一覧取得エラー: {str(e)}") from e
 
 
 @app.get("/api/v1/avatars/{avatar_id}")
@@ -176,16 +173,15 @@ async def get_avatar(
             raise HTTPException(status_code=404, detail="アバターが見つかりません")
 
         # アクセス権限チェック
-        if not avatar.is_public and avatar.user_id != current_user["id"]:
-            if not current_user.get("is_admin", False):
-                raise HTTPException(status_code=403, detail="アクセス権限がありません")
+        if not avatar.is_public and avatar.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="アクセス権限がありません")
 
         return avatar.to_dict()
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"アバター取得エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"アバター取得エラー: {str(e)}") from e
 
 
 @app.put("/api/v1/avatars/{avatar_id}")
@@ -211,7 +207,7 @@ async def update_avatar(
             if hasattr(avatar, key):
                 setattr(avatar, key, value)
 
-        avatar.updated_at = datetime.utcnow()
+        avatar.updated_at = datetime.now(timezone.utc)
         await db.commit()
 
         return {
@@ -224,7 +220,7 @@ async def update_avatar(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"アバター更新エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"アバター更新エラー: {str(e)}") from e
 
 
 @app.delete("/api/v1/avatars/{avatar_id}")
@@ -257,7 +253,7 @@ async def delete_avatar(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"アバター削除エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"アバター削除エラー: {str(e)}") from e
 
 
 # プリセット関連エンドポイント
@@ -309,7 +305,7 @@ async def create_preset(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"プリセット作成エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"プリセット作成エラー: {str(e)}") from e
 
 
 @app.get("/api/v1/presets/{preset_id}")
@@ -326,16 +322,15 @@ async def get_preset(
             raise HTTPException(status_code=404, detail="プリセットが見つかりません")
 
         # アクセス権限チェック
-        if not preset.is_public and preset.user_id != current_user["id"]:
-            if not current_user.get("is_admin", False):
-                raise HTTPException(status_code=403, detail="アクセス権限がありません")
+        if not preset.is_public and preset.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="アクセス権限がありません")
 
         return preset.to_dict()
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"プリセット取得エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"プリセット取得エラー: {str(e)}") from e
 
 
 # AI生成エンドポイント
@@ -373,7 +368,7 @@ async def generate_avatar_with_ai(
 
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"AIアバター生成エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AIアバター生成エラー: {str(e)}") from e
 
 
 # ヘルスチェック

@@ -8,9 +8,10 @@ pytest グローバル設定ファイル
 
 import os
 import sys
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 # プロジェクトルートを sys.path に追加
 project_root = Path(__file__).parent.parent
@@ -29,8 +30,7 @@ def test_config():
     """テスト用の設定オブジェクト"""
     from main.config import Config
 
-    config = Config(env="test")
-    return config
+    return Config(env="test")
 
 
 # ==================== Function Fixtures ====================
@@ -64,8 +64,6 @@ def temp_dir(tmp_path):
 def cleanup():
     """テスト後のクリーンアップ"""
     yield
-    # クリーンアップ処理
-    pass
 
 
 # ==================== Database Fixtures ====================
@@ -203,7 +201,7 @@ class CustomAssertions:
         try:
             uuid.UUID(uuid_str)
         except ValueError:
-            raise AssertionError(f"{uuid_str} is not a valid UUID")
+            raise AssertionError(f"{uuid_str} is not a valid UUID") from None
 
     @staticmethod
     def assert_is_json(data: str) -> None:
@@ -213,7 +211,7 @@ class CustomAssertions:
         try:
             json.loads(data)
         except json.JSONDecodeError:
-            raise AssertionError(f"{data} is not valid JSON")
+            raise AssertionError(f"{data} is not valid JSON") from None
 
     @staticmethod
     def assert_log_called(mock_logger, level: str, count: int = 1) -> None:

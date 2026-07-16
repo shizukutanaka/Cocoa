@@ -3,8 +3,8 @@
 Cocoa Main Launcher
 アバター管理システムのメインランチャー
 """
-import sys
 import os
+import sys
 from pathlib import Path
 
 try:
@@ -39,7 +39,7 @@ class CocoaLauncher:
                 str(editor_path)
             ], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except Exception as e:
-            raise RuntimeError(f"Failed to launch avatar editor: {e}")
+            raise RuntimeError(f"Failed to launch avatar editor: {e}") from e
 
     def open_config_file(self):
         """設定ファイルをOSデフォルトエディタで開く"""
@@ -56,33 +56,27 @@ class CocoaLauncher:
             else:
                 subprocess.Popen(['xdg-open', str(config_path)])
         except Exception as e:
-            raise RuntimeError(f"Failed to open config file: {e}")
+            raise RuntimeError(f"Failed to open config file: {e}") from e
 
     def validate_config(self):
         """設定ファイルを検証"""
         try:
-            from .config_validator import ConfigValidator
-        except ImportError:
-            # フォールバックインポート
-            try:
-                from config_validator import ConfigValidator
-            except ImportError:
-                raise ImportError("ConfigValidator module not found")
+            from config_validator import ConfigValidator
+        except ImportError as e:
+            raise ImportError("ConfigValidator module not found") from e
 
         config_path = self.project_root / 'config' / 'config.json'
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
         validator = ConfigValidator()
-        result = validator.validate(str(config_path))
-
-        return result
+        return validator.validate(str(config_path))
 
     def run(self):
         """メインGUIを実行"""
         try:
             import tkinter as tk
-            from tkinter import ttk, messagebox
+            from tkinter import ttk
         except ImportError:
             print("Error: tkinter is required but not installed.")
             print("Please install tkinter: pip install tk")
@@ -90,10 +84,11 @@ class CocoaLauncher:
 
         # 言語マネージャーの初期化を試行
         try:
-            from .i18n_manager import get_i18n_manager, I18NManager
-            i18n_manager = get_i18n_manager()
+            import asyncio as _asyncio
+            from i18n_manager import get_i18n_manager
+            i18n_manager = _asyncio.run(get_i18n_manager())
             _ = i18n_manager.translate
-        except ImportError:
+        except (ImportError, Exception):
             # フォールバック: シンプルな翻訳関数
             def _(key, default=''):
                 return default if key.startswith(('error', 'config')) else key
@@ -206,10 +201,11 @@ class CocoaLauncher:
             self.launch_avatar_editor()
             self._update_status("Avatar editor launched successfully", "green")
         except Exception as e:
-            messagebox.showerror(
-                self._("error", "Error"),
-                f"{self._('launch_failed', 'Failed to launch avatar editor')}:\n{str(e)}"
-            )
+            if messagebox is not None:
+                messagebox.showerror(
+                    self._("error", "Error"),
+                    f"{self._('launch_failed', 'Failed to launch avatar editor')}:\n{str(e)}"
+                )
 
     def _open_config_handler(self):
         """設定ファイルオープン・ハンドラ"""
@@ -217,16 +213,18 @@ class CocoaLauncher:
             self.open_config_file()
             self._update_status("Configuration file opened", "green")
         except Exception as e:
-            messagebox.showerror(
-                self._("error", "Error"),
-                f"{self._('config_open_failed', 'Failed to open config file')}:\n{str(e)}"
-            )
+            if messagebox is not None:
+                messagebox.showerror(
+                    self._("error", "Error"),
+                    f"{self._('config_open_failed', 'Failed to open config file')}:\n{str(e)}"
+                )
 
     def _run_health_check_handler(self):
         """ヘルスチェック実行ハンドラ"""
         try:
-            from .health_monitor import get_health_monitor
             from tkinter import messagebox
+
+            from health_monitor import get_health_monitor
 
             # ヘルスチェック実行
             monitor = get_health_monitor()
@@ -270,17 +268,19 @@ class CocoaLauncher:
                 self._update_status("Health check failed", "red")
 
         except Exception as e:
-            messagebox.showerror(
-                self._("error", "Error"),
-                f"{self._('health_check_failed', 'Failed to run health check')}:\n{str(e)}"
-            )
+            if messagebox is not None:
+                messagebox.showerror(
+                    self._("error", "Error"),
+                    f"{self._('health_check_failed', 'Failed to run health check')}:\n{str(e)}"
+                )
             self._update_status("Health check error", "red")
 
     def _start_api_server_handler(self):
         """APIサーバー起動ハンドラ"""
         try:
             import threading
-            from .api_server import start_api_server
+
+            from api_server import start_api_server
 
             # 別スレッドでAPIサーバーを起動
             api_thread = threading.Thread(
@@ -297,10 +297,11 @@ class CocoaLauncher:
             webbrowser.open("http://127.0.0.1:8000/docs")
 
         except Exception as e:
-            messagebox.showerror(
-                self._("error", "Error"),
-                f"{self._('api_start_failed', 'Failed to start API server')}:\n{str(e)}"
-            )
+            if messagebox is not None:
+                messagebox.showerror(
+                    self._("error", "Error"),
+                    f"{self._('api_start_failed', 'Failed to start API server')}:\n{str(e)}"
+                )
 
     def _open_monitoring_handler(self):
         """監視ダッシュボードオープン・ハンドラ"""
@@ -311,15 +312,16 @@ class CocoaLauncher:
 
             self._update_status("Monitoring dashboard opened", "green")
         except Exception as e:
-            messagebox.showerror(
-                self._("error", "Error"),
-                f"{self._('monitoring_open_failed', 'Failed to open monitoring dashboard')}:\n{str(e)}"
-            )
+            if messagebox is not None:
+                messagebox.showerror(
+                    self._("error", "Error"),
+                    f"{self._('monitoring_open_failed', 'Failed to open monitoring dashboard')}:\n{str(e)}"
+                )
 
     def _start_grafana_monitoring_handler(self):
         """Grafana監視起動ハンドラ"""
         try:
-            from .grafana_integration import setup_grafana_integration
+            from grafana_integration import setup_grafana_integration
 
             # Grafana統合をセットアップ
             success = setup_grafana_integration(
@@ -337,15 +339,16 @@ class CocoaLauncher:
                 self._update_status("Failed to start Grafana monitoring", "red")
 
         except Exception as e:
-            messagebox.showerror(
-                self._("error", "Error"),
-                f"{self._('grafana_start_failed', 'Failed to start Grafana monitoring')}:\n{str(e)}"
-            )
+            if messagebox is not None:
+                messagebox.showerror(
+                    self._("error", "Error"),
+                    f"{self._('grafana_start_failed', 'Failed to start Grafana monitoring')}:\n{str(e)}"
+                )
 
     def _generate_languages_handler(self):
         """言語ファイル生成ハンドラ"""
         try:
-            from .scripts.generate_languages_improved import main as generate_languages
+            from scripts.generate_languages_improved import main as generate_languages
 
             # 言語ファイル生成を実行
             success = generate_languages()
@@ -359,15 +362,17 @@ class CocoaLauncher:
 
                 message = f"言語ファイル生成完了。現在: {count}言語"
                 self._update_status(message, "green")
-                messagebox.showinfo("言語ファイル生成", message)
+                if messagebox is not None:
+                    messagebox.showinfo("言語ファイル生成", message)
             else:
                 self._update_status("言語ファイル生成に失敗", "red")
 
         except Exception as e:
-            messagebox.showerror(
-                self._("error", "Error"),
-                f"{self._('language_generation_failed', 'Failed to generate language files')}:\n{str(e)}"
-            )
+            if messagebox is not None:
+                messagebox.showerror(
+                    self._("error", "Error"),
+                    f"{self._('language_generation_failed', 'Failed to generate language files')}:\n{str(e)}"
+                )
 
     def _update_status(self, message: str, color: str = "black"):
         """ステータスを更新"""

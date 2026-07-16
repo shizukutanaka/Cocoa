@@ -7,22 +7,21 @@ Performance monitoring subsystem for Cocoa.
 
 from __future__ import annotations
 
+import asyncio
 import json
-import random
 import logging
 import os
 import platform
+import random
+import subprocess
 import threading
 import time
 from collections import deque
-from datetime import datetime
-from statistics import mean, stdev, StatisticsError
-from typing import Any, Callable, Deque, Dict, List, Optional
-
-import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
-import subprocess
+from statistics import StatisticsError, mean, stdev
+from typing import Any, Callable, Deque, Dict, List, Optional
 
 try:
     import psutil
@@ -30,6 +29,16 @@ try:
 except ImportError:
     psutil = None
     PSUTIL_AVAILABLE = False
+
+if PSUTIL_AVAILABLE:
+    _NoSuchProcess = psutil.NoSuchProcess
+    _AccessDenied = psutil.AccessDenied
+else:
+    class _NoSuchProcess(Exception):
+        pass
+
+    class _AccessDenied(Exception):
+        pass
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +173,7 @@ class PerformanceMonitor:
         self._last_disk_counters: Any = None
         self._last_net_counters: Any = None
 
-        self._consecutive_alerts: Dict[str, int] = {metric: 0 for metric in self.HISTORY_METRICS}
+        self._consecutive_alerts: Dict[str, int] = dict.fromkeys(self.HISTORY_METRICS, 0)
         self._last_alert_details: List[Dict[str, Any]] = []
         self._last_alert_time: Optional[float] = None
 
@@ -180,12 +189,12 @@ class PerformanceMonitor:
         self._cache_ttl: float = 1.0  # キャッシュ有効時間（秒）
 
         # リアルタイムストリーミング用の変数
-        self._stream_callbacks: List[callable] = []
+        self._stream_callbacks: List[Callable] = []
         self._stream_interval: float = 1.0  # ストリーミング間隔
         self._stream_thread: Optional[threading.Thread] = None
 
         # アラート出力先用の変数
-        self._alert_handlers: List[callable] = []
+        self._alert_handlers: List[Callable] = []
         self._prometheus_handlers: List[Callable[[bytes], None]] = []
         self._prometheus_labels: Dict[str, str] = {
             str(key): str(value)
@@ -260,7 +269,7 @@ class PerformanceMonitor:
     def _format_datetime(self, dt: Optional[datetime] = None) -> str:
         """設定されたフォーマットで日付をフォーマットします。"""
         if dt is None:
-            dt = datetime.now()
+            dt = datetime.now(timezone.utc)
         return dt.strftime(self._datetime_format)
 
     def validate_config(self) -> Dict[str, str]:
@@ -371,7 +380,7 @@ class PerformanceMonitor:
 
         # アラート情報をまとめる
         alert_info = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "alerts": alerts,
             "message": message,
             "severity": "high" if any(a.get("severity", "medium") == "high" for a in alerts) else "medium"
@@ -400,7 +409,7 @@ class PerformanceMonitor:
                 logger.error("アラートハンドラー実行中にエラーが発生しました: %s", exc, exc_info=True)
 
         # デフォルトのコンソール出力（後方互換性のため）
-        print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] パフォーマンスアラート: {message}")
+        print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}] パフォーマンスアラート: {message}")
 
     def add_stream_callback(self, callback: callable) -> bool:
         """リアルタイムストリーミング用のコールバックを追加します。"""
@@ -539,7 +548,7 @@ class PerformanceMonitor:
                 config_snapshot = dict(self.config)
 
             payload = {
-                "export_time": datetime.utcnow().isoformat(),
+                "export_time": datetime.now(timezone.utc).isoformat(),
                 "config": config_snapshot,
                 "report": report,
                 "history": history_snapshot,
@@ -617,7 +626,7 @@ class PerformanceMonitor:
             time.sleep(wait_time)
 
     def _collect_stats(self) -> StatsDict:
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         now = time.time()
 
         # エラー統計のリセット
@@ -637,11 +646,11 @@ class PerformanceMonitor:
             self._consecutive_errors = 0
             self._last_error_time = None
 
-        except psutil.NoSuchProcess:
+        except _NoSuchProcess:
             logger.error(self._get_message("process_not_found"))
             self._record_error("process_not_found")
             return self._get_default_stats(timestamp)
-        except psutil.AccessDenied:
+        except _AccessDenied:
             logger.error(self._get_message("access_denied"))
             self._record_error("access_denied")
             return self._get_default_stats(timestamp)
@@ -760,24 +769,6 @@ class PerformanceMonitor:
 
         return triggered
 
-    def _send_alert(self, alerts: List[Dict[str, Any]]) -> None:
-        message_parts = [
-            f"{entry['metric']} {entry['value']:.2f} > {entry['threshold']:.2f}"
-            for entry in alerts
-        ]
-        message = " / ".join(message_parts)
-        logger.warning(
-            "performance_alert",
-            extra={
-                "extra_data": {
-                    "component": self.log_component,
-                    "alerts": alerts,
-                    "message": message,
-                }
-            },
-        )
-        print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] パフォーマンスアラート: {message}")
-
     def _evaluate_thresholds(self, stats: StatsDict) -> Dict[str, Dict[str, Any]]:
         values = {
             "memory": float(stats["memory"]["percent"]),
@@ -869,12 +860,11 @@ class PerformanceMonitor:
 
             # 統計計算のキャッシュチェック
             cache_key = f"anomaly_{metric}_{len(values)}"
-            if cache_key in self._stats_cache:
-                cached_time, cached_result = self._stats_cache[cache_key]
-                if time.time() - cached_time < self._cache_ttl:
-                    if cached_result:
-                        anomalies[metric] = cached_result
-                    continue
+            cached = self._get_cached_anomalies(cache_key)
+            if cached is not None:
+                if cached:
+                    anomalies[metric] = cached
+                continue
 
             try:
                 avg = mean(values)
@@ -886,38 +876,7 @@ class PerformanceMonitor:
             if deviation == 0:
                 continue
 
-            metric_anomalies: List[Dict[str, Any]] = []
-            recent_values = values[-10:]  # 最近10個の値でトレンド分析
-
-            # トレンド分析（線形回帰）
-            if len(recent_values) >= 3:
-                x = list(range(len(recent_values)))
-                slope = self._calculate_slope(x, recent_values)
-                trend_strength = abs(slope) / (avg + 1e-6)  # トレンド強度を計算
-            else:
-                slope = 0.0
-                trend_strength = 0.0
-
-            for i, sample in enumerate(samples[-5:]):
-                z_score = abs(sample["value"] - avg) / deviation if deviation > 0 else 0
-
-                # 異常検知の閾値を動的に調整（トレンド考慮）
-                dynamic_threshold = 3.0
-                if trend_strength > 0.1:  # 強いトレンドがある場合
-                    dynamic_threshold = 2.5  # 閾値を緩和
-                elif trend_strength < 0.05:  # 安定している場合
-                    dynamic_threshold = 3.5  # 閾値を厳しく
-
-                if z_score >= dynamic_threshold:
-                    anomaly_info = {
-                        "timestamp": sample["timestamp"],
-                        "value": sample["value"],
-                        "z_score": z_score,
-                        "trend_slope": slope,
-                        "trend_strength": trend_strength,
-                        "severity": "high" if z_score >= 4.0 else "medium" if z_score >= 3.0 else "low"
-                    }
-                    metric_anomalies.append(anomaly_info)
+            metric_anomalies = self._detect_metric_anomalies(samples, values, avg, deviation)
 
             if metric_anomalies:
                 anomalies[metric] = metric_anomalies
@@ -926,6 +885,56 @@ class PerformanceMonitor:
             self._stats_cache[cache_key] = (time.time(), metric_anomalies)
 
         return anomalies
+
+    def _get_cached_anomalies(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
+        """キャッシュが有効ならば異常リストを返す。未キャッシュ/期限切れなら None。"""
+        if cache_key in self._stats_cache:
+            cached_time, cached_result = self._stats_cache[cache_key]
+            if time.time() - cached_time < self._cache_ttl:
+                return cached_result
+        return None
+
+    def _detect_metric_anomalies(
+        self,
+        samples: Deque[HistorySample],
+        values: List[float],
+        avg: float,
+        deviation: float,
+    ) -> List[Dict[str, Any]]:
+        """1メトリクスの直近サンプルから z-score ベースで異常を検出する。"""
+        metric_anomalies: List[Dict[str, Any]] = []
+        recent_values = values[-10:]  # 最近10個の値でトレンド分析
+
+        # トレンド分析（線形回帰）
+        if len(recent_values) >= 3:
+            x = list(range(len(recent_values)))
+            slope = self._calculate_slope(x, recent_values)
+            trend_strength = abs(slope) / (avg + 1e-6)  # トレンド強度を計算
+        else:
+            slope = 0.0
+            trend_strength = 0.0
+
+        # 異常検知の閾値を動的に調整（トレンド考慮）
+        dynamic_threshold = 3.0
+        if trend_strength > 0.1:  # 強いトレンドがある場合
+            dynamic_threshold = 2.5  # 閾値を緩和
+        elif trend_strength < 0.05:  # 安定している場合
+            dynamic_threshold = 3.5  # 閾値を厳しく
+
+        for sample in samples[-5:]:
+            z_score = abs(sample["value"] - avg) / deviation if deviation > 0 else 0
+
+            if z_score >= dynamic_threshold:
+                metric_anomalies.append({
+                    "timestamp": sample["timestamp"],
+                    "value": sample["value"],
+                    "z_score": z_score,
+                    "trend_slope": slope,
+                    "trend_strength": trend_strength,
+                    "severity": "high" if z_score >= 4.0 else "medium" if z_score >= 3.0 else "low"
+                })
+
+        return metric_anomalies
 
     def _calculate_slope(self, x: List[float], y: List[float]) -> float:
         """線形回帰の傾きを計算します。"""
@@ -967,7 +976,7 @@ class PerformanceMonitor:
 
     def _get_default_stats(self, timestamp: str = None) -> StatsDict:
         return {
-            "timestamp": timestamp or datetime.utcnow().isoformat(),
+            "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
             "memory": {"total": 0, "used": 0, "available": 0, "percent": 0.0},
             "cpu": {"percent": 0.0, "count": 0},
             "disk_io": {"read_bytes": 0, "write_bytes": 0, "read_kbps": 0.0, "write_kbps": 0.0},
@@ -985,7 +994,7 @@ class PerformanceMonitor:
                 'value': value,
                 'unit': unit,
                 'description': description,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
 
     def get_custom_metrics(self) -> Dict[str, Dict[str, Any]]:
@@ -1067,7 +1076,7 @@ class PerformanceMonitor:
             "custom_metrics": custom_metrics,
             "error_stats": dict(self._error_stats),
             "consecutive_errors": self._consecutive_errors,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     def add_prometheus_handler(self, handler: Callable[[bytes], None]) -> bool:
@@ -1143,6 +1152,7 @@ class PerformanceMonitor:
             target = min(self._interval_max, self._current_interval * 1.2)
         elif pressure <= 0.5:
             target = max(self._interval_min, self._current_interval * 0.85)
+        self._current_interval = target
 
 class HybridMode(Enum):
     """ハイブリッドモード"""
@@ -1191,6 +1201,8 @@ class CloudResourceInfo:
     cost_per_hour: float
     availability_score: float  # 0-1
     latency_ms: float
+    bandwidth_mbps: float = 100.0
+
 class HybridSystemManager:
     """
     ハイブリッドシステムマネージャー
@@ -1223,6 +1235,9 @@ class HybridSystemManager:
             "gcp": {"regions": ["us-central1", "us-west1", "europe-west1"], "base_cost": 0.045}
         }
 
+        # バックグラウンドタスク参照（GC防止）
+        self._background_tasks: list = []
+
         logger.info("Hybrid System Manager initialized")
 
     def _get_local_resources(self) -> Dict[str, Any]:
@@ -1243,7 +1258,7 @@ class HybridSystemManager:
         """ハイブリッドシステムの初期化"""
         await self._discover_cloud_resources()
         await self._optimize_initial_allocation()
-        await self._start_energy_monitoring()
+        self._background_tasks.append(asyncio.create_task(self._start_energy_monitoring()))
 
     async def _discover_cloud_resources(self):
         """クラウドリソースを検出"""
@@ -1288,8 +1303,11 @@ class HybridSystemManager:
     async def _collect_energy_metrics(self) -> EnergyMetrics:
         """エネルギー消費メトリクスを収集"""
         # 実際の実装ではハードウェアセンサーからデータを取得
-        cpu_percent = psutil.cpu_percent(interval=1)
-        memory_percent = psutil.virtual_memory().percent
+        if PSUTIL_AVAILABLE:
+            cpu_percent = psutil.cpu_percent(interval=1)
+            memory_percent = psutil.virtual_memory().percent
+        else:
+            cpu_percent, memory_percent = 50.0, 50.0
 
         # 電力消費量の推定（簡易的）
         power_consumption = self._estimate_power_consumption(cpu_percent, memory_percent)
@@ -1321,12 +1339,11 @@ class HybridSystemManager:
         # 効率的な使用領域でのスコアが高い
         if cpu_percent < 30 and memory_percent < 50:
             return 90 + random.uniform(-5, 5)
-        elif cpu_percent < 60 and memory_percent < 70:
+        if cpu_percent < 60 and memory_percent < 70:
             return 70 + random.uniform(-10, 10)
-        elif cpu_percent < 80 and memory_percent < 85:
+        if cpu_percent < 80 and memory_percent < 85:
             return 50 + random.uniform(-10, 10)
-        else:
-            return 30 + random.uniform(-10, 10)
+        return 30 + random.uniform(-10, 10)
 
     def _get_system_temperature(self) -> float:
         """システム温度を取得（℃）"""
@@ -1359,7 +1376,7 @@ class HybridSystemManager:
         best_score = -1
 
         # 各クラウドリソースに対して最適化
-        for resource_key, cloud_resource in self.cloud_resources.items():
+        for cloud_resource in self.cloud_resources.values():
             allocation = await self._calculate_allocation_for_resource(
                 cloud_resource, workload, budget
             )
@@ -1374,7 +1391,15 @@ class HybridSystemManager:
 
     async def _analyze_current_workload(self) -> Dict[str, Any]:
         """現在のワークロードを分析"""
-        # システムメトリクスを取得
+        if not PSUTIL_AVAILABLE:
+            return {
+                "cpu_demand": 0.5,
+                "memory_demand": 0.5,
+                "disk_demand": 0.5,
+                "network_demand": 0.3,
+                "expected_duration_hours": 1.0,
+                "priority": "normal",
+            }
         cpu_percent = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
@@ -1391,10 +1416,6 @@ class HybridSystemManager:
     async def _calculate_allocation_for_resource(self, cloud_resource: CloudResourceInfo,
                                                 workload: Dict[str, Any], budget: float) -> HybridResourceAllocation:
         """特定のリソースに対する割り当てを計算"""
-        # ローカルリソースの使用率に基づいてクラウドリソースを決定
-        local_cpu_usage = workload["cpu_demand"]
-        local_memory_usage = workload["memory_demand"]
-
         # クラウドリソースの必要性を計算
         cloud_cpu_needed = max(0, workload["cpu_demand"] - 0.8)  # 80%を超えた分をクラウドに
         cloud_memory_needed = max(0, workload["memory_demand"] - 0.8)
@@ -1520,20 +1541,22 @@ class HybridSystemManager:
 
         if scores[-1] > mean(scores) + 5:
             return "improving"
-        elif scores[-1] < mean(scores) - 5:
+        if scores[-1] < mean(scores) - 5:
             return "degrading"
-        else:
-            return "stable"
+        return "stable"
 
 # グローバルインスタンス
 _hybrid_system_manager = None
+_hybrid_system_manager_lock = asyncio.Lock()
 
 async def get_hybrid_system_manager() -> HybridSystemManager:
     """ハイブリッドシステムマネージャーのインスタンスを取得"""
     global _hybrid_system_manager
 
     if _hybrid_system_manager is None:
-        _hybrid_system_manager = HybridSystemManager()
-        await _hybrid_system_manager.initialize()
+        async with _hybrid_system_manager_lock:
+            if _hybrid_system_manager is None:
+                _hybrid_system_manager = HybridSystemManager()
+                await _hybrid_system_manager.initialize()
 
     return _hybrid_system_manager

@@ -3,20 +3,18 @@ API Gateway Service
 全マイクロサービスへのリクエストをルーティングし、認証・認可を管理
 """
 
-import asyncio
 import logging
-from typing import Dict, Any, Optional
-import os
-from fastapi import FastAPI, Request, HTTPException, Depends, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+from typing import Any, Dict, Optional
+
 import httpx
 import uvicorn
-from contextlib import asynccontextmanager
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from services.shared.config import get_config, ConfigManager
+from services.shared.config import get_config
 from services.shared.logger import setup_logging
-
 
 # グローバル変数
 app: Optional[FastAPI] = None
@@ -152,11 +150,11 @@ async def proxy_to_service(service_name: str, path: str, method: str = "GET", **
         }
 
     except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail=f"{service_name}へのリクエストがタイムアウトしました")
+        raise HTTPException(status_code=504, detail=f"{service_name}へのリクエストがタイムアウトしました") from None
     except httpx.ConnectError:
-        raise HTTPException(status_code=503, detail=f"{service_name}に接続できません")
+        raise HTTPException(status_code=503, detail=f"{service_name}に接続できません") from None
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{service_name}へのリクエストでエラーが発生しました: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"{service_name}へのリクエストでエラーが発生しました: {str(e)}") from e
 
 
 # アバターサービスプロキシ

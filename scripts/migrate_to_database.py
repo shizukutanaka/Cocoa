@@ -13,22 +13,21 @@ Cocoaデータベース移行スクリプト
     --force         移行済みでも強制実行
 """
 
-import sys
-import os
-import json
 import argparse
+import json
 import logging
+import os
 import shutil
-from typing import Dict, Any, List
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
+from typing import Any, Dict, List
 
 # Cocoaモジュールのパスを追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "main"))
 
 try:
     from database_integration import CocoaDatabaseIntegration
-    from database_manager import DatabaseType
 except ImportError as e:
     print(f"エラー: Cocoaモジュールをインポートできません: {e}")
     sys.exit(1)
@@ -57,7 +56,7 @@ class CocoaDataMigrator:
             "presets_migrated": 0,
             "configs_migrated": 0,
             "errors": 0,
-            "start_time": datetime.now()
+            "start_time": datetime.now(timezone.utc)
         }
 
         # プロジェクトルートに移動
@@ -111,7 +110,7 @@ class CocoaDataMigrator:
             if presets_dir.exists():
                 for preset_file in presets_dir.glob("*.json"):
                     try:
-                        with open(preset_file, 'r', encoding='utf-8') as f:
+                        with open(preset_file, encoding='utf-8') as f:
                             data = json.load(f)
 
                         scan_results["presets"].append({
@@ -171,12 +170,12 @@ class CocoaDataMigrator:
         migrated_count = 0
 
         try:
-            with db_integration.transaction() as txn_id:
+            with db_integration.transaction():
                 for preset_info in presets_info:
                     try:
                         # プリセットファイル読み込み
                         preset_file = Path(preset_info["file"])
-                        with open(preset_file, 'r', encoding='utf-8') as f:
+                        with open(preset_file, encoding='utf-8') as f:
                             preset_data = json.load(f)
 
                         preset_id = preset_info["id"]
@@ -217,12 +216,12 @@ class CocoaDataMigrator:
         migrated_count = 0
 
         try:
-            with db_integration.transaction() as txn_id:
+            with db_integration.transaction():
                 for config_info in config_files:
                     try:
                         config_file = Path(config_info["file"])
 
-                        with open(config_file, 'r', encoding='utf-8') as f:
+                        with open(config_file, encoding='utf-8') as f:
                             config_data = json.load(f)
 
                         # 設定ファイル名をキーのプレフィックスとして使用
@@ -293,10 +292,10 @@ class CocoaDataMigrator:
                 file_prefix = config_file.stem
 
                 try:
-                    with open(config_file, 'r', encoding='utf-8') as f:
+                    with open(config_file, encoding='utf-8') as f:
                         original_config = json.load(f)
 
-                    for key in original_config.keys():
+                    for key in original_config:
                         config_key = f"{file_prefix}.{key}"
                         db_value = db_integration.get_configuration(config_key)
 
@@ -327,7 +326,7 @@ class CocoaDataMigrator:
     def generate_migration_report(self, scan_results: Dict[str, Any],
                                 verification_results: Dict[str, Any]) -> str:
         """移行レポート生成"""
-        end_time = datetime.now()
+        end_time = datetime.now(timezone.utc)
         duration = end_time - self.migration_stats["start_time"]
 
         report = f"""
@@ -435,7 +434,7 @@ class CocoaDataMigrator:
             # 移行完了フラグ設定
             if not self.dry_run and verification_results["success"]:
                 migration_flag.parent.mkdir(parents=True, exist_ok=True)
-                migration_flag.write_text(datetime.now().isoformat())
+                migration_flag.write_text(datetime.now(timezone.utc).isoformat())
                 logger.info("移行完了フラグを設定しました")
 
             db_integration.shutdown()

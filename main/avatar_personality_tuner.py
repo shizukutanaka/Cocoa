@@ -4,18 +4,23 @@ Avatar Personality Tuner Module for Cocoa
 ユーザーの話し方・表情を分析して自然なアバター動作を最適化
 """
 
-import os
-import logging
+import asyncio
 import json
+import logging
 import sqlite3
-from pathlib import Path
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
-from datetime import datetime
 import statistics
-import numpy as np
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from .integrated_security import get_security_manager
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+
+from integrated_security import get_security_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -45,7 +50,7 @@ class PersonalityProfile:
         if self.voice_characteristics is None:
             self.voice_characteristics = {}
         if self.last_updated is None:
-            self.last_updated = datetime.now()
+            self.last_updated = datetime.now(timezone.utc)
 
 @dataclass
 class BehaviorSample:
@@ -61,7 +66,7 @@ class BehaviorSample:
         if self.analysis_results is None:
             self.analysis_results = {}
         if self.timestamp is None:
-            self.timestamp = datetime.now()
+            self.timestamp = datetime.now(timezone.utc)
 
 @dataclass
 class TunedAvatarConfig:
@@ -79,7 +84,7 @@ class TunedAvatarConfig:
         if self.performance_metrics is None:
             self.performance_metrics = {}
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
 class PersonalityAnalyzer:
     """
@@ -177,12 +182,9 @@ class PersonalityAnalyzer:
         }
 
         # 簡易的な分析（実際には音声処理ライブラリを使用）
-        if audio_path and Path(audio_path).exists():
+        if audio_path and Path(audio_path).exists():  # noqa: ASYNC240
             try:
-                # ファイルサイズから簡易推定
-                file_size = os.path.getsize(audio_path)
-                # 仮定: 平均話速150WPM、ファイルサイズから推定
-                estimated_duration = file_size / (44100 * 2 * 60)  # 仮定の計算
+                # 簡易推定: 平均話速150WPM
                 analysis['speaking_rate'] = 150 * (1 + np.random.normal(0, 0.1))  # 簡易乱数
 
                 # ピッチ範囲推定
@@ -216,10 +218,11 @@ class PersonalityAnalyzer:
         # 一貫性スコア計算
         if len(samples) > 1:
             # 感情の一貫性を分析
-            emotions = []
-            for sample in samples:
-                if 'emotion' in sample.analysis_results:
-                    emotions.append(sample.analysis_results['emotion'])
+            emotions = [
+                sample.analysis_results['emotion']
+                for sample in samples
+                if 'emotion' in sample.analysis_results
+            ]
 
             if emotions:
                 # 感情の標準偏差が小さいほど一貫性が高い
@@ -231,8 +234,8 @@ class PersonalityAnalyzer:
                     analysis['consistency_score'] = 0.5
 
         # 適応性スコア（多様な感情表現）
-        unique_emotions = len(set(sample.analysis_results.get('primary_emotion', 'neutral')
-                                for sample in samples))
+        unique_emotions = len({sample.analysis_results.get('primary_emotion', 'neutral')
+                                for sample in samples})
         analysis['adaptability_score'] = min(1.0, unique_emotions / 7.0)  # 7つの基本感情
 
         # コミュニケーションスタイル分析
@@ -366,7 +369,7 @@ class AvatarPersonalityTuner:
         Returns:
             サンプルID
         """
-        sample_id = f"sample_{user_id}_{int(datetime.now().timestamp() * 1000)}"
+        sample_id = f"sample_{user_id}_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
 
         # コンテンツ分析
         analysis_results = await self._analyze_content(content_type, content, additional_data)
@@ -457,8 +460,6 @@ class AvatarPersonalityTuner:
         if user_id not in self.profiles:
             self.profiles[user_id] = PersonalityProfile(user_id=user_id)
 
-        profile = self.profiles[user_id]
-
         # 全てのサンプルを取得
         samples = await self._get_user_behavior_samples(user_id)
         samples.append(new_sample)
@@ -483,18 +484,17 @@ class AvatarPersonalityTuner:
                 LIMIT 100
             ''', (user_id,))
 
-            samples = []
-            for row in cursor.fetchall():
-                samples.append(BehaviorSample(
+            return [
+                BehaviorSample(
                     sample_id=row[0],
                     user_id=row[1],
                     content_type=row[2],
                     content=row[3],
                     analysis_results=json.loads(row[4]) if row[4] else {},
                     timestamp=datetime.fromisoformat(row[5])
-                ))
-
-            return samples
+                )
+                for row in cursor.fetchall()
+            ]
 
     async def _calculate_personality_profile(self, user_id: str,
                                           samples: List[BehaviorSample]) -> PersonalityProfile:
@@ -550,7 +550,7 @@ class AvatarPersonalityTuner:
 
         # 信頼度スコア計算
         profile.confidence_score = min(1.0, len(samples) / 10.0)  # 10サンプルで信頼度1.0
-        profile.last_updated = datetime.now()
+        profile.last_updated = datetime.now(timezone.utc)
 
         return profile
 
@@ -708,7 +708,7 @@ class AvatarPersonalityTuner:
 
         report = {
             "user_id": user_id,
-            "analysis_date": datetime.now().isoformat(),
+            "analysis_date": datetime.now(timezone.utc).isoformat(),
             "confidence_score": profile.confidence_score,
             "samples_analyzed": profile.samples_analyzed,
             "speaking_style": profile.speaking_style,
@@ -745,13 +745,16 @@ class AvatarPersonalityTuner:
 
 # グローバルインスタンス管理
 _avatar_personality_tuner = None
+_avatar_personality_tuner_lock = asyncio.Lock()
 
 async def get_avatar_personality_tuner() -> AvatarPersonalityTuner:
     """アバターパーソナリティチューナーのインスタンスを取得"""
     global _avatar_personality_tuner
 
     if _avatar_personality_tuner is None:
-        _avatar_personality_tuner = AvatarPersonalityTuner()
-        await _avatar_personality_tuner.initialize()
+        async with _avatar_personality_tuner_lock:
+            if _avatar_personality_tuner is None:
+                _avatar_personality_tuner = AvatarPersonalityTuner()
+                await _avatar_personality_tuner.initialize()
 
     return _avatar_personality_tuner

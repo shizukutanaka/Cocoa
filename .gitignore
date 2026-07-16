@@ -112,3 +112,6 @@ diff_reports/
 backups/
 exports/
 *.jsonl
+
+# Claude Code internal state
+.claude/worktrees/

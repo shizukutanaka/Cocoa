@@ -5,20 +5,23 @@ Provides encryption (AES-256-GCM), security auditing, input validation,
 behavioral anomaly detection and zero-trust session management.
 """
 
+import asyncio
+import hashlib
+import hmac
+import json
+import logging
 import os
 import re
-import json
-import time
-import hashlib
 import secrets
-import logging
-from stat import S_IMODE
-from pathlib import Path
-from enum import Enum
-from datetime import datetime
-from dataclasses import dataclass, field
+import threading
+import time
 from collections import defaultdict, deque
-from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
+from stat import S_IMODE
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -26,27 +29,35 @@ logger = logging.getLogger(__name__)
 try:
     import numpy as np
     NUMPY_AVAILABLE = True
-except ImportError:
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     NUMPY_AVAILABLE = False
 
 try:
     from sklearn.ensemble import IsolationForest
     from sklearn.preprocessing import StandardScaler
     SKLEARN_AVAILABLE = True
-except ImportError:
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     SKLEARN_AVAILABLE = False
 
 try:
     import oqs
     OQS_AVAILABLE = True
-except ImportError:
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     OQS_AVAILABLE = False
     logger.warning("Open Quantum Safe library not available. Quantum-safe features will be limited.")
 
 try:
-    import pqcrystals
+    import pqcrystals  # noqa: F401
     PQCRYSTALS_AVAILABLE = True
-except ImportError:
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     PQCRYSTALS_AVAILABLE = False
     logger.warning("PQ Crystals library not available. Using fallback quantum-safe implementation.")
 
@@ -97,12 +108,14 @@ def _resolve_security_db_path() -> Path:
     return candidate
 
 try:
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
     from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     CRYPTO_AVAILABLE = True
-except ImportError:
+except (KeyboardInterrupt, SystemExit):
+    raise
+except BaseException:
     CRYPTO_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
@@ -190,11 +203,10 @@ class PrivacyProtector:
         if isinstance(value, str):
             # 文字列のハッシュ化や部分マスク
             return f"<anonymized_{hash(str(value)) % 10000}>"
-        elif isinstance(value, (int, float)):
+        if isinstance(value, (int, float)):
             # 数値を範囲に変換
             return f"<range_{int(value // 10) * 10}-{int(value // 10) * 10 + 9}>"
-        else:
-            return "<anonymized>"
+        return "<anonymized>"
 
     def check_data_sharing(self, user_id: str, target: str) -> bool:
         """データ共有の許可をチェック"""
@@ -223,7 +235,7 @@ class AdvancedBehaviorAnalyzer:
 
     def _save_models(self) -> None:
         """学習済みモデルの永続化フック（環境依存のため既定では何もしない）。"""
-        return None
+        return
 
     def record_behavior(self, user_id: str, behavior_type: str, value: float, timestamp: Optional[float] = None, context: Dict[str, Any] = None):
         """行動データを記録し、機械学習モデルを更新"""
@@ -249,6 +261,9 @@ class AdvancedBehaviorAnalyzer:
 
     def _update_ml_model(self, user_id: str, behavior_type: str):
         """機械学習モデルを更新"""
+        if not SKLEARN_AVAILABLE:
+            return
+
         behavior_key = f"{behavior_type}_{user_id}"
 
         if len(self.user_behaviors[behavior_key]) < 50:
@@ -281,7 +296,7 @@ class AdvancedBehaviorAnalyzer:
         except Exception as e:
             logger.error(f"モデル更新エラー ({user_id}, {behavior_type}): {e}")
 
-    def _extract_features(self, user_id: str, behavior_type: str) -> Optional[np.ndarray]:
+    def _extract_features(self, user_id: str, behavior_type: str) -> "Optional[Any]":
         """行動データから特徴量を抽出"""
         behavior_key = f"{behavior_type}_{user_id}"
         behaviors = list(self.user_behaviors[behavior_key])
@@ -458,6 +473,28 @@ class SecurityAuditor:
         self.events = []
         self._init_database()
 
+    def _init_database(self):
+        """SQLiteデータベースを初期化"""
+        try:
+            with self._connect() as conn:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS security_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event_type TEXT,
+                        user_id TEXT,
+                        resource TEXT,
+                        details TEXT,
+                        timestamp TEXT
+                    )
+                ''')
+        except Exception as e:
+            logger.error(f"セキュリティDBの初期化に失敗: {e}")
+
+    def _connect(self):
+        """データベース接続を返す"""
+        import sqlite3
+        return sqlite3.connect(self.db_path)
+
     def log_event(self, event: SecurityEvent):
         """イベント記録 - 直接的で高速"""
         self.events.append(event)
@@ -615,15 +652,13 @@ class SecurityValidator:
             if time.time() < self.lockouts[user_id]:
                 remaining = int(self.lockouts[user_id] - time.time())
                 return False, f"アカウントがロックされています ({remaining}秒後に解除)"
-            else:
-                del self.lockouts[user_id]
-                self.failed_attempts[user_id] = []
+            del self.lockouts[user_id]
+            self.failed_attempts[user_id] = []
 
         # IP制限チェック
-        if ip_address:
-            if not self._check_ip_access(ip_address):
-                logger.warning(f"ブロックされたIPからのアクセス試行: {ip_address}")
-                return False, "アクセスが拒否されました"
+        if ip_address and not self._check_ip_access(ip_address):
+            logger.warning(f"ブロックされたIPからのアクセス試行: {ip_address}")
+            return False, "アクセスが拒否されました"
 
         # ユーザー権限チェック
         if self.allowed_users and user_id not in self.allowed_users:
@@ -807,23 +842,9 @@ class IntegratedSecurityManager:
             return {'error': f'無効な入力: {msg}', 'success': False}
 
         # 2. 行動異常検知チェック
-        # ログイン頻度を記録
-        self.behavior_analyzer.record_behavior(user_id, 'login_frequency', 1.0, current_time)
-
-        # 操作数を記録
-        self.behavior_analyzer.record_behavior(user_id, 'operation_count', 1.0, current_time)
-
-        # セッション時間を記録（簡易版）
-        self.behavior_analyzer.record_behavior(user_id, 'session_duration', session_duration, current_time)
-
-        # 異常検知実行
-        anomaly_detected = False
-        anomaly_details = {}
-        for behavior_type in ['login_frequency', 'operation_count', 'session_duration']:
-            is_anomaly, confidence, details = self.behavior_analyzer.detect_anomaly(user_id, behavior_type, 1.0)
-            if is_anomaly:
-                anomaly_detected = True
-                anomaly_details[behavior_type] = details
+        anomaly_detected, anomaly_details, confidence = self._record_behavior_anomalies(
+            user_id, session_duration, current_time
+        )
 
         if anomaly_detected:
             self._record_security_incident("behavior_anomaly", user_id, {
@@ -876,21 +897,10 @@ class IntegratedSecurityManager:
         )
         self.auditor.log_event(event)
 
-        # 5. データ暗号化 (オプション)
-        result_data = data
-        if encrypt and self.encryptor:
-            try:
-                encrypted_data = self.encryptor.encrypt_data(data)
-                result_data = {'encrypted': encrypted_data}
-            except Exception as e:
-                logger.error(f"暗号化エラー: {e}")
-                return {'error': '暗号化処理に失敗しました', 'success': False}
-
-        # 6. プライバシー保護適用
-        try:
-            result_data = self.privacy_protector.anonymize_data(result_data, user_id)
-        except Exception as e:
-            logger.warning(f"プライバシー保護適用エラー: {e}")
+        # 5. データ暗号化 + 6. プライバシー保護
+        result_data, enc_err = self._apply_encryption_and_privacy(user_id, data, encrypt)
+        if enc_err is not None:
+            return enc_err
 
         execution_time = time.time() - start_time
 
@@ -904,6 +914,49 @@ class IntegratedSecurityManager:
             'threat_level': self.threat_level.value
         }
 
+    def _record_behavior_anomalies(
+        self,
+        user_id: str,
+        session_duration: float,
+        current_time: float,
+    ) -> Tuple[bool, Dict[str, Any], float]:
+        """行動記録と異常検知を実行し (anomaly_detected, anomaly_details, confidence) を返す"""
+        self.behavior_analyzer.record_behavior(user_id, 'login_frequency', 1.0, current_time)
+        self.behavior_analyzer.record_behavior(user_id, 'operation_count', 1.0, current_time)
+        self.behavior_analyzer.record_behavior(user_id, 'session_duration', session_duration, current_time)
+        anomaly_detected = False
+        anomaly_details: Dict[str, Any] = {}
+        confidence = 0.0
+        for behavior_type in ['login_frequency', 'operation_count', 'session_duration']:
+            is_anomaly, confidence, details = self.behavior_analyzer.detect_anomaly(
+                user_id, behavior_type, 1.0
+            )
+            if is_anomaly:
+                anomaly_detected = True
+                anomaly_details[behavior_type] = details
+        return anomaly_detected, anomaly_details, confidence
+
+    def _apply_encryption_and_privacy(
+        self,
+        user_id: str,
+        data: Dict[str, Any],
+        encrypt: bool,
+    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+        """データを暗号化しプライバシー保護を適用する。エラー時は (data, error_dict) を返す。"""
+        result_data = data
+        if encrypt and self.encryptor:
+            try:
+                encrypted_data = self.encryptor.encrypt_data(data)
+                result_data = {'encrypted': encrypted_data}
+            except Exception as e:
+                logger.error(f"暗号化エラー: {e}")
+                return data, {'error': '暗号化処理に失敗しました', 'success': False}
+        try:
+            result_data = self.privacy_protector.anonymize_data(result_data, user_id)
+        except Exception as e:
+            logger.warning(f"プライバシー保護適用エラー: {e}")
+        return result_data, None
+
     def get_security_report(self) -> Dict[str, Any]:
         """包括的セキュリティレポート"""
         recent_events = self.auditor.get_events(24)  # 24時間
@@ -915,12 +968,12 @@ class IntegratedSecurityManager:
         behavior_anomalies = sum(1 for e in recent_events if e.get('details', {}).get('anomaly_detected', False))
 
         return {
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'security_level': self.policy.level.value,
             'threat_level': threat_level.value,
             'statistics': {
                 'total_events_24h': len(recent_events),
-                'unique_users': len(set(e['user_id'] for e in recent_events)),
+                'unique_users': len({e['user_id'] for e in recent_events}),
                 'operation_types': self._count_operation_types(recent_events),
                 'incidents': len(self.security_incidents),
                 'active_lockouts': len(self.validator.lockouts),
@@ -978,19 +1031,18 @@ class IntegratedSecurityManager:
 
         if incident_count > 100:
             return ThreatLevel.CRITICAL
-        elif incident_count > 50:
+        if incident_count > 50:
             return ThreatLevel.HIGH
-        elif incident_count > 10:
+        if incident_count > 10:
             return ThreatLevel.MEDIUM
-        else:
-            return ThreatLevel.LOW
+        return ThreatLevel.LOW
 
     def _record_security_incident(self, incident_type: str, user_id: str, details: Dict[str, Any]):
         """セキュリティインシデントの記録"""
         incident = {
             'type': incident_type,
             'user_id': user_id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'details': details
         }
         self.security_incidents.append(incident)
@@ -1010,7 +1062,7 @@ class IntegratedSecurityManager:
             if unlock_time > now:
                 active.append({
                     'user_id': user_id,
-                    'unlock_at': datetime.fromtimestamp(unlock_time).isoformat(),
+                    'unlock_at': datetime.fromtimestamp(unlock_time, tz=timezone.utc).isoformat(),
                     'remaining_seconds': int(unlock_time - now)
                 })
 
@@ -1026,12 +1078,15 @@ class IntegratedSecurityManager:
 
 # グローバルインスタンス
 _security_manager: Optional[IntegratedSecurityManager] = None
+_security_manager_lock = threading.Lock()
 
 def get_security_manager() -> IntegratedSecurityManager:
     """セキュリティマネージャー取得"""
     global _security_manager
     if _security_manager is None:
-        _security_manager = IntegratedSecurityManager()
+        with _security_manager_lock:
+            if _security_manager is None:
+                _security_manager = IntegratedSecurityManager()
     return _security_manager
 
 def initialize_security():
@@ -1039,8 +1094,7 @@ def initialize_security():
     manager = get_security_manager()
     if manager.initialize():
         return manager
-    else:
-        raise Exception("セキュリティの初期化に失敗")
+    raise Exception("セキュリティの初期化に失敗")
 
 class ZeroTrustSecurity:
     """ゼロトラストセキュリティシステム"""
@@ -1121,10 +1175,7 @@ class ZeroTrustSecurity:
             return False
 
         # 非アクティブタイムアウトチェック（デフォルト1時間）
-        if time.time() - session['last_activity'] > 3600:
-            return False
-
-        return True
+        return not time.time() - session['last_activity'] > 3600
 
     def _check_resource_policy(self, user_id: str, resource: str, action: str) -> bool:
         """リソースポリシーをチェック"""
@@ -1147,6 +1198,11 @@ class ZeroTrustSecurity:
         active_sessions = len(self.trusted_sessions)
         high_risk_sessions = sum(1 for s in self.trusted_sessions.values() if s['risk_score'] > 0.7)
         avg_risk_score = np.mean([s['risk_score'] for s in self.trusted_sessions.values()]) if self.trusted_sessions else 0.0
+        return {
+            "active_sessions": active_sessions,
+            "high_risk_sessions": high_risk_sessions,
+            "avg_risk_score": float(avg_risk_score),
+        }
 
 @dataclass
 class QuantumKeyPair:
@@ -1308,7 +1364,7 @@ class AISecurityManager:
         if model_dir.exists():
             for model_file in model_dir.glob("*.json"):
                 try:
-                    with open(model_file, 'r', encoding='utf-8') as f:
+                    with open(model_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
                         model = AIModelMetadata(**data)
                         self.registered_models[model.model_id] = model
@@ -1410,7 +1466,7 @@ class AISecurityManager:
             risk_factors.append(0.2)
 
         # 時間帯によるリスク
-        if context and context.get('time_of_day') in ['night']:
+        if context and context.get('time_of_day') == 'night':
             risk_factors.append(0.1)
 
         # 過去の違反履歴
@@ -1438,7 +1494,7 @@ class AISecurityManager:
         """
         event = AIAuditEvent(
             event_id=secrets.token_hex(16),
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             event_type="ai_interaction",
             user_id=user_id,
             model_id=model_id,
@@ -1470,7 +1526,7 @@ class AISecurityManager:
         events = []
         if audit_file.exists():
             try:
-                with open(audit_file, 'r', encoding='utf-8') as f:
+                with open(audit_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     events = json.load(f)
             except Exception:
                 events = []
@@ -1489,7 +1545,7 @@ class AISecurityManager:
         })
 
         # 保存
-        with open(audit_file, 'w', encoding='utf-8') as f:
+        with open(audit_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(events, f, indent=2, ensure_ascii=False)
 
     def get_ai_security_metrics(self) -> Dict[str, Any]:
@@ -1510,14 +1566,19 @@ class AISecurityManager:
 
 # グローバルインスタンス
 _ai_security_manager = None
+_ai_security_manager_lock = asyncio.Lock()
 
 async def get_ai_security_manager() -> AISecurityManager:
     """AIセキュリティマネージャーのインスタンスを取得"""
     global _ai_security_manager
 
     if _ai_security_manager is None:
-        _ai_security_manager = AISecurityManager()
-        await _ai_security_manager.initialize()
+        async with _ai_security_manager_lock:
+            if _ai_security_manager is None:
+                _ai_security_manager = AISecurityManager()
+                await _ai_security_manager.initialize()
+
+    return _ai_security_manager
 
 class QuantumSafeManager:
     """
@@ -1564,7 +1625,7 @@ class QuantumSafeManager:
         if key_dir.exists():
             for key_file in key_dir.glob("*.json"):
                 try:
-                    with open(key_file, 'r', encoding='utf-8') as f:
+                    with open(key_file, encoding='utf-8') as f:  # noqa: ASYNC230
                         data = json.load(f)
                         key_pair = QuantumKeyPair(
                             public_key=bytes.fromhex(data["public_key"]),
@@ -1623,7 +1684,7 @@ class QuantumSafeManager:
                 public_key, private_key = await self._generate_fallback_keypair(algorithm)
 
             key_id = secrets.token_hex(32)
-            created_at = datetime.now()
+            created_at = datetime.now(timezone.utc)
             expires_at = created_at.replace(year=created_at.year + 2)  # 2年有効
 
             key_pair = QuantumKeyPair(
@@ -1664,7 +1725,7 @@ class QuantumSafeManager:
         key_dir.mkdir(parents=True, exist_ok=True)
 
         key_file = key_dir / f"{key_pair.key_id}.json"
-        with open(key_file, 'w', encoding='utf-8') as f:
+        with open(key_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump({
                 "key_id": key_pair.key_id,
                 "algorithm": key_pair.algorithm,
@@ -1691,9 +1752,8 @@ class QuantumSafeManager:
         recipient_key = self.key_pairs[recipient_key_id]
         if recipient_key.algorithm.startswith("Kyber"):
             return await self._kyber_encrypt(plaintext, recipient_key)
-        else:
-            # 他のアルゴリズム
-            return await self._fallback_encrypt(plaintext, recipient_key)
+        # 他のアルゴリズム
+        return await self._fallback_encrypt(plaintext, recipient_key)
 
     async def _kyber_encrypt(self, plaintext: bytes, recipient_key: QuantumKeyPair) -> bytes:
         """Kyber暗号化"""
@@ -1712,7 +1772,6 @@ class QuantumSafeManager:
         # 実際には標準PQCライブラリを使用
         # ここでは簡易的な実装
         import os
-        key = os.urandom(32)  # 簡易的な共有鍵
         nonce = os.urandom(12)
         # AES-256-GCM実装（実際にはcryptographyライブラリを使用）
         return nonce + plaintext  # 簡易実装
@@ -1734,18 +1793,15 @@ class QuantumSafeManager:
         sender_key = self.key_pairs[recipient_key_id]
         if sender_key.algorithm.startswith("Kyber"):
             return await self._kyber_decrypt(ciphertext, sender_key)
-        else:
-            return await self._fallback_decrypt(ciphertext, sender_key)
+        return await self._fallback_decrypt(ciphertext, sender_key)
 
     async def _kyber_decrypt(self, ciphertext: bytes, sender_key: QuantumKeyPair) -> bytes:
         """Kyber復号化"""
         if OQS_AVAILABLE:
             kem = oqs.KeyEncapsulation(sender_key.algorithm)
-            shared_secret = kem.decap_secret(ciphertext, sender_key.private_key)
             # 共有鍵を使用してデータを復号化
-            return shared_secret  # 簡易実装
-        else:
-            return self._fallback_decrypt(ciphertext, sender_key)
+            return kem.decap_secret(ciphertext, sender_key.private_key)  # 簡易実装
+        return self._fallback_decrypt(ciphertext, sender_key)
 
     async def _fallback_decrypt(self, ciphertext: bytes, sender_key: QuantumKeyPair) -> bytes:
         """フォールバック復号化"""
@@ -1783,7 +1839,7 @@ class QuantumSafeManager:
             algorithm=algorithm,
             message_hash=hashlib.sha256(message).hexdigest(),
             signer_key_id=signer_key_id,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
         self.active_signatures[quantum_signature.signer_key_id] = quantum_signature
@@ -1799,6 +1855,7 @@ class QuantumSafeManager:
         else:
             # フォールバック: ECDSAを使用
             return hashlib.sha256(message).digest()
+        return None
 
     async def _fallback_sign(self, message: bytes, signer_key: QuantumKeyPair) -> bytes:
         """フォールバック署名"""
@@ -1823,12 +1880,11 @@ class QuantumSafeManager:
         try:
             if signature.algorithm.startswith("Dilithium"):
                 return await self._dilithium_verify(message, signature, signer_key)
-            elif signature.algorithm.startswith("Falcon"):
+            if signature.algorithm.startswith("Falcon"):
                 return await self._falcon_verify(message, signature, signer_key)
-            elif signature.algorithm.startswith("SPHINCS"):
+            if signature.algorithm.startswith("SPHINCS"):
                 return await self._sphincs_verify(message, signature, signer_key)
-            else:
-                return await self._fallback_verify(message, signature, signer_key)
+            return await self._fallback_verify(message, signature, signer_key)
         except Exception as e:
             logger.error(f"Signature verification failed: {e}")
             return False
@@ -1839,19 +1895,20 @@ class QuantumSafeManager:
             # PQ Crystals Dilithium検証
             pass
         else:
-            # フォールバック検証
+            # フォールバック検証 — タイミング攻撃を避けるため定数時間比較
             expected_signature = await self._fallback_sign(message, signer_key)
-            return signature.signature == expected_signature
+            return hmac.compare_digest(signature.signature, expected_signature)
+        return None
 
     async def _fallback_verify(self, message: bytes, signature: QuantumSignature, signer_key: QuantumKeyPair) -> bool:
         """フォールバック検証"""
         expected_signature = await self._fallback_sign(message, signer_key)
-        return signature.signature == expected_signature
+        return hmac.compare_digest(signature.signature, expected_signature)
 
     async def _perform_threat_assessment(self) -> QuantumThreatAssessment:
         """量子脅威評価を実行"""
         # 現在の量子コンピューティングの進展に基づく評価
-        current_year = datetime.now().year
+        current_year = datetime.now(timezone.utc).year
 
         # 脅威レベルの推定（簡易的）
         if current_year < 2028:
@@ -1880,7 +1937,7 @@ class QuantumSafeManager:
             timeline_years=timeline,
             affected_algorithms=affected_algorithms,
             recommended_actions=recommended_actions,
-            assessment_date=datetime.now()
+            assessment_date=datetime.now(timezone.utc)
         )
 
         self.threat_assessments.append(assessment)
@@ -1903,7 +1960,7 @@ class QuantumSafeManager:
         rotated_keys = []
 
         for key_id, key_pair in list(self.key_pairs.items()):
-            if key_pair.expires_at and datetime.now() > key_pair.expires_at:
+            if key_pair.expires_at and datetime.now(timezone.utc) > key_pair.expires_at:
                 # 期限切れの鍵を新しい鍵で置き換え
                 new_algorithm = key_pair.algorithm  # 同じアルゴリズムを使用
                 new_key_pair = await self.generate_quantum_keypair(new_algorithm)
@@ -1926,7 +1983,7 @@ class QuantumSafeManager:
     def get_quantum_security_status(self) -> Dict[str, Any]:
         """量子セキュリティステータスを取得"""
         active_keys = len(self.key_pairs)
-        expired_keys = sum(1 for k in self.key_pairs.values() if k.expires_at and datetime.now() > k.expires_at)
+        expired_keys = sum(1 for k in self.key_pairs.values() if k.expires_at and datetime.now(timezone.utc) > k.expires_at)
 
         latest_assessment = self.threat_assessments[-1] if self.threat_assessments else None
 
@@ -1949,13 +2006,16 @@ class QuantumSafeManager:
 
 # グローバルインスタンス
 _quantum_safe_manager = None
+_quantum_safe_manager_lock = asyncio.Lock()
 
 async def get_quantum_safe_manager() -> QuantumSafeManager:
     """量子安全マネージャーのインスタンスを取得"""
     global _quantum_safe_manager
 
     if _quantum_safe_manager is None:
-        _quantum_safe_manager = QuantumSafeManager()
-        await _quantum_safe_manager.initialize()
+        async with _quantum_safe_manager_lock:
+            if _quantum_safe_manager is None:
+                _quantum_safe_manager = QuantumSafeManager()
+                await _quantum_safe_manager.initialize()
 
     return _quantum_safe_manager

@@ -4,19 +4,25 @@ Blockchain Audit System for Cocoa
 改ざん耐性のある分散型監査証跡システム
 """
 
-import os
 import asyncio
-import logging
-import json
 import hashlib
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass
-from datetime import datetime
+import json
+import logging
+import os
 import queue
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from web3 import Web3
-from web3.contract import Contract
+try:
+    from web3 import Web3
+    from web3.contract import Contract
+    WEB3_AVAILABLE = True
+except ImportError:
+    WEB3_AVAILABLE = False
+    Web3 = None
+    Contract = None
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -64,10 +70,14 @@ class BlockchainAuditManager:
     def __init__(self, audit_dir: str = "data/blockchain_audit"):
         self.audit_dir = Path(audit_dir)
         self.audit_dir.mkdir(parents=True, exist_ok=True)
+        self._background_tasks: list = []
 
         # ブロックチェーン設定
         self.web3_provider = os.getenv("WEB3_PROVIDER_URL", "http://localhost:8545")
-        self.web3 = Web3(Web3.HTTPProvider(self.web3_provider))
+        if WEB3_AVAILABLE:
+            self.web3 = Web3(Web3.HTTPProvider(self.web3_provider))
+        else:
+            self.web3 = None
 
         # スマートコントラクト
         self.contract_config = None
@@ -93,13 +103,16 @@ class BlockchainAuditManager:
         """ブロックチェーン監査マネージャーの初期化"""
         await self._load_existing_blockchain()
         await self._initialize_smart_contract()
-        await self._start_mining_process()
+        # Start the mining loop as a background task — do NOT await it directly
+        # because _start_mining_process() loops forever and would block initialize().
+        # Store a strong reference: event loop uses a WeakSet, so unref'd tasks are GC'd.
+        self._background_tasks.append(asyncio.create_task(self._start_mining_process()))
 
     async def _load_existing_blockchain(self):
         """既存のブロックチェーンを読み込み"""
         if self.blockchain_file.exists():
             try:
-                with open(self.blockchain_file, 'r', encoding='utf-8') as f:
+                with open(self.blockchain_file, encoding='utf-8') as f:  # noqa: ASYNC230
                     data = json.load(f)
                     self.blocks = [
                         AuditBlock(
@@ -129,7 +142,7 @@ class BlockchainAuditManager:
         """ジェネシスブロックを作成"""
         genesis_block = AuditBlock(
             block_index=0,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             previous_hash="0000000000000000000000000000000000000000000000000000000000000000",
             current_hash="",
             transactions=[],
@@ -157,7 +170,7 @@ class BlockchainAuditManager:
             gas_price_gwei=20
         )
 
-        if self.web3.is_connected():
+        if self.web3 and self.web3.is_connected():
             logger.info(f"Connected to blockchain network: {self.web3_provider}")
         else:
             logger.warning("Blockchain network not available. Using local blockchain only.")
@@ -201,7 +214,7 @@ class BlockchainAuditManager:
         # ブロックを作成
         new_block = AuditBlock(
             block_index=self.total_blocks,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             previous_hash=previous_block.current_hash if previous_block else "",
             current_hash="",
             transactions=transactions,
@@ -302,7 +315,7 @@ class BlockchainAuditManager:
             ]
         }
 
-        with open(self.blockchain_file, 'w', encoding='utf-8') as f:
+        with open(self.blockchain_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(blockchain_data, f, indent=2, ensure_ascii=False)
 
     async def record_audit_event(self, event: BlockchainAuditEvent) -> bool:
@@ -359,7 +372,7 @@ class BlockchainAuditManager:
             })
 
             # トランザクション待機
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash)
+            self.web3.eth.wait_for_transaction_receipt(tx_hash)
             logger.info(f"On-chain audit recorded: {transaction['event_id']}, tx: {tx_hash.hex()}")
 
         except Exception as e:
@@ -384,7 +397,7 @@ class BlockchainAuditManager:
             "total_blocks": end_block - start_block + 1,
             "invalid_blocks": [],
             "tampering_detected": False,
-            "verification_time": datetime.now().isoformat()
+            "verification_time": datetime.now(timezone.utc).isoformat()
         }
 
         try:
@@ -481,9 +494,7 @@ class BlockchainAuditManager:
         target_hash = hashlib.sha256(json.dumps(target_transaction, sort_keys=True).encode()).hexdigest()
 
         # 証明パスの生成（簡易実装）
-        for tx_hash in tx_hashes:
-            if tx_hash != target_hash:
-                proof.append(tx_hash)
+        proof = [tx_hash for tx_hash in tx_hashes if tx_hash != target_hash]
 
         return proof
 
@@ -509,12 +520,12 @@ class BlockchainAuditManager:
         Returns:
             スナップショットID
         """
-        snapshot_id = f"snapshot_{int(datetime.now().timestamp())}"
+        snapshot_id = f"snapshot_{int(datetime.now(timezone.utc).timestamp())}"
 
         snapshot = {
             "snapshot_id": snapshot_id,
             "description": description,
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "block_count": len(self.blocks),
             "total_events": self.total_events,
             "blockchain_hash": self.blocks[-1].current_hash if self.blocks else "",
@@ -525,7 +536,7 @@ class BlockchainAuditManager:
         snapshot_file = self.audit_dir / "snapshots" / f"{snapshot_id}.json"
         snapshot_file.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(snapshot_file, 'w', encoding='utf-8') as f:
+        with open(snapshot_file, 'w', encoding='utf-8') as f:  # noqa: ASYNC230
             json.dump(snapshot, f, indent=2, ensure_ascii=False)
 
         logger.info(f"Audit snapshot created: {snapshot_id}")
@@ -558,13 +569,16 @@ class BlockchainAuditManager:
 
 # グローバルインスタンス
 _blockchain_audit_manager = None
+_blockchain_audit_manager_lock = asyncio.Lock()
 
 async def get_blockchain_audit_manager() -> BlockchainAuditManager:
     """ブロックチェーン監査マネージャーのインスタンスを取得"""
     global _blockchain_audit_manager
 
     if _blockchain_audit_manager is None:
-        _blockchain_audit_manager = BlockchainAuditManager()
-        await _blockchain_audit_manager.initialize()
+        async with _blockchain_audit_manager_lock:
+            if _blockchain_audit_manager is None:
+                _blockchain_audit_manager = BlockchainAuditManager()
+                await _blockchain_audit_manager.initialize()
 
     return _blockchain_audit_manager

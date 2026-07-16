@@ -14,19 +14,19 @@ Cocoaパフォーマンステスト統合実行スクリプト
     --format FORMAT  レポート形式 (json, markdown, both)
 """
 
-import sys
 import argparse
-import logging
 import json
+import logging
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
 
 # Cocoaモジュールのパスを追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "main"))
 
 try:
-    from performance_tester import CocoaPerformanceTester
     from performance_optimizer import PerformanceOptimizer
+    from performance_tester import CocoaPerformanceTester
 except ImportError as e:
     print(f"エラー: Cocoaパフォーマンスモジュールをインポートできません: {e}")
     sys.exit(1)
@@ -73,7 +73,7 @@ class PerformanceTestRunner:
                 # 個別テストを選択的に実行
                 test_results = {
                     "test_execution": {
-                        "start_time": datetime.now().isoformat(),
+                        "start_time": datetime.now(timezone.utc).isoformat(),
                         "quick_mode": True
                     },
                     "test_results": [],
@@ -95,7 +95,7 @@ class PerformanceTestRunner:
                         logger.error(f"テストエラー: {test_func.__name__} - {e}")
 
                 # 結果をまとめ
-                test_results["test_execution"]["end_time"] = datetime.now().isoformat()
+                test_results["test_execution"]["end_time"] = datetime.now(timezone.utc).isoformat()
                 test_results["test_results"] = [
                     {
                         "test_name": r.test_name,
@@ -169,7 +169,7 @@ class PerformanceTestRunner:
             comprehensive_data = {
                 "execution_info": {
                     "timestamp": self.execution_timestamp,
-                    "execution_time": datetime.now().isoformat(),
+                    "execution_time": datetime.now(timezone.utc).isoformat(),
                     "reports_generated": []
                 },
                 "performance_test_results": self.test_results,
@@ -209,7 +209,6 @@ class PerformanceTestRunner:
         try:
             # テスト結果サマリー
             if self.test_results:
-                test_execution = self.test_results.get("test_execution", {})
                 test_results = self.test_results.get("test_results", [])
 
                 if test_results:
@@ -238,7 +237,6 @@ class PerformanceTestRunner:
 
             # 最適化結果サマリー
             if self.optimization_results:
-                opt_execution = self.optimization_results.get("optimization_execution", {})
                 opt_results = self.optimization_results.get("optimization_results", [])
 
                 if opt_results:

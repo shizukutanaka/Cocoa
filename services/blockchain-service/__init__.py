@@ -8,17 +8,13 @@
 - スマートコントラクト統合
 """
 
-import json
 import logging
-from typing import Dict, Any, List, Optional
-from datetime import datetime
-import os
-from pathlib import Path
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 try:
-    from web3 import Web3
-    from eth_account import Account
     import ipfshttpclient
+    from web3 import Web3
     WEB3_AVAILABLE = True
 except ImportError:
     WEB3_AVAILABLE = False
@@ -72,7 +68,7 @@ class BlockchainService:
                 'description': avatar_data.get('description', 'Metaverse Avatar'),
                 'image': avatar_data.get('image_url', ''),
                 'attributes': avatar_data.get('attributes', []),
-                'created_at': datetime.utcnow().isoformat()
+                'created_at': datetime.now(timezone.utc).isoformat()
             }
 
             # IPFSにメタデータをアップロード
@@ -82,10 +78,10 @@ class BlockchainService:
             # 実際の実装ではスマートコントラクトのアドレスとABIが必要
 
             nft_info = {
-                'token_id': f"nft_{int(datetime.utcnow().timestamp())}",
+                'token_id': f"nft_{int(datetime.now(timezone.utc).timestamp())}",
                 'metadata_ipfs': ipfs_hash,
                 'owner': owner_address,
-                'created_at': datetime.utcnow().isoformat(),
+                'created_at': datetime.now(timezone.utc).isoformat(),
                 'blockchain': 'ethereum'
             }
 
@@ -109,7 +105,7 @@ class BlockchainService:
         try:
             nft_info = self.nft_metadata[token_id]
             nft_info['owner'] = to_address
-            nft_info['transferred_at'] = datetime.utcnow().isoformat()
+            nft_info['transferred_at'] = datetime.now(timezone.utc).isoformat()
 
             # 実際の実装ではブロックチェーン上で転送を実行
 
@@ -131,12 +127,12 @@ class BlockchainService:
 
         try:
             transaction = {
-                'tx_id': f"tx_{int(datetime.utcnow().timestamp())}_{hash(f'{from_address}_{to_address}_{amount}') % 10000}",
+                'tx_id': f"tx_{int(datetime.now(timezone.utc).timestamp())}_{hash(f'{from_address}_{to_address}_{amount}') % 10000}",
                 'from_address': from_address,
                 'to_address': to_address,
                 'amount': amount,
                 'currency': currency,
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'status': 'pending'
             }
 
@@ -161,7 +157,7 @@ class BlockchainService:
             'address': address,
             'currency': currency,
             'balance': balance,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
 
     def verify_ownership(self, token_id: str, address: str) -> bool:

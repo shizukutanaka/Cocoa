@@ -5,24 +5,53 @@ Production-gradeのデータベース統合機能を提供し、
 スケーラブルで信頼性の高いデータ永続化を実現します。
 """
 
-import os
 import logging
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Type, TypeVar, Generic
+import os
+import threading
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
 
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, Float, ForeignKey, JSON, BigInteger
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
-from sqlalchemy.pool import QueuePool
-from alembic.config import Config
-from alembic import command
+try:
+    from sqlalchemy import (
+        JSON,
+        BigInteger,
+        Boolean,
+        Column,
+        DateTime,
+        Float,
+        ForeignKey,
+        Integer,
+        String,
+        Text,
+        create_engine,
+        text,
+    )
+    from sqlalchemy.ext.declarative import declarative_base
+    from sqlalchemy.orm import Session, relationship, sessionmaker
+    from sqlalchemy.pool import QueuePool
+    SQLALCHEMY_AVAILABLE = True
+    Base = declarative_base()
+except ImportError:
+    SQLALCHEMY_AVAILABLE = False
+    Base = object
+    # Stub column/type constructors so model classes can be defined without crashing
+    def _stub(*a, **kw): return None
+    Column = Integer = String = Text = DateTime = Boolean = Float = BigInteger = JSON = _stub
+    ForeignKey = relationship = text = _stub
+    Session = object
+
+try:
+    from alembic import command
+    from alembic.config import Config
+    ALEMBIC_AVAILABLE = True
+except ImportError:
+    ALEMBIC_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
 # 型定義
 T = TypeVar('T')
-Base = declarative_base()
 
 # データベース設定のデフォルト値
 DEFAULT_DB_CONFIG = {
@@ -41,9 +70,17 @@ DEFAULT_DB_CONFIG = {
 class DatabaseManager:
     """PostgreSQLデータベースマネージャー"""
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """データベースマネージャーを初期化"""
+    def __init__(self, config: Optional[Dict[str, Any]] = None, database_url: Optional[str] = None):
+        """データベースマネージャーを初期化
+
+        database_url: an explicit SQLAlchemy URL (e.g. "sqlite:///:memory:")
+        that bypasses the postgresql:// URL this class otherwise builds from
+        config/env vars, and skips the postgres-only pool kwargs (pool_size,
+        max_overflow, ...) that other dialects don't accept. Intended for
+        tests -- production deployments should configure DB_HOST etc instead.
+        """
         self.config = {**DEFAULT_DB_CONFIG, **(config or {})}
+        self._database_url = database_url
         self._engine = None
         self._session_factory = None
         self._is_initialized = False
@@ -65,6 +102,13 @@ class DatabaseManager:
     def _initialize_engine(self):
         """データベースエンジンを初期化"""
         try:
+            if self._database_url is not None:
+                # Explicit URL (tests): postgres-only pool kwargs below don't
+                # apply to every dialect (e.g. sqlite), so skip them here.
+                self._engine = create_engine(self._database_url, echo=self.config['echo'], future=True)
+                logger.info(f"Database engine initialized for explicit URL")
+                return
+
             # 接続文字列の構築
             connection_string = (
                 f"postgresql://{self.config['username']}:{self.config['password']}"
@@ -145,7 +189,9 @@ class DatabaseManager:
         """データベース接続をテスト"""
         try:
             with self.get_session() as session:
-                session.execute("SELECT 1")
+                # SQLAlchemy 2.0 requires raw SQL strings to be wrapped in
+                # text() -- passing a bare string raises ArgumentError.
+                session.execute(text("SELECT 1"))
             return True
         except Exception as e:
             logger.error(f"Database connection test failed: {e}")
@@ -163,8 +209,8 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     last_login = Column(DateTime, nullable=True)
 
     # リレーションシップ
@@ -184,8 +230,8 @@ class Avatar(Base):
     preset_data = Column(JSON, nullable=True)  # プリセットデータ
     thumbnail_url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 外部キー
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -203,7 +249,7 @@ class AvatarSession(Base):
     session_id = Column(String(100), unique=True, index=True, nullable=False)
     avatar_id = Column(Integer, ForeignKey("avatars.id"), nullable=False)
     status = Column(String(20), default="active")  # active, inactive, error
-    start_time = Column(DateTime, default=datetime.utcnow)
+    start_time = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     end_time = Column(DateTime, nullable=True)
     metrics = Column(JSON, nullable=True)  # セッションメトリクス
     error_log = Column(Text, nullable=True)
@@ -225,8 +271,8 @@ class Preset(Base):
     version = Column(String(20), default="1.0.0")
     is_public = Column(Boolean, default=False)
     download_count = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 外部キー
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -240,7 +286,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(BigInteger, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     action = Column(String(100), nullable=False)  # create, update, delete, login, etc.
     resource_type = Column(String(50), nullable=False)  # user, avatar, preset, system
@@ -260,11 +306,17 @@ class SystemMetrics(Base):
     __tablename__ = "system_metrics"
 
     id = Column(BigInteger, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     metric_type = Column(String(50), nullable=False)  # cpu, memory, disk, network
     value = Column(Float, nullable=False)
     unit = Column(String(20), nullable=False)  # %, bytes, count, etc.
-    metadata = Column(JSON, nullable=True)
+    # Python attribute can't be named "metadata" -- every Declarative model
+    # already has a reserved class-level `metadata` (its MetaData object), so
+    # naming a mapped column that collides raises InvalidRequestError at
+    # class-body evaluation time. name="metadata" keeps the actual DB column
+    # name unchanged (no migration impact) while the Python-side attribute
+    # becomes extra_data.
+    extra_data = Column("metadata", JSON, nullable=True)
 
 
 class SecurityAlert(Base):
@@ -272,7 +324,7 @@ class SecurityAlert(Base):
     __tablename__ = "security_alerts"
 
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     alert_type = Column(String(50), nullable=False)  # intrusion, anomaly, policy_violation
     severity = Column(String(20), nullable=False)  # low, medium, high, critical
     title = Column(String(200), nullable=False)
@@ -355,7 +407,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
 
     def get_recent_logs(self, session: Session, hours: int = 24) -> List[AuditLog]:
         """最近のログを取得"""
-        since = datetime.utcnow() - timedelta(hours=hours)
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
         return session.query(AuditLog).filter(AuditLog.timestamp >= since).all()
 
     def get_logs_by_user(self, session: Session, user_id: int, limit: int = 100) -> List[AuditLog]:
@@ -418,7 +470,7 @@ class DatabaseService:
     def get_system_metrics_summary(self, hours: int = 24) -> Dict[str, Any]:
         """システムメトリクスのサマリーを取得"""
         with self.db_manager.get_session() as session:
-            since = datetime.utcnow() - timedelta(hours=hours)
+            since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
             # 各メトリクスタイプの最新値を取得
             latest_metrics = {}
@@ -438,20 +490,24 @@ class DatabaseService:
             return {
                 'time_range_hours': hours,
                 'metrics': latest_metrics,
-                'generated_at': datetime.utcnow().isoformat()
+                'generated_at': datetime.now(timezone.utc).isoformat()
             }
 
 
 # グローバルデータベースマネージャー
 _db_manager: Optional[DatabaseManager] = None
+_db_manager_lock = threading.Lock()
 _db_service: Optional[DatabaseService] = None
+_db_service_lock = threading.Lock()
 
 
 def get_database_manager() -> DatabaseManager:
     """データベースマネージャーのシングルトンインスタンスを取得"""
     global _db_manager
     if _db_manager is None:
-        _db_manager = DatabaseManager()
+        with _db_manager_lock:
+            if _db_manager is None:
+                _db_manager = DatabaseManager()
     return _db_manager
 
 
@@ -459,8 +515,10 @@ def get_database_service() -> DatabaseService:
     """データベースサービスのシングルトンインスタンスを取得"""
     global _db_service
     if _db_service is None:
-        db_manager = get_database_manager()
-        _db_service = DatabaseService(db_manager)
+        with _db_service_lock:
+            if _db_service is None:
+                db_manager = get_database_manager()
+                _db_service = DatabaseService(db_manager)
     return _db_service
 
 
@@ -522,7 +580,7 @@ def create_avatar_preset(user_id: int, name: str, parameters: Dict) -> Dict[str,
         db_service = get_database_service()
         avatar = db_service.create_avatar(
             name=name,
-            avatar_id=f"preset_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            avatar_id=f"preset_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
             owner_id=user_id,
             parameters=parameters
         )

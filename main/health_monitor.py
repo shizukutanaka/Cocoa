@@ -8,13 +8,14 @@ Production-Grade Health Monitoring System
 - 自動復旧メカニズム
 """
 import logging
-import time
 import os
-from typing import Dict, Any, Optional, Callable
-from datetime import datetime
+import threading
+import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
+from typing import Any, Callable, Dict, Optional
 
 try:
     import psutil
@@ -39,7 +40,7 @@ class HealthCheckResult:
     status: HealthStatus
     message: str
     details: Dict[str, Any] = field(default_factory=dict)
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     response_time_ms: float = 0.0
 
 
@@ -50,7 +51,7 @@ class HealthMonitor:
         self.config = config or {}
         self.checks: Dict[str, Callable] = {}
         self.last_results: Dict[str, HealthCheckResult] = {}
-        self.startup_time = time.time()
+        self.startup_time = time.monotonic()
 
         # デフォルトチェックを登録
         self._register_default_checks()
@@ -65,6 +66,10 @@ class HealthMonitor:
 
     def register_check(self, name: str, check_func: Callable):
         """カスタムヘルスチェックの登録"""
+        if not callable(check_func):
+            raise TypeError(
+                f"check_func must be callable, got {type(check_func).__name__!r}"
+            )
         self.checks[name] = check_func
         logger.info(f"ヘルスチェック登録: {name}")
 
@@ -75,19 +80,19 @@ class HealthMonitor:
 
         for name, check_func in self.checks.items():
             try:
-                start = time.time()
+                start = time.monotonic()
                 result = check_func()
-                result.response_time_ms = round((time.time() - start) * 1000, 2)
+                result.response_time_ms = round((time.monotonic() - start) * 1000, 2)
 
                 results[name] = result
                 self.last_results[name] = result
 
                 # 最悪のステータスを全体ステータスとする
-                if result.status.value == "critical":
+                if result.status == HealthStatus.CRITICAL:
                     overall_status = HealthStatus.CRITICAL
-                elif result.status.value == "unhealthy" and overall_status != HealthStatus.CRITICAL:
+                elif result.status == HealthStatus.UNHEALTHY and overall_status != HealthStatus.CRITICAL:
                     overall_status = HealthStatus.UNHEALTHY
-                elif result.status.value == "degraded" and overall_status == HealthStatus.HEALTHY:
+                elif result.status == HealthStatus.DEGRADED and overall_status == HealthStatus.HEALTHY:
                     overall_status = HealthStatus.DEGRADED
 
             except Exception as e:
@@ -102,8 +107,8 @@ class HealthMonitor:
 
         return {
             "status": overall_status.value,
-            "timestamp": datetime.utcnow().isoformat(),
-            "uptime_seconds": round(time.time() - self.startup_time, 2),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "uptime_seconds": round(time.monotonic() - self.startup_time, 2),
             "checks": {name: self._result_to_dict(result) for name, result in results.items()},
             "summary": self._generate_summary(results)
         }
@@ -115,9 +120,9 @@ class HealthMonitor:
             return None
 
         try:
-            start = time.time()
+            start = time.monotonic()
             result = self.checks[name]()
-            result.response_time_ms = round((time.time() - start) * 1000, 2)
+            result.response_time_ms = round((time.monotonic() - start) * 1000, 2)
             self.last_results[name] = result
             return result
         except Exception as e:
@@ -147,7 +152,7 @@ class HealthMonitor:
 
         return {
             "ready": is_ready,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "checks": {name: self._result_to_dict(result) for name, result in results.items()}
         }
 
@@ -155,18 +160,18 @@ class HealthMonitor:
         """Livenessプローブ (K8s互換)"""
         # プロセスが生きていることの簡易チェック
         try:
-            uptime = time.time() - self.startup_time
+            uptime = time.monotonic() - self.startup_time
             return {
                 "alive": True,
                 "uptime_seconds": round(uptime, 2),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
         except Exception as e:
             logger.critical(f"Livenessチェック失敗: {e}")
             return {
                 "alive": False,
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
     # =============== Default Health Checks ===============
@@ -465,13 +470,16 @@ class HealthMonitor:
 
 # グローバルインスタンス
 _health_monitor: Optional[HealthMonitor] = None
+_health_monitor_lock = threading.Lock()
 
 
 def get_health_monitor() -> HealthMonitor:
     """ヘルスモニターインスタンス取得"""
     global _health_monitor
     if _health_monitor is None:
-        _health_monitor = HealthMonitor()
+        with _health_monitor_lock:
+            if _health_monitor is None:
+                _health_monitor = HealthMonitor()
     return _health_monitor
 
 
