@@ -3,11 +3,13 @@ import type {
   CreatorAnalytics,
   EarningsSummary,
   Listing,
+  ListingVersion,
   Paginated,
   PriceHistoryEntry,
   PromoCode,
   PromoLookup,
   PublishListingInput,
+  RatingDistribution,
   Review,
   ReviewReply,
   ReviewsResponse,
@@ -205,6 +207,24 @@ export interface DownloadHistoryEntry {
 
 export async function getDownloadHistory(limit = 20, offset = 0): Promise<Paginated<DownloadHistoryEntry>> {
   const { data } = await client.get("/api/marketplace/downloads/history", { params: { limit, offset } });
+  return data;
+}
+
+export async function getRatingDistribution(listingId: string): Promise<RatingDistribution> {
+  const { data } = await client.get(`/api/marketplace/${listingId}/rating-distribution`);
+  return data;
+}
+
+export async function getListingVersions(listingId: string): Promise<{ items: ListingVersion[]; total: number }> {
+  const { data } = await client.get(`/api/marketplace/${listingId}/versions`);
+  return data;
+}
+
+export async function publishListingVersion(
+  listingId: string,
+  input: { changelog: string; name?: string; description?: string; parameters?: Record<string, unknown> }
+): Promise<ListingVersion> {
+  const { data } = await client.post(`/api/marketplace/${listingId}/versions`, input);
   return data;
 }
 

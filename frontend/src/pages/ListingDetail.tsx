@@ -279,7 +279,15 @@ export function ListingDetail() {
       </div>
 
       <div style={{ gridColumn: "1 / -1" }}>
+        <RatingDistributionSection listingId={listing.listing_id} />
+      </div>
+
+      <div style={{ gridColumn: "1 / -1" }}>
         <ReviewsSection listingId={listing.listing_id} isOwnListing={isOwnListing} isLoggedIn={!!user} />
+      </div>
+
+      <div style={{ gridColumn: "1 / -1" }}>
+        <VersionHistorySection listingId={listing.listing_id} isOwnListing={isOwnListing} />
       </div>
 
       {related && related.length > 0 && (
@@ -563,5 +571,154 @@ function ReviewReplies({ reviewId, isLoggedIn }: { reviewId: string; isLoggedIn:
         </button>
       )}
     </div>
+  );
+}
+
+function RatingDistributionSection({ listingId }: { listingId: string }) {
+  const { data } = useQuery({
+    queryKey: ["rating-distribution", listingId],
+    queryFn: () => marketplaceService.getRatingDistribution(listingId),
+  });
+
+  if (!data || data.total_ratings === 0) return null;
+
+  const max = Math.max(...Object.values(data.distribution), 1);
+
+  return (
+    <section style={{ marginTop: 12 }}>
+      <h2 style={{ fontSize: 18 }}>評価の分布</h2>
+      <div className="card card-pad" style={{ maxWidth: 480 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+          <span style={{ fontSize: 28, fontWeight: 700 }}>{data.average_rating.toFixed(1)}</span>
+          <StarRating value={Math.round(data.average_rating)} />
+          <span style={{ fontSize: 13, color: "var(--muted)" }}>{data.total_ratings} 件の評価</span>
+        </div>
+        {[5, 4, 3, 2, 1].map((star) => {
+          const count = data.distribution[String(star)] ?? 0;
+          const pct = Math.round((count / max) * 100);
+          return (
+            <div key={star} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "2px 0" }}>
+              <span style={{ width: 32, color: "var(--muted)" }}>{star} ★</span>
+              <div style={{ flex: 1, height: 8, background: "var(--surface-2)", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent)" }} />
+              </div>
+              <span style={{ width: 28, textAlign: "right", color: "var(--muted)" }}>{count}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function VersionHistorySection({ listingId, isOwnListing }: { listingId: string; isOwnListing: boolean }) {
+  const { show } = useToast();
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [changelog, setChangelog] = useState("");
+  const [parametersText, setParametersText] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const { data } = useQuery({
+    queryKey: ["listing-versions", listingId],
+    queryFn: () => marketplaceService.getListingVersions(listingId),
+  });
+
+  async function handlePublish(e: FormEvent) {
+    e.preventDefault();
+    if (!changelog.trim()) return;
+    let parameters: Record<string, unknown> | undefined;
+    if (parametersText.trim()) {
+      try {
+        parameters = JSON.parse(parametersText);
+      } catch {
+        show("パラメータは有効なJSON形式で入力してください", "error");
+        return;
+      }
+    }
+    setBusy(true);
+    try {
+      await marketplaceService.publishListingVersion(listingId, { changelog, parameters });
+      setChangelog("");
+      setParametersText("");
+      setShowForm(false);
+      queryClient.invalidateQueries({ queryKey: ["listing-versions", listingId] });
+      queryClient.invalidateQueries({ queryKey: ["listing", listingId] });
+      show("新しいバージョンを公開しました");
+    } catch (err) {
+      show(apiErrorMessage(err, "バージョンの公開に失敗しました"), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // A listing always has v1 from publish; only show the section when there's
+  // history worth showing OR the owner can add to it.
+  if ((!data || data.items.length <= 1) && !isOwnListing) return null;
+
+  return (
+    <section style={{ marginTop: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <h2 style={{ fontSize: 18 }}>バージョン履歴</h2>
+        {isOwnListing && !showForm && (
+          <button className="btn btn-secondary btn-sm" onClick={() => setShowForm(true)}>
+            新バージョンを公開
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <form onSubmit={handlePublish} className="card card-pad" style={{ maxWidth: 480, marginBottom: 16 }}>
+          <div className="field">
+            <label htmlFor="version-changelog">変更内容</label>
+            <textarea
+              id="version-changelog"
+              value={changelog}
+              onChange={(e) => setChangelog(e.target.value)}
+              rows={2}
+              maxLength={1000}
+              required
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="version-parameters">更新後のパラメータ（JSON、任意）</label>
+            <textarea
+              id="version-parameters"
+              value={parametersText}
+              onChange={(e) => setParametersText(e.target.value)}
+              rows={3}
+              placeholder="空欄なら現在のパラメータを維持"
+              style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>
+              {busy ? "公開中..." : "公開する"}
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowForm(false)}>
+              キャンセル
+            </button>
+          </div>
+        </form>
+      )}
+
+      {data && data.items.length > 0 && (
+        <div className="card card-pad">
+          <div className="row-list">
+            {[...data.items].reverse().map((v) => (
+              <div key={v.version_id} className="row-item" style={{ alignItems: "flex-start" }}>
+                <div>
+                  <strong>v{v.version_number}</strong>
+                  <span style={{ fontSize: 12, color: "var(--faint)", marginLeft: 8 }}>
+                    {new Date(v.created_at).toLocaleDateString("ja-JP")}
+                  </span>
+                  <p style={{ margin: "4px 0 0", fontSize: 14 }}>{v.changelog}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
