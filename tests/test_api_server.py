@@ -1,6 +1,7 @@
 """Tests for main/api_server.py — models and ConnectionManager."""
 import asyncio
 import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -1648,6 +1649,62 @@ class TestAdminDeleteUserCascade(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 404)
         mock_cascade.assert_not_called()
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestVRChatToolsPackagedImport(unittest.TestCase):
+    """Regression: the VRChat tool endpoints imported their helper modules with
+    a bare top-level `from vrchat_parameter_budget import ...`. That resolves
+    only when main/ is directly on sys.path (loose-script runs), but under the
+    canonical `uvicorn main.api_server:app` the file lives in the `main`
+    package, so the bare import raised ImportError and the endpoint always
+    returned 503 in production.
+
+    The rest of this suite deliberately puts main/ on sys.path and imports
+    api_server flat, so a bare import resolves here and would hide the bug.
+    We therefore run the check in a SUBPROCESS from the repo root with the
+    packaged import path (`import main.api_server`) — the exact context that
+    failed — and assert the endpoint returns a real analysis, not the 503
+    fallback (which surfaced as an HTTPException(503))."""
+
+    def _run_packaged(self, snippet: str) -> subprocess.CompletedProcess:
+        repo_root = str(Path(__file__).resolve().parent.parent)
+        code = (
+            "import asyncio\n"
+            "import main.api_server as a\n"
+            + snippet
+        )
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    def test_budget_endpoint_works_under_packaged_import(self):
+        proc = self._run_packaged(
+            "r = asyncio.run(a.analyze_vrchat_budget(a.VRChatBudgetRequest(parameters=["
+            "{'name':'IsHappy','type':'Bool','synced':True},"
+            "{'name':'Mode','type':'Int','synced':True}])))\n"
+            "assert r['used_bits'] == 9, r\n"
+            "assert r['over_budget'] is False, r\n"
+            "assert 'suggestions' in r, r\n"
+            "print('OK')\n"
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn("OK", proc.stdout)
+
+    def test_performance_endpoint_works_under_packaged_import(self):
+        proc = self._run_packaged(
+            "r = asyncio.run(a.analyze_vrchat_performance("
+            "a.VRChatStatsRequest(polygons=50000, materials=2, platform='PC')))\n"
+            "assert 'rank' in r, r\n"
+            "assert 'suggestions' in r, r\n"
+            "print('OK')\n"
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn("OK", proc.stdout)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ export function Layout() {
               マーケットプレイス
             </NavLink>
             <NavLink to="/bundles">バンドル</NavLink>
+            <NavLink to="/tools/vrchat">ツール</NavLink>
             {user && <NavLink to="/me/feed">フィード</NavLink>}
             {user && <NavLink to="/collections">コレクション</NavLink>}
             {user && <NavLink to="/me/wishlist">ウィッシュリスト</NavLink>}

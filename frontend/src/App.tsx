@@ -13,6 +13,7 @@ import { CenterSpinner } from "./components/Spinner";
 // load only ships the marketplace landing, not every authenticated screen.
 const Marketplace = lazy(() => import("./pages/Marketplace").then((m) => ({ default: m.Marketplace })));
 const Bundles = lazy(() => import("./pages/Bundles").then((m) => ({ default: m.Bundles })));
+const VRChatTools = lazy(() => import("./pages/VRChatTools").then((m) => ({ default: m.VRChatTools })));
 const ListingDetail = lazy(() => import("./pages/ListingDetail").then((m) => ({ default: m.ListingDetail })));
 const Login = lazy(() => import("./pages/Login").then((m) => ({ default: m.Login })));
 const Register = lazy(() => import("./pages/Register").then((m) => ({ default: m.Register })));
@@ -67,6 +68,7 @@ export function App() {
                     <Route path="listings/:listingId" element={<ListingDetail />} />
                     <Route path="users/:userId" element={<Creator />} />
                     <Route path="bundles" element={<Bundles />} />
+                    <Route path="tools/vrchat" element={<VRChatTools />} />
                     <Route path="login" element={<Login />} />
                     <Route path="register" element={<Register />} />
 

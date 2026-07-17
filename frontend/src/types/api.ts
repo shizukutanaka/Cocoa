@@ -371,6 +371,18 @@ export interface CommissionRequest {
   updated_at: string;
 }
 
+// Mirrors main/vrchat_parameter_budget.py analyze_budget() + suggest_optimizations()
+export interface VRChatBudgetResult {
+  budget_bits: number;
+  used_bits: number;
+  remaining_bits: number;
+  over_budget: boolean;
+  synced_count: number;
+  breakdown: Record<string, number>;
+  per_type_bits: Record<string, number>;
+  suggestions: string[];
+}
+
 // Mirrors main/avatar_marketplace.py ListingVersion.to_dict()
 export interface ListingVersion {
   version_id: string;
