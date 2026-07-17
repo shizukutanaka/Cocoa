@@ -371,6 +371,27 @@ export interface CommissionRequest {
   updated_at: string;
 }
 
+// Mirrors main/avatar_marketplace.py ListingVersion.to_dict()
+export interface ListingVersion {
+  version_id: string;
+  listing_id: string;
+  version_number: number;
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  changelog: string;
+  created_by: string;
+  created_at: string;
+}
+
+// Mirrors main/avatar_marketplace.py get_rating_distribution()
+export interface RatingDistribution {
+  listing_id: string;
+  distribution: Record<string, number>; // "1".."5" -> count
+  total_ratings: number;
+  average_rating: number;
+}
+
 // Mirrors main/bundle_manager.py Bundle.to_dict()
 export interface Bundle {
   bundle_id: string;
