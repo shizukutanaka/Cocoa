@@ -15,6 +15,19 @@ export async function myGiftCards(limit = 50, offset = 0): Promise<Paginated<Gif
   return data;
 }
 
+export interface GiftCardLookup {
+  amount: number;
+  is_valid: boolean;
+  is_redeemed: boolean;
+  expires_at: string | null;
+}
+
+// Public pre-redeem check: amount + validity without the purchaser's identity.
+export async function lookupGiftCard(code: string): Promise<GiftCardLookup> {
+  const { data } = await client.get("/api/gift-cards/lookup", { params: { code } });
+  return data;
+}
+
 export async function redeemGiftCard(code: string): Promise<GiftCardRedeemResult> {
   const { data } = await client.post(
     "/api/gift-cards/redeem",
