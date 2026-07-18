@@ -2907,7 +2907,12 @@ async def analyze_vrchat_performance(body: VRChatStatsRequest):
                 Platform,
                 VRChatPerformanceAnalyzer,
             )
-        platform = Platform.Quest if body.platform.lower() == "quest" else Platform.PC
+        # The Platform enum is PC / ANDROID / IOS -- there is no `Quest` member,
+        # so referencing Platform.Quest raised AttributeError and every
+        # platform="Quest" request 400'd. Quest is an Android-based target in
+        # VRChat and the analyzer applies ANDROID_LIMITS to anything non-PC, so
+        # map quest/android -> ANDROID and everything else -> PC.
+        platform = Platform.ANDROID if body.platform.lower() in ("quest", "android") else Platform.PC
         stats = AvatarStats(
             polygons=body.polygons,
             materials=body.materials,

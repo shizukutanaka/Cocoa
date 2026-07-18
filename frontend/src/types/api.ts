@@ -383,6 +383,27 @@ export interface VRChatBudgetResult {
   suggestions: string[];
 }
 
+// Mirrors main/api_server.py analyze_vrchat_performance() response
+export interface VRChatPerformanceResult {
+  rank: string;
+  score: number;
+  platform: string;
+  issues: Array<{
+    severity: string;
+    category: string;
+    message: string;
+    current: number;
+    target: number;
+  }>;
+  suggestions: Array<{
+    category: string;
+    severity: string;
+    current_value: number;
+    target_value: number;
+    suggestion: string;
+  }>;
+}
+
 // Mirrors main/avatar_marketplace.py ListingVersion.to_dict()
 export interface ListingVersion {
   version_id: string;

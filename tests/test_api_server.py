@@ -1706,6 +1706,21 @@ class TestVRChatToolsPackagedImport(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn("OK", proc.stdout)
 
+    def test_performance_endpoint_accepts_quest_platform(self):
+        # Regression: the endpoint mapped "quest" to a nonexistent
+        # Platform.Quest enum member, raising AttributeError -> HTTP 400 for
+        # every Quest analysis. Quest is Android-based, so it must resolve to
+        # the ANDROID limits and return a real rank.
+        proc = self._run_packaged(
+            "r = asyncio.run(a.analyze_vrchat_performance("
+            "a.VRChatStatsRequest(polygons=80000, materials=8, platform='Quest')))\n"
+            "assert 'rank' in r, r\n"
+            "assert r['platform'] == 'Quest', r\n"
+            "print('OK')\n"
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn("OK", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
