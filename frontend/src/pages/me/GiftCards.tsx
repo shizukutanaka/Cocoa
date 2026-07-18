@@ -19,6 +19,8 @@ export function GiftCards() {
   const [purchasing, setPurchasing] = useState(false);
   const [redeemCode, setRedeemCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
+  const [lookup, setLookup] = useState<giftCardService.GiftCardLookup | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
 
   async function handlePurchase(e: FormEvent) {
     e.preventDefault();
@@ -36,6 +38,21 @@ export function GiftCards() {
     }
   }
 
+  async function handleLookup() {
+    const code = redeemCode.trim();
+    if (!code) return;
+    setLookingUp(true);
+    setLookup(null);
+    try {
+      const result = await giftCardService.lookupGiftCard(code);
+      setLookup(result);
+    } catch (err) {
+      show(apiErrorMessage(err, "ギフトカードが見つかりません"), "error");
+    } finally {
+      setLookingUp(false);
+    }
+  }
+
   async function handleRedeem(e: FormEvent) {
     e.preventDefault();
     setRedeeming(true);
@@ -43,6 +60,7 @@ export function GiftCards() {
       const result = await giftCardService.redeemGiftCard(redeemCode.trim());
       show(`${result.credits_received.toLocaleString()} クレジットを受け取りました`);
       setRedeemCode("");
+      setLookup(null);
       queryClient.invalidateQueries({ queryKey: ["credits-balance"] });
     } catch (err) {
       show(apiErrorMessage(err, "ギフトカードの使用に失敗しました"), "error");
@@ -85,11 +103,56 @@ export function GiftCards() {
           <form onSubmit={handleRedeem}>
             <div className="field">
               <label htmlFor="gc-code">ギフトカードコード</label>
-              <input id="gc-code" value={redeemCode} onChange={(e) => setRedeemCode(e.target.value)} required />
+              <input
+                id="gc-code"
+                value={redeemCode}
+                onChange={(e) => {
+                  setRedeemCode(e.target.value);
+                  setLookup(null);
+                }}
+                required
+              />
             </div>
-            <button type="submit" className="btn btn-secondary" disabled={redeeming}>
-              {redeeming ? "処理中..." : "使用する"}
-            </button>
+
+            {lookup && (
+              <div
+                className={lookup.is_valid ? "card card-pad" : "form-error-banner"}
+                style={{ marginBottom: 12, fontSize: 13 }}
+              >
+                {lookup.is_valid ? (
+                  <>
+                    <strong>{lookup.amount.toLocaleString()} クレジット</strong> のギフトカードです。
+                    {lookup.expires_at && (
+                      <div style={{ color: "var(--muted)" }}>
+                        有効期限: {new Date(lookup.expires_at).toLocaleDateString("ja-JP")}
+                      </div>
+                    )}
+                  </>
+                ) : lookup.is_redeemed ? (
+                  "このギフトカードは既に使用済みです。"
+                ) : (
+                  "このギフトカードは無効または期限切れです。"
+                )}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={handleLookup}
+                disabled={lookingUp || !redeemCode.trim()}
+              >
+                {lookingUp ? "確認中..." : "確認"}
+              </button>
+              <button
+                type="submit"
+                className="btn btn-secondary"
+                disabled={redeeming || (lookup !== null && !lookup.is_valid)}
+              >
+                {redeeming ? "処理中..." : "使用する"}
+              </button>
+            </div>
           </form>
         </section>
       </div>
