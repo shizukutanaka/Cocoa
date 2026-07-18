@@ -57,6 +57,23 @@ export async function updateProfile(patch: Partial<Pick<CurrentUser, "display_na
   return data as CurrentUser;
 }
 
+// The reset token is delivered out-of-band (email) in production, so the
+// response only confirms the request was accepted -- it never reveals whether
+// the email exists. A dev_token is returned only when the server sets
+// COCOA_EXPOSE_RESET_TOKEN=true (local dev / testing).
+export async function requestPasswordReset(email: string): Promise<{ status: string; dev_token?: string }> {
+  const { data } = await client.post("/api/auth/password-reset", { email });
+  return data;
+}
+
+export async function confirmPasswordReset(token: string, newPassword: string) {
+  const { data } = await client.post("/api/auth/password-reset/confirm", {
+    token,
+    new_password: newPassword,
+  });
+  return data;
+}
+
 export async function changePassword(currentPassword: string, newPassword: string) {
   const { data } = await client.post("/api/auth/change-password", {
     current_password: currentPassword,
