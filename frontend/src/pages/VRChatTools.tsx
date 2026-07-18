@@ -1,7 +1,7 @@
 import { useState } from "react";
 import * as vrchatToolsService from "../services/vrchatToolsService";
-import type { VRChatParameter } from "../services/vrchatToolsService";
-import type { VRChatBudgetResult } from "../types/api";
+import type { VRChatParameter, VRChatStatsInput } from "../services/vrchatToolsService";
+import type { VRChatBudgetResult, VRChatPerformanceResult } from "../types/api";
 import { apiErrorMessage } from "../services/apiClient";
 import { useToast } from "../hooks/useToast";
 import { usePageTitle } from "../hooks/usePageTitle";
@@ -14,7 +14,36 @@ function newRow(): VRChatParameter & { _id: number } {
 }
 
 export function VRChatTools() {
-  usePageTitle("VRChat パラメータ予算");
+  usePageTitle("VRChat ツール");
+  const [tab, setTab] = useState<"budget" | "performance">("budget");
+
+  return (
+    <div>
+      <h1>VRChat アバターツール</h1>
+      <div className="filters-bar" role="tablist" aria-label="ツールの切り替え" style={{ marginBottom: 16 }}>
+        <button
+          className={tab === "budget" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+          role="tab"
+          aria-selected={tab === "budget"}
+          onClick={() => setTab("budget")}
+        >
+          パラメータ予算
+        </button>
+        <button
+          className={tab === "performance" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+          role="tab"
+          aria-selected={tab === "performance"}
+          onClick={() => setTab("performance")}
+        >
+          パフォーマンスランク
+        </button>
+      </div>
+      {tab === "budget" ? <BudgetTool /> : <PerformanceTool />}
+    </div>
+  );
+}
+
+function BudgetTool() {
   const { show } = useToast();
   const [rows, setRows] = useState<Array<VRChatParameter & { _id: number }>>(() => [newRow(), newRow()]);
   const [result, setResult] = useState<VRChatBudgetResult | null>(null);
@@ -50,8 +79,7 @@ export function VRChatTools() {
 
   return (
     <div>
-      <h1>VRChat パラメータ予算アナライザー</h1>
-      <p style={{ color: "var(--muted)", fontSize: 14 }}>
+      <p style={{ color: "var(--muted)", fontSize: 14, marginTop: 0 }}>
         アバターの同期パラメータを入力すると、VRChat の 256 ビット予算に対する使用量と最適化提案を確認できます。
       </p>
 
@@ -148,6 +176,141 @@ export function VRChatTools() {
           )}
           {result.suggestions.length === 0 && !result.over_budget && (
             <p style={{ fontSize: 13, color: "var(--success)" }}>予算内に収まっています。最適化の必要はありません。</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const STAT_FIELDS: Array<{ key: keyof Omit<VRChatStatsInput, "platform">; label: string }> = [
+  { key: "polygons", label: "ポリゴン数" },
+  { key: "materials", label: "マテリアル数" },
+  { key: "bones", label: "ボーン数" },
+  { key: "physbones_components", label: "PhysBones コンポーネント数" },
+  { key: "physbones_colliders", label: "PhysBones コライダー数" },
+  { key: "texture_memory_mb", label: "テクスチャメモリ（MB）" },
+];
+
+const RANK_LABEL: Record<string, { label: string; color: string }> = {
+  excellent: { label: "Excellent", color: "var(--success)" },
+  good: { label: "Good", color: "var(--success)" },
+  medium: { label: "Medium", color: "var(--warning)" },
+  poor: { label: "Poor", color: "var(--warning)" },
+  very_poor: { label: "Very Poor", color: "var(--danger, #d64545)" },
+};
+
+function PerformanceTool() {
+  const { show } = useToast();
+  const [stats, setStats] = useState<VRChatStatsInput>({
+    polygons: 0,
+    materials: 0,
+    bones: 0,
+    physbones_components: 0,
+    physbones_colliders: 0,
+    texture_memory_mb: 0,
+    platform: "PC",
+  });
+  const [result, setResult] = useState<VRChatPerformanceResult | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleAnalyze() {
+    setBusy(true);
+    try {
+      const res = await vrchatToolsService.analyzePerformance(stats);
+      setResult(res);
+    } catch (err) {
+      show(apiErrorMessage(err, "分析に失敗しました"), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const rank = result ? RANK_LABEL[result.rank] ?? { label: result.rank, color: "var(--muted)" } : null;
+
+  return (
+    <div>
+      <p style={{ color: "var(--muted)", fontSize: 14, marginTop: 0 }}>
+        アバターのスペックを入力すると、VRChat のパフォーマンスランク（Excellent〜Very Poor）と改善提案を確認できます。
+      </p>
+
+      <div className="card card-pad" style={{ maxWidth: 640, marginBottom: 20 }}>
+        <div className="field">
+          <label htmlFor="perf-platform">プラットフォーム</label>
+          <select
+            id="perf-platform"
+            value={stats.platform}
+            onChange={(e) => setStats((s) => ({ ...s, platform: e.target.value as VRChatStatsInput["platform"] }))}
+          >
+            <option value="PC">PC</option>
+            <option value="Quest">Quest</option>
+          </select>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {STAT_FIELDS.map((f) => (
+            <div className="field" key={f.key}>
+              <label htmlFor={`perf-${f.key}`}>{f.label}</label>
+              <input
+                id={`perf-${f.key}`}
+                type="number"
+                min={0}
+                value={stats[f.key]}
+                onChange={(e) => setStats((s) => ({ ...s, [f.key]: Number(e.target.value) }))}
+              />
+            </div>
+          ))}
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={handleAnalyze} disabled={busy} style={{ marginTop: 8 }}>
+          {busy ? "分析中..." : "分析する"}
+        </button>
+      </div>
+
+      {result && rank && (
+        <div className="card card-pad" style={{ maxWidth: 640 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+            <span style={{ fontSize: 22, fontWeight: 700, color: rank.color }}>{rank.label}</span>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>
+              スコア {result.score} · {result.platform}
+            </span>
+          </div>
+
+          {result.issues.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <h3 style={{ fontSize: 14 }}>検出された問題</h3>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+                {result.issues.map((issue, i) => (
+                  <li key={i}>{issue.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {result.suggestions.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <h3 style={{ fontSize: 14 }}>改善の提案</h3>
+              <div className="row-list">
+                {result.suggestions.map((s, i) => (
+                  <div key={i} className="row-item" style={{ alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>
+                        {s.category}
+                        <span className="badge" style={{ marginLeft: 6 }}>
+                          {s.severity}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 13, color: "var(--muted)" }}>{s.suggestion}</div>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--faint)", whiteSpace: "nowrap" }}>
+                      {s.current_value} → {s.target_value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {result.issues.length === 0 && result.suggestions.length === 0 && (
+            <p style={{ fontSize: 13, color: "var(--success)", marginTop: 8 }}>問題は検出されませんでした。</p>
           )}
         </div>
       )}
