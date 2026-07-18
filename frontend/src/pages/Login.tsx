@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import * as authService from "../services/authService";
 import { apiErrorMessage } from "../services/apiClient";
 import { useAuth } from "../hooks/useAuth";
@@ -103,6 +103,9 @@ export function Login() {
           {busy ? "ログイン中..." : "ログイン"}
         </button>
       </form>
+      <p style={{ marginTop: 12, fontSize: 13 }}>
+        <Link to="/forgot-password">パスワードをお忘れですか？</Link>
+      </p>
     </div>
   );
 }
