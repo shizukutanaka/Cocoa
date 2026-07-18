@@ -2850,7 +2850,14 @@ class VRChatBudgetRequest(BaseModel):
 async def analyze_vrchat_budget(body: VRChatBudgetRequest):
     """VRChat 同期パラメータ予算の分析と最適化提案。認証不要"""
     try:
-        from vrchat_parameter_budget import analyze_budget, suggest_optimizations
+        try:
+            # Canonical invocation is `uvicorn main.api_server:app`, where this
+            # file lives in the `main` package -- a bare top-level import of a
+            # sibling module fails there (it's main.vrchat_parameter_budget).
+            # Fall back to the flat import only when run as a loose script.
+            from .vrchat_parameter_budget import analyze_budget, suggest_optimizations
+        except ImportError:
+            from vrchat_parameter_budget import analyze_budget, suggest_optimizations
         analysis = analyze_budget(body.parameters)
         suggestions = suggest_optimizations(body.parameters)
         return {
@@ -2886,11 +2893,20 @@ class VRChatStatsRequest(BaseModel):
 async def analyze_vrchat_performance(body: VRChatStatsRequest):
     """VRChat アバター性能ランク分析（Excellent/Good/Medium/Poor/Very Poor）。認証不要"""
     try:
-        from vrchat_performance_analyzer import (
-            AvatarStats,
-            Platform,
-            VRChatPerformanceAnalyzer,
-        )
+        try:
+            # See analyze_vrchat_budget: relative import for the packaged
+            # `uvicorn main.api_server:app` run, flat import as a fallback.
+            from .vrchat_performance_analyzer import (
+                AvatarStats,
+                Platform,
+                VRChatPerformanceAnalyzer,
+            )
+        except ImportError:
+            from vrchat_performance_analyzer import (
+                AvatarStats,
+                Platform,
+                VRChatPerformanceAnalyzer,
+            )
         platform = Platform.Quest if body.platform.lower() == "quest" else Platform.PC
         stats = AvatarStats(
             polygons=body.polygons,
