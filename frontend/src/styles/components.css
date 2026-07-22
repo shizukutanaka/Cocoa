@@ -121,6 +121,22 @@
   font-size: 13px;
 }
 
+/* Inline text-styled button: looks like a link, used for expandable counts
+   (e.g. the follower / following toggles on a creator page). */
+.text-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.text-link-button:hover {
+  text-decoration: underline;
+}
+
 /* Cards */
 .card {
   background: var(--surface);
