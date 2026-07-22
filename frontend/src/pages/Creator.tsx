@@ -26,6 +26,8 @@ export function Creator() {
   const [commissionDescription, setCommissionDescription] = useState("");
   const [commissionBudget, setCommissionBudget] = useState(0);
   const [sendingCommission, setSendingCommission] = useState(false);
+  // Which social list (followers / following) is currently expanded, if any.
+  const [socialTab, setSocialTab] = useState<"followers" | "following" | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["storefront", userId],
@@ -124,9 +126,26 @@ export function Creator() {
             )}
           </h1>
           <p style={{ color: "var(--muted)", fontSize: 14, margin: 0 }}>
-            @{profile.username} · フォロワー {profile.followers_count ?? 0} 人 ·{" "}
-            {new Date(profile.created_at).toLocaleDateString("ja-JP")} から活動
+            @{profile.username} · {new Date(profile.created_at).toLocaleDateString("ja-JP")} から活動
           </p>
+          <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
+            <button
+              type="button"
+              className="text-link-button"
+              onClick={() => setSocialTab((t) => (t === "followers" ? null : "followers"))}
+              aria-expanded={socialTab === "followers"}
+            >
+              フォロワー <strong>{profile.followers_count ?? 0}</strong> 人
+            </button>
+            <button
+              type="button"
+              className="text-link-button"
+              onClick={() => setSocialTab((t) => (t === "following" ? null : "following"))}
+              aria-expanded={socialTab === "following"}
+            >
+              フォロー中を見る
+            </button>
+          </div>
           {profile.bio && <p style={{ marginTop: 8 }}>{profile.bio}</p>}
           {profile.website_url && isSafeHttpUrl(profile.website_url) && (
             <a href={profile.website_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>
@@ -228,6 +247,14 @@ export function Creator() {
         )}
       </div>
 
+      {socialTab && userId && (
+        <FollowPanel
+          userId={userId}
+          mode={socialTab}
+          onClose={() => setSocialTab(null)}
+        />
+      )}
+
       {analytics && (
         <div className="stat-row" style={{ marginBottom: 24 }}>
           <div className="stat-tile">
@@ -265,6 +292,77 @@ export function Creator() {
                     {listing.is_free ? "無料" : `${listing.price_credits.toLocaleString()} cr`}
                   </span>
                 </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Expandable list of a creator's followers or the creators they follow. Each
+// entry links to that user's public creator page. Fetched on demand (the query
+// only mounts while the panel is open).
+function FollowPanel({
+  userId,
+  mode,
+  onClose,
+}: {
+  userId: string;
+  mode: "followers" | "following";
+  onClose: () => void;
+}) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: [mode, userId],
+    queryFn: () => (mode === "followers" ? userService.getFollowers(userId) : userService.getFollowing(userId)),
+  });
+
+  const heading = mode === "followers" ? "フォロワー" : "フォロー中";
+
+  return (
+    <div className="card card-pad" style={{ marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <h2 style={{ fontSize: 16, margin: 0 }}>
+          {heading}
+          {data ? ` (${data.total})` : ""}
+        </h2>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={onClose} aria-label="一覧を閉じる">
+          閉じる
+        </button>
+      </div>
+      {isLoading ? (
+        <CenterSpinner />
+      ) : isError ? (
+        <div className="empty-state">一覧を取得できませんでした。</div>
+      ) : !data || data.items.length === 0 ? (
+        <div className="empty-state">
+          {mode === "followers" ? "まだフォロワーがいません。" : "まだ誰もフォローしていません。"}
+        </div>
+      ) : (
+        <div className="row-list">
+          {data.items.map((p) => (
+            <Link key={p.user_id} to={`/users/${p.user_id}`} className="row-item" onClick={onClose}>
+              <div
+                className="listing-thumb"
+                style={{ width: 40, height: 40, borderRadius: "50%", flexShrink: 0, overflow: "hidden" }}
+              >
+                {p.avatar_url && isSafeHttpUrl(p.avatar_url) ? (
+                  <img src={p.avatar_url} alt="" style={{ borderRadius: "50%" }} />
+                ) : (
+                  p.display_name.slice(0, 2)
+                )}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <strong>{p.display_name}</strong>
+                  {p.is_creator_verified && (
+                    <span className="badge badge-success" title="認証済みクリエイター">
+                      ✓
+                    </span>
+                  )}
+                </div>
+                <div style={{ color: "var(--muted)", fontSize: 13 }}>@{p.username}</div>
               </div>
             </Link>
           ))}

@@ -37,3 +37,15 @@ export async function getFeed(limit = 20, offset = 0): Promise<Paginated<Listing
   const { data } = await client.get("/api/auth/feed", { params: { limit, offset } });
   return data;
 }
+
+// Public list of the users who follow this creator.
+export async function getFollowers(userId: string): Promise<{ items: PublicProfile[]; total: number }> {
+  const { data } = await client.get(`/api/users/${userId}/followers`);
+  return { items: data.items ?? [], total: data.total ?? 0 };
+}
+
+// Public list of the creators this user follows.
+export async function getFollowing(userId: string): Promise<{ items: PublicProfile[]; total: number }> {
+  const { data } = await client.get(`/api/users/${userId}/following`);
+  return { items: data.items ?? [], total: data.total ?? 0 };
+}
