@@ -473,6 +473,41 @@ export interface RefundRequestRecord {
   resolved_at: string | null;
 }
 
+// Mirrors main/avatar_marketplace.py ListingReport.to_dict()
+export interface ListingReport {
+  report_id: string;
+  listing_id: string;
+  reporter_id: string;
+  reason: string;
+  details: string;
+  status: "pending" | "resolved" | "dismissed";
+  resolved_by: string;
+  resolution_note: string;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+// Mirrors main/avatar_marketplace.py ReviewReport.to_dict()
+export interface ReviewReportRecord {
+  report_id: string;
+  review_id: string;
+  reporter_id: string;
+  reason: string;
+  details: string;
+  status: "pending" | "resolved" | "dismissed";
+  resolved_by: string;
+  resolution_note: string;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+// Mirrors main/avatar_marketplace.py get_report_stats()
+export interface ReportStats {
+  total: number;
+  by_status: Record<string, number>;
+  by_reason: Record<string, number>;
+}
+
 // Mirrors main/avatar_marketplace.py Tip.to_dict() / to_public_dict()
 export interface Tip {
   tip_id: string;
