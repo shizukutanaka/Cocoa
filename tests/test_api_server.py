@@ -1,5 +1,6 @@
 """Tests for main/api_server.py — models and ConnectionManager."""
 import asyncio
+import json
 import os
 import subprocess
 import sys
@@ -1720,6 +1721,87 @@ class TestVRChatToolsPackagedImport(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn("OK", proc.stdout)
+
+
+class TestSubsystemImportIsolation(unittest.TestCase):
+    """A broken module must not disable unrelated subsystems.
+
+    The core subsystems used to be imported in one shared try/except, so a
+    single failing module set every name to None at once -- one bad import
+    silently turned the whole marketplace off.
+    """
+
+    def test_import_failure_is_isolated_to_that_module(self):
+        missing = api_server._import_subsystem("definitely_not_a_real_module", "get_thing")
+        self.assertEqual(missing, (None,))
+        # The failure is recorded rather than swallowed...
+        self.assertIn("definitely_not_a_real_module", api_server._SUBSYSTEM_ERRORS)
+        # ...and unrelated subsystems are untouched.
+        self.assertIsNotNone(api_server.get_marketplace)
+        self.assertIsNotNone(api_server.get_auth_manager)
+        api_server._SUBSYSTEM_ERRORS.pop("definitely_not_a_real_module", None)
+
+    def test_missing_attribute_is_recorded(self):
+        (attr,) = api_server._import_subsystem("avatar_marketplace", "no_such_attribute")
+        self.assertIsNone(attr)
+        self.assertIn("avatar_marketplace", api_server._SUBSYSTEM_ERRORS)
+        api_server._SUBSYSTEM_ERRORS.pop("avatar_marketplace", None)
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestReadinessProbe(unittest.TestCase):
+    """/ready must distinguish 'critical dependency down' (503) from
+    'a feature is missing but the site serves' (200 + degraded)."""
+
+    @staticmethod
+    def _run():
+        res = asyncio.run(api_server.readiness_probe())
+        return res.status_code, json.loads(res.body.decode())
+
+    def test_reports_ready_when_all_present(self):
+        code, body = self._run()
+        self.assertEqual(code, 200)
+        self.assertEqual(body["status"], "ready")
+        self.assertEqual(body["missing_critical"], [])
+
+    def test_missing_critical_subsystem_fails_readiness(self):
+        with patch.object(api_server, "get_marketplace", None):
+            code, body = self._run()
+        self.assertEqual(code, 503)
+        self.assertEqual(body["status"], "not_ready")
+        self.assertIn("marketplace", body["missing_critical"])
+
+    def test_missing_optional_subsystem_reports_degraded_not_down(self):
+        with patch.object(api_server, "get_wishlist_manager", None):
+            code, body = self._run()
+        # Still serving -- an absent wishlist must not take the site out of
+        # rotation the way a missing marketplace does.
+        self.assertEqual(code, 200)
+        self.assertEqual(body["status"], "degraded")
+        self.assertIn("wishlist", body["missing_optional"])
+        self.assertEqual(body["missing_critical"], [])
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestUnavailableSubsystemIsNotSilentlyEmpty(unittest.TestCase):
+    """A missing dependency must surface as 503, not as an empty 200.
+
+    Returning `{"items": []}` when the marketplace is unavailable is
+    indistinguishable from "there are genuinely no listings", so an outage
+    looked like an empty catalogue.
+    """
+
+    def test_browse_raises_503_instead_of_returning_empty(self):
+        with patch.object(api_server, "get_marketplace", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.browse_marketplace())
+        self.assertEqual(ctx.exception.status_code, 503)
+
+    def test_notifications_raise_503_instead_of_returning_empty(self):
+        with patch.object(api_server, "get_notification_queue", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.unread_notification_count({"user_id": "u1"}))
+        self.assertEqual(ctx.exception.status_code, 503)
 
 
 if __name__ == "__main__":
