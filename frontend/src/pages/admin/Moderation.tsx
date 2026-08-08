@@ -4,6 +4,7 @@ import { Link, Navigate } from "react-router-dom";
 import * as adminService from "../../services/adminService";
 import * as marketplaceService from "../../services/marketplaceService";
 import * as userService from "../../services/userService";
+import { isSafeHttpUrl } from "../../utils/url";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../hooks/useToast";
 import { usePageTitle } from "../../hooks/usePageTitle";
@@ -11,7 +12,7 @@ import { CenterSpinner } from "../../components/Spinner";
 import { apiErrorMessage } from "../../services/apiClient";
 import type { ListingReport, ReviewReportRecord } from "../../types/api";
 
-type Tab = "reports" | "review-reports" | "refunds";
+type Tab = "reports" | "review-reports" | "refunds" | "creator-applications";
 
 const REASON_LABEL: Record<string, string> = {
   inappropriate: "不適切なコンテンツ",
@@ -68,11 +69,20 @@ export function AdminModeration() {
         >
           払い戻し申請
         </button>
+        <button
+          className={tab === "creator-applications" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+          role="tab"
+          aria-selected={tab === "creator-applications"}
+          onClick={() => setTab("creator-applications")}
+        >
+          クリエイター認定申請
+        </button>
       </div>
 
       {tab === "reports" && <ListingReportsTab />}
       {tab === "review-reports" && <ReviewReportsTab />}
       {tab === "refunds" && <RefundsTab />}
+      {tab === "creator-applications" && <CreatorApplicationsTab />}
     </div>
   );
 }
@@ -384,6 +394,116 @@ function RefundsTab() {
                     className="btn btn-secondary btn-sm"
                     disabled={busy === r.request_id}
                     onClick={() => decide(r.request_id, false)}
+                  >
+                    却下
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Creator verification applications. Users could apply, but nothing could ever
+ * review the application, so every request sat pending forever and the verified
+ * badge was ungrantable through the UI.
+ *
+ * What this review actually checks is a stated reason and a portfolio link --
+ * not identity documents. Guidance on trust badges is explicit that a badge
+ * should say what was checked, because a badge that implies more than the
+ * evidence supports teaches buyers to discount every signal. The UI therefore
+ * spells out the scope of the check for the reviewer, and the decision note is
+ * mandatory so the basis of each approval is recorded.
+ */
+function CreatorApplicationsTab() {
+  const { show } = useToast();
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-creator-applications", "pending"],
+    queryFn: () => adminService.listCreatorApplications("pending"),
+  });
+
+  const items = data?.items ?? [];
+
+  async function decide(id: string, decision: "approved" | "rejected") {
+    const note = (notes[id] ?? "").trim();
+    if (!note) {
+      show("確認した内容を入力してください（記録に残ります）", "error");
+      return;
+    }
+    setBusy(id);
+    try {
+      await adminService.reviewCreatorApplication(id, decision, note);
+      show(decision === "approved" ? "認定しました" : "却下しました");
+      queryClient.invalidateQueries({ queryKey: ["admin-creator-applications"] });
+    } catch (err) {
+      show(apiErrorMessage(err, "処理に失敗しました"), "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (isLoading) return <CenterSpinner />;
+
+  return (
+    <>
+      <QueueHealth pending={items.length} oldest={items[items.length - 1]?.created_at} />
+      <div className="card card-pad" style={{ marginBottom: 16, fontSize: 13, color: "var(--muted)" }}>
+        この審査で確認できるのは<strong>申請理由とポートフォリオ</strong>のみです。本人確認・法人確認は含まれないため、
+        認定バッジはその範囲を超える保証を意味しません。確認した内容を必ず記録してください。
+      </div>
+      {items.length === 0 ? (
+        <div className="empty-state">未処理の認定申請はありません。</div>
+      ) : (
+        <div className="card card-pad">
+          <div className="row-list">
+            {items.map((a) => (
+              <div key={a.application_id} className="row-item" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+                <div>
+                  <strong>{a.username}</strong>
+                  <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
+                    申請日 {new Date(a.created_at).toLocaleString("ja-JP")}
+                  </div>
+                  {a.reason && (
+                    <div style={{ fontSize: 13, marginTop: 6, whiteSpace: "pre-wrap" }}>{a.reason}</div>
+                  )}
+                  {a.portfolio_url && isSafeHttpUrl(a.portfolio_url) ? (
+                    <div style={{ marginTop: 6, fontSize: 13 }}>
+                      <a href={a.portfolio_url} target="_blank" rel="noopener noreferrer">
+                        ポートフォリオを開く
+                      </a>
+                    </div>
+                  ) : a.portfolio_url ? (
+                    <div style={{ marginTop: 6, fontSize: 13, color: "var(--faint)" }}>
+                      ポートフォリオURLが不正です: {a.portfolio_url}
+                    </div>
+                  ) : null}
+                </div>
+                <input
+                  aria-label="確認した内容"
+                  placeholder="確認した内容（必須・記録に残ります）"
+                  value={notes[a.application_id] ?? ""}
+                  onChange={(e) => setNotes((n) => ({ ...n, [a.application_id]: e.target.value }))}
+                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={busy === a.application_id}
+                    onClick={() => decide(a.application_id, "approved")}
+                  >
+                    認定する
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    disabled={busy === a.application_id}
+                    onClick={() => decide(a.application_id, "rejected")}
                   >
                     却下
                   </button>

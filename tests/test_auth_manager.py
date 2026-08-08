@@ -1726,5 +1726,53 @@ class TestJwtSecretEphemeralWarning(unittest.TestCase):
         self.assertNotIn("ephemeral random JWT", proc.stderr)
 
 
+class TestAdminActorIdentityFromEndpointPayload(unittest.TestCase):
+    """Admin actions must record WHO acted, given the payload the API actually
+    passes.
+
+    api_server's get_current_admin() dependency hands these methods a
+    normalised dict keyed "user_id", while the rest of the suite exercises them
+    with a raw JWT payload keyed "sub". Reading only "sub" therefore worked in
+    tests and silently produced an empty actor id in production: no reviewer on
+    approvals, no banned_by on bans, and a self-ban guard that compared against
+    "" and so never fired.
+    """
+
+    def setUp(self):
+        self.auth = AuthManager()
+        self.auth.register("subject", "s@x.com", "Subject1!")
+        self.subject_id = self.auth.store.get_by_username("subject").user_id
+        self.auth.register("admin_u", "a@x.com", "Admin123!")
+        admin = self.auth.store.get_by_username("admin_u")
+        admin.role = "admin"
+        self.admin_id = admin.user_id
+        # The exact shape get_current_admin() produces -- no "sub" key.
+        self.endpoint_payload = {"user_id": self.admin_id, "username": "admin_u", "role": "admin"}
+
+    def test_creator_application_records_reviewer(self):
+        app = self.auth.submit_creator_application(self.subject_id, "I make avatars", "https://p.example")
+        reviewed = self.auth.review_creator_application(
+            self.endpoint_payload, app.application_id, "approved", "portfolio checked")
+        self.assertEqual(reviewed.reviewed_by, self.admin_id)
+        self.assertTrue(self.auth.store.get_by_id(self.subject_id).is_creator_verified)
+
+    def test_ban_records_the_admin_who_banned(self):
+        user = self.auth.ban_user(self.endpoint_payload, self.subject_id, "spam")
+        self.assertEqual(user.banned_by, self.admin_id)
+
+    def test_admin_cannot_ban_themselves(self):
+        """The guard compared user_id against "" and never fired, so an admin
+        could lock themselves -- and in a single-admin deployment, all
+        administration -- out of the product."""
+        with self.assertRaises(AuthError):
+            self.auth.ban_user(self.endpoint_payload, self.admin_id, "oops")
+        self.assertFalse(self.auth.store.get_by_id(self.admin_id).is_banned)
+
+    def test_raw_jwt_payload_still_works(self):
+        """Callers that pass a raw JWT payload must keep working."""
+        user = self.auth.ban_user({"sub": self.admin_id, "role": "admin"}, self.subject_id, "spam")
+        self.assertEqual(user.banned_by, self.admin_id)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

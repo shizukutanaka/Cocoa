@@ -1,5 +1,6 @@
 import client from "./apiClient";
 import type {
+  CreatorApplication,
   ListingReport,
   Paginated,
   RefundRequestRecord,
@@ -72,6 +73,31 @@ export async function resolveReviewReport(
     note,
     hide,
   });
+  return data;
+}
+
+// --- Creator verification applications ---
+
+export async function listCreatorApplications(
+  status?: string,
+  limit = 50,
+  offset = 0,
+): Promise<Paginated<CreatorApplication>> {
+  const { data } = await client.get("/api/admin/creator-applications", {
+    params: { status, limit, offset },
+  });
+  return data;
+}
+
+export async function reviewCreatorApplication(
+  applicationId: string,
+  decision: "approved" | "rejected",
+  note = "",
+) {
+  const { data } = await client.post(
+    `/api/admin/creator-applications/${applicationId}/review`,
+    { decision, note },
+  );
   return data;
 }
 
