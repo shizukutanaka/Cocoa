@@ -30,6 +30,9 @@ export function Layout() {
             {user && <NavLink to="/collections">コレクション</NavLink>}
             {user && <NavLink to="/me/wishlist">ウィッシュリスト</NavLink>}
             {user && <NavLink to="/cart">カート</NavLink>}
+            {(user?.role === "admin" || user?.role === "moderator") && (
+              <NavLink to="/admin">モデレーション</NavLink>
+            )}
           </nav>
           <div className="app-header-actions">
             {user ? (

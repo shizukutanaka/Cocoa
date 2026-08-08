@@ -46,6 +46,7 @@ const Commissions = lazy(() => import("./pages/me/Commissions").then((m) => ({ d
 const CreatorDashboard = lazy(() => import("./pages/me/CreatorDashboard").then((m) => ({ default: m.CreatorDashboard })));
 const Feed = lazy(() => import("./pages/me/Feed").then((m) => ({ default: m.Feed })));
 const DownloadHistory = lazy(() => import("./pages/me/DownloadHistory").then((m) => ({ default: m.DownloadHistory })));
+const AdminModeration = lazy(() => import("./pages/admin/Moderation").then((m) => ({ default: m.AdminModeration })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -105,6 +106,10 @@ export function App() {
                       <Route path="notifications" element={<Notifications />} />
                       <Route path="security" element={<Security />} />
                     </Route>
+
+                    {/* Role is enforced server-side on every /api/admin/* call;
+                        RequireAuth only keeps anonymous users out of the shell. */}
+                    <Route path="admin" element={<RequireAuth><AdminModeration /></RequireAuth>} />
 
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Route>
