@@ -10,6 +10,142 @@ import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { CenterSpinner } from "../../components/Spinner";
 import type { Listing, PublicProfile } from "../../types/api";
 
+/**
+ * Edit a published listing. update_listing() was fully implemented and records
+ * a price-history entry and a version on every change, but nothing in the UI
+ * called it -- a seller could publish and then never correct a typo, a price or
+ * a description without abandoning the listing (and its reviews) entirely.
+ *
+ * Only fields that are safe to change post-publication are offered here; the
+ * avatar parameters themselves are versioned separately through the listing's
+ * version history so buyers can see what changed.
+ */
+function EditListingForm({ listing, onDone }: { listing: Listing; onDone: () => void }) {
+  const { show } = useToast();
+  const queryClient = useQueryClient();
+  const [name, setName] = useState(listing.name);
+  const [description, setDescription] = useState(listing.description ?? "");
+  const [tags, setTags] = useState((listing.tags ?? []).join(", "));
+  const [priceCredits, setPriceCredits] = useState(listing.price_credits);
+  const [thumbnailUrl, setThumbnailUrl] = useState(listing.thumbnail_url ?? "");
+  const [licenseType, setLicenseType] = useState(listing.license_type ?? "personal");
+  const [saving, setSaving] = useState(false);
+
+  const priceChanged = priceCredits !== listing.price_credits;
+
+  async function handleSave() {
+    if (!name.trim()) {
+      show("名前を入力してください", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      await marketplaceService.updateListing(listing.listing_id, {
+        name: name.trim(),
+        description: description.trim(),
+        tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+        price_credits: priceCredits,
+        thumbnail_url: thumbnailUrl.trim(),
+        license_type: licenseType,
+      });
+      show("更新しました");
+      queryClient.invalidateQueries({ queryKey: ["my-listings"] });
+      queryClient.invalidateQueries({ queryKey: ["listing", listing.listing_id] });
+      queryClient.invalidateQueries({ queryKey: ["price-history", listing.listing_id] });
+      onDone();
+    } catch (err) {
+      show(apiErrorMessage(err, "更新に失敗しました"), "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ paddingTop: 8, borderTop: "1px solid var(--border)" }}>
+      <div className="field">
+        <label htmlFor={`edit-name-${listing.listing_id}`}>名前</label>
+        <input
+          id={`edit-name-${listing.listing_id}`}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={200}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor={`edit-desc-${listing.listing_id}`}>説明</label>
+        <textarea
+          id={`edit-desc-${listing.listing_id}`}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          maxLength={2000}
+        />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="field">
+          <label htmlFor={`edit-price-${listing.listing_id}`}>価格（クレジット）</label>
+          <input
+            id={`edit-price-${listing.listing_id}`}
+            type="number"
+            min={0}
+            value={priceCredits}
+            onChange={(e) => setPriceCredits(Number(e.target.value))}
+          />
+          {priceChanged && (
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>
+              価格の変更は価格履歴に記録され、購入者に公開されます。
+            </span>
+          )}
+        </div>
+        <div className="field">
+          <label htmlFor={`edit-license-${listing.listing_id}`}>ライセンス</label>
+          <select
+            id={`edit-license-${listing.listing_id}`}
+            value={licenseType}
+            onChange={(e) => setLicenseType(e.target.value)}
+          >
+            <option value="personal">個人利用のみ</option>
+            <option value="cc_by">CC BY（表示）</option>
+            <option value="cc_by_sa">CC BY-SA（表示-継承）</option>
+            <option value="commercial">商用利用可</option>
+            <option value="custom">カスタム</option>
+          </select>
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor={`edit-tags-${listing.listing_id}`}>タグ（カンマ区切り）</label>
+        <input
+          id={`edit-tags-${listing.listing_id}`}
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor={`edit-thumb-${listing.listing_id}`}>サムネイルURL</label>
+        <input
+          id={`edit-thumb-${listing.listing_id}`}
+          value={thumbnailUrl}
+          onChange={(e) => setThumbnailUrl(e.target.value)}
+          placeholder="https://..."
+        />
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          id={`edit-save-${listing.listing_id}`}
+          className="btn btn-primary btn-sm"
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving ? "保存中..." : "保存する"}
+        </button>
+        <button className="btn btn-secondary btn-sm" onClick={onDone} disabled={saving}>
+          キャンセル
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function StockLimitControl({ listing }: { listing: Listing }) {
   const { show } = useToast();
   const queryClient = useQueryClient();
@@ -142,6 +278,7 @@ function ListingRow({ listing }: { listing: Listing }) {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   async function handleUnpublish() {
     if (!confirm("このリスティングを取り下げますか？")) return;
@@ -186,6 +323,13 @@ function ListingRow({ listing }: { listing: Listing }) {
           >
             ライセンス
           </Link>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setEditing((v) => !v)}
+            aria-label={`「${listing.name}」を編集`}
+          >
+            {editing ? "編集をやめる" : "編集"}
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={() => setExpanded((v) => !v)}>
             {expanded ? "閉じる" : "詳細設定"}
           </button>
@@ -204,6 +348,8 @@ function ListingRow({ listing }: { listing: Listing }) {
           )}
         </div>
       </div>
+
+      {editing && <EditListingForm listing={listing} onDone={() => setEditing(false)} />}
 
       {expanded && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, paddingTop: 8, borderTop: "1px solid var(--border)" }}>
