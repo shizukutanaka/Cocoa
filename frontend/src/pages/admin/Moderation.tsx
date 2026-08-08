@@ -168,6 +168,7 @@ function ListingReportsTab() {
                         同一出品に {countsByListing[r.listing_id]} 件
                       </span>
                     )}
+                    <EditedSinceReport listingId={r.listing_id} reportedAt={r.created_at} />
                     <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
                       <ListingName listingId={r.listing_id} /> · 通報者{" "}
                       <ReporterName userId={r.reporter_id} /> ·{" "}
@@ -408,6 +409,28 @@ function ListingName({ listingId }: { listingId: string }) {
       {data.name}
       {!data.is_active && "（取り下げ済み）"}
     </Link>
+  );
+}
+
+/**
+ * Warn when a listing changed after it was reported.
+ *
+ * Sellers can edit a published listing, so the content a moderator sees may no
+ * longer be the content that was reported -- the classic way to dodge review.
+ * This is deliberately a signal rather than an edit lock: freezing a listing on
+ * any pending report would let a competitor disable a rival by reporting it.
+ */
+function EditedSinceReport({ listingId, reportedAt }: { listingId: string; reportedAt: string }) {
+  const { data } = useQuery({
+    queryKey: ["listing", listingId],
+    queryFn: () => marketplaceService.getListing(listingId),
+  });
+  if (!data?.updated_at) return null;
+  if (new Date(data.updated_at) <= new Date(reportedAt)) return null;
+  return (
+    <span className="badge badge-warning" style={{ marginLeft: 8 }} title="通報後に出品が編集されています">
+      通報後に編集あり
+    </span>
   );
 }
 
