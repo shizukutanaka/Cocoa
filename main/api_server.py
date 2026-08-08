@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import hmac
+import importlib
 import io
 import logging
 import os
@@ -129,50 +130,66 @@ except ImportError:
     get_prometheus_monitor = None
     PROMETHEUS_AVAILABLE = False
 
-# New modules (always available — pure stdlib)
-try:
-    from .auth_manager import AuthError, PendingTwoFactor, get_auth_manager
-    from .avatar_collections import get_collection_store
-    from .avatar_marketplace import get_marketplace
-    from .bundle_manager import get_bundle_manager
-    from .cart_manager import get_cart_manager
-    from .commissions import get_commission_store
-    from .license_manager import get_license_manager
-    from .moderation_queue import get_moderation_queue
-    from .rate_limiter import get_client_ip, get_rate_limiter
-    from .referral_manager import get_referral_manager
-    from .saved_searches import get_saved_search_store
-    from .search_engine import get_search_index
-    from .user_notifications import get_notification_queue
-    from .gift_card_manager import get_gift_card_manager
-    from .membership_manager import get_membership_manager
-    from .refund_manager import get_refund_manager
-    from .wishlist_manager import get_wishlist_manager
-    from .idempotency import get_idempotency_store
-    _NEW_MODULES_AVAILABLE = True
-except ImportError:
-    _NEW_MODULES_AVAILABLE = False
-    get_idempotency_store = None
-    get_auth_manager = None
-    get_marketplace = None
-    get_rate_limiter = None
-    get_search_index = None
-    get_client_ip = None
-    get_notification_queue = None
-    get_collection_store = None
-    get_saved_search_store = None
-    get_bundle_manager = None
-    get_cart_manager = None
-    get_commission_store = None
-    get_gift_card_manager = None
-    get_license_manager = None
-    get_moderation_queue = None
-    get_membership_manager = None
-    get_referral_manager = None
-    get_refund_manager = None
-    get_wishlist_manager = None
-    AuthError = Exception
-    PendingTwoFactor = type("PendingTwoFactor", (), {})  # never matches isinstance() when auth_manager is unavailable
+# Core subsystems. These are imported one module at a time: a single broken
+# module used to null out every name in a shared try/except, so one bad import
+# silently disabled the whole marketplace. Failures are recorded here and
+# reported by GET /api/health/ready rather than being swallowed.
+_SUBSYSTEM_ERRORS: Dict[str, str] = {}
+
+
+def _import_subsystem(module: str, *names):
+    """Import `names` from a sibling module, isolating failure to that module.
+
+    Tries the packaged form first (`main.api_server` is the canonical run
+    target) and falls back to a flat import, matching the pattern the VRChat
+    tools use. Returns a tuple of Nones when the module cannot be loaded, and
+    records why in _SUBSYSTEM_ERRORS.
+    """
+    mod = None
+    last_error: Optional[BaseException] = None
+    for relative in (True, False):
+        try:
+            mod = importlib.import_module(f".{module}" if relative else module, __package__ if relative else None)
+            break
+        except Exception as exc:  # ImportError, but also errors raised at module scope
+            last_error = exc
+    if mod is None:
+        _SUBSYSTEM_ERRORS[module] = f"{type(last_error).__name__}: {last_error}"
+        return (None,) * len(names)
+    resolved = []
+    for n in names:
+        attr = getattr(mod, n, None)
+        if attr is None:
+            _SUBSYSTEM_ERRORS[module] = f"AttributeError: {n}"
+        resolved.append(attr)
+    return tuple(resolved)
+
+
+(get_auth_manager, AuthError, PendingTwoFactor) = _import_subsystem(
+    "auth_manager", "get_auth_manager", "AuthError", "PendingTwoFactor")
+# Keep the sentinels usable when auth_manager itself failed to load.
+AuthError = AuthError or Exception
+PendingTwoFactor = PendingTwoFactor or type("PendingTwoFactor", (), {})
+
+(get_collection_store,) = _import_subsystem("avatar_collections", "get_collection_store")
+(get_marketplace,) = _import_subsystem("avatar_marketplace", "get_marketplace")
+(get_bundle_manager,) = _import_subsystem("bundle_manager", "get_bundle_manager")
+(get_cart_manager,) = _import_subsystem("cart_manager", "get_cart_manager")
+(get_commission_store,) = _import_subsystem("commissions", "get_commission_store")
+(get_license_manager,) = _import_subsystem("license_manager", "get_license_manager")
+(get_moderation_queue,) = _import_subsystem("moderation_queue", "get_moderation_queue")
+(get_client_ip, get_rate_limiter) = _import_subsystem("rate_limiter", "get_client_ip", "get_rate_limiter")
+(get_referral_manager,) = _import_subsystem("referral_manager", "get_referral_manager")
+(get_saved_search_store,) = _import_subsystem("saved_searches", "get_saved_search_store")
+(get_search_index,) = _import_subsystem("search_engine", "get_search_index")
+(get_notification_queue,) = _import_subsystem("user_notifications", "get_notification_queue")
+(get_gift_card_manager,) = _import_subsystem("gift_card_manager", "get_gift_card_manager")
+(get_membership_manager,) = _import_subsystem("membership_manager", "get_membership_manager")
+(get_refund_manager,) = _import_subsystem("refund_manager", "get_refund_manager")
+(get_wishlist_manager,) = _import_subsystem("wishlist_manager", "get_wishlist_manager")
+(get_idempotency_store,) = _import_subsystem("idempotency", "get_idempotency_store")
+
+_NEW_MODULES_AVAILABLE = not _SUBSYSTEM_ERRORS
 
 _auth_2fa_wired = False
 
@@ -627,22 +644,68 @@ async def liveness_probe():
     return {"status": "alive", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
+# Subsystems whose absence makes the product non-functional (no login, no
+# browsing, no checkout) versus ones that only remove a feature. A missing
+# critical dependency must fail the readiness probe so an orchestrator stops
+# routing traffic; a missing optional one is reported as degraded but serving.
+_CRITICAL_SUBSYSTEMS = {
+    "auth": lambda: get_auth_manager,
+    "marketplace": lambda: get_marketplace,
+    "cart": lambda: get_cart_manager,
+}
+_OPTIONAL_SUBSYSTEMS = {
+    "search": lambda: get_search_index,
+    "rate_limiter": lambda: get_rate_limiter,
+    "notifications": lambda: get_notification_queue,
+    "collections": lambda: get_collection_store,
+    "saved_searches": lambda: get_saved_search_store,
+    "bundles": lambda: get_bundle_manager,
+    "commissions": lambda: get_commission_store,
+    "gift_cards": lambda: get_gift_card_manager,
+    "licenses": lambda: get_license_manager,
+    "moderation": lambda: get_moderation_queue,
+    "membership": lambda: get_membership_manager,
+    "referrals": lambda: get_referral_manager,
+    "refunds": lambda: get_refund_manager,
+    "wishlist": lambda: get_wishlist_manager,
+    "idempotency": lambda: get_idempotency_store,
+}
+
+
 @app.get("/ready", tags=["system"])
 async def readiness_probe():
-    """Readiness probe — 依存サブシステムが利用可能かを確認"""
-    checks = {
-        "auth": get_auth_manager is not None,
-        "marketplace": get_marketplace is not None,
-        "search": get_search_index is not None,
-        "rate_limiter": get_rate_limiter is not None,
-    }
-    ready = all(checks.values())
-    status_code = 200 if ready else 503
+    """Readiness probe — 依存サブシステムの可用性を報告する。
+
+    critical が1つでも落ちていれば 503（ルーティング停止）。optional のみが
+    落ちている場合は 200 + status="degraded" を返し、「機能が減っているが
+    提供中」であることを明示する。どのモジュールがなぜ落ちたかは
+    _SUBSYSTEM_ERRORS に記録されたインポート失敗理由をそのまま返す。
+    """
+    critical = {name: probe() is not None for name, probe in _CRITICAL_SUBSYSTEMS.items()}
+    optional = {name: probe() is not None for name, probe in _OPTIONAL_SUBSYSTEMS.items()}
+    missing_critical = [n for n, ok in critical.items() if not ok]
+    missing_optional = [n for n, ok in optional.items() if not ok]
+
+    if missing_critical:
+        status = "not_ready"
+        status_code = 503
+    elif missing_optional:
+        status = "degraded"
+        status_code = 200
+    else:
+        status = "ready"
+        status_code = 200
+
     return JSONResponse(
         status_code=status_code,
         content={
-            "status": "ready" if ready else "not_ready",
-            "checks": checks,
+            "status": status,
+            "checks": {**critical, **optional},
+            "missing_critical": missing_critical,
+            "missing_optional": missing_optional,
+            # Why each failed, so a partial outage is diagnosable without
+            # reading server logs.
+            "errors": dict(_SUBSYSTEM_ERRORS),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     )
@@ -1366,7 +1429,7 @@ async def list_notifications(
 ):
     """通知一覧取得"""
     if not get_notification_queue:
-        return {"total": 0, "unread_count": 0, "items": []}
+        raise HTTPException(status_code=503, detail="通知システムが利用できません")
     return get_notification_queue().get_notifications(
         current_user["user_id"], unread_only=unread_only, limit=limit, offset=offset
     )
@@ -1376,7 +1439,7 @@ async def list_notifications(
 async def unread_notification_count(current_user: dict = Depends(get_current_user)):
     """未読通知数"""
     if not get_notification_queue:
-        return {"unread_count": 0}
+        raise HTTPException(status_code=503, detail="通知システムが利用できません")
     return {"unread_count": get_notification_queue().unread_count(current_user["user_id"])}
 
 
@@ -1415,7 +1478,7 @@ async def delete_notification(notification_id: str, current_user: dict = Depends
 async def get_notification_preferences(current_user: dict = Depends(get_current_user)):
     """ミュート中の通知種別を取得"""
     if not get_notification_queue:
-        return {"muted_kinds": []}
+        raise HTTPException(status_code=503, detail="通知システムが利用できません")
     return {"muted_kinds": get_notification_queue().get_muted_kinds(current_user["user_id"])}
 
 
@@ -1439,7 +1502,7 @@ async def set_notification_preferences(
 async def list_bookmarks(current_user: dict = Depends(get_current_user)):
     """ブックマーク一覧取得"""
     if not get_auth_manager:
-        return {"bookmarks": []}
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     auth = get_auth_manager()
     try:
         return {"bookmarks": auth.get_bookmarks(current_user["user_id"])}
@@ -1477,7 +1540,7 @@ async def remove_bookmark(item_id: str, current_user: dict = Depends(get_current
 async def list_following(current_user: dict = Depends(get_current_user)):
     """フォロー中クリエイター一覧"""
     if not get_auth_manager:
-        return {"following": []}
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     try:
         return {"following": get_auth_manager().get_following(current_user["user_id"])}
     except AuthError as e:
@@ -1634,8 +1697,7 @@ async def get_user_public_listings(
 ):
     """クリエイターの公開リスティング一覧"""
     if not get_marketplace:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return get_marketplace().get_user_listings_page(
         user_id, include_inactive=False, limit=limit, offset=offset
     )
@@ -1791,7 +1853,7 @@ async def search_avatars(
 ):
     """アバターの全文検索（フォロー中クリエーターのアバターを優先表示）"""
     if not get_search_index:
-        return {"total": 0, "items": [], "facets": {}}
+        raise HTTPException(status_code=503, detail="検索インデックスが利用できません")
     idx = get_search_index()
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
     # Personalization: boost results from creators the user follows
@@ -1826,7 +1888,7 @@ async def search_suggest(
 ):
     """オートコンプリート候補を取得"""
     if not get_search_index:
-        return {"suggestions": []}
+        raise HTTPException(status_code=503, detail="検索インデックスが利用できません")
     idx = get_search_index()
     return {"suggestions": idx.suggest(prefix, limit)}
 
@@ -1835,7 +1897,7 @@ async def search_suggest(
 async def trending_searches(limit: int = Query(10, ge=1, le=50)):
     """最近人気の検索クエリ一覧（公開）"""
     if not get_search_index:
-        return {"queries": []}
+        raise HTTPException(status_code=503, detail="検索インデックスが利用できません")
     analytics = get_search_index().query_analytics(top_n=limit)
     return {"queries": analytics.get("top_queries", [])[:limit]}
 
@@ -1874,7 +1936,7 @@ async def create_saved_search(body: SavedSearchCreateRequest, current_user: dict
 async def list_saved_searches(current_user: dict = Depends(get_current_user)):
     """保存済み検索プリセット一覧"""
     if not get_saved_search_store:
-        return {"items": [], "total": 0}
+        raise HTTPException(status_code=503, detail="保存検索モジュールが利用できません")
     searches = get_saved_search_store().list(current_user["user_id"])
     return {"items": [s.to_dict() for s in searches], "total": len(searches)}
 
@@ -2082,7 +2144,7 @@ async def browse_marketplace(
 ):
     """マーケットプレイスを閲覧（認証不要）"""
     if not get_marketplace:
-        return {"total": 0, "items": []}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     mp = get_marketplace()
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
     return mp.search(
@@ -2099,7 +2161,7 @@ async def browse_marketplace(
 async def featured_avatars(limit: int = Query(20, ge=1, le=50)):
     """管理者が選んだフィーチャーアバターを取得"""
     if not get_marketplace:
-        return {"items": [], "total": 0}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     items = get_marketplace().get_featured(limit)
     return {"items": items, "total": len(items)}
 
@@ -2111,7 +2173,7 @@ async def trending_avatars(
 ):
     """直近 N 日間のダウンロード数でトレンドアバターを取得"""
     if not get_marketplace:
-        return {"items": []}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return {"items": get_marketplace().get_trending(limit, days=days)}
 
 
@@ -2122,7 +2184,7 @@ async def creator_leaderboard(
 ):
     """クリエイターランキング（ダウンロード数・平均評価・リスティング数）"""
     if not get_marketplace:
-        return {"items": [], "by": by}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     if by not in ("downloads", "rating", "listings"):
         raise HTTPException(status_code=400, detail="by は downloads, rating, listings のいずれかです")
     items = get_marketplace().get_leaderboard(by=by, limit=limit)
@@ -2133,7 +2195,7 @@ async def creator_leaderboard(
 async def trending_tags(limit: int = Query(20, ge=1, le=100)):
     """人気タグを集計して取得（ダウンロード数で重み付け）"""
     if not get_marketplace:
-        return {"tags": []}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return {"tags": get_marketplace().get_trending_tags(limit)}
 
 
@@ -2141,7 +2203,7 @@ async def trending_tags(limit: int = Query(20, ge=1, le=100)):
 async def check_ownership(listing_id: str, current_user: dict = Depends(get_current_user)):
     """認証済みユーザーがこのリスティングをダウンロード済みかチェック"""
     if not get_marketplace:
-        return {"listing_id": listing_id, "owned": False}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     owned = get_marketplace().has_downloaded(listing_id, current_user["user_id"])
     return {"listing_id": listing_id, "owned": owned, "user_id": current_user["user_id"]}
 
@@ -2150,7 +2212,7 @@ async def check_ownership(listing_id: str, current_user: dict = Depends(get_curr
 async def rating_distribution(listing_id: str):
     """リスティングの星別評価分布を取得"""
     if not get_marketplace:
-        return {"listing_id": listing_id, "distribution": {}, "total_ratings": 0, "average_rating": 0}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return get_marketplace().get_rating_distribution(listing_id)
 
 
@@ -2205,8 +2267,7 @@ async def my_listings(
 ):
     """自分のリスティング一覧を取得（クリエイター向け）"""
     if not get_marketplace:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return get_marketplace().get_user_listings_page(
         current_user["user_id"],
         include_inactive=include_inactive,
@@ -2219,7 +2280,7 @@ async def my_listings(
 async def list_categories():
     """カテゴリ一覧と各カテゴリのリスティング数を取得"""
     if not get_marketplace:
-        return {"items": []}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     cats = get_marketplace().get_categories()
     return {"items": cats, "total": len(cats)}
 
@@ -2378,7 +2439,7 @@ async def list_reviews(
 ):
     """リスティングのレビュー一覧取得"""
     if not get_marketplace:
-        return {"total": 0, "items": []}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return get_marketplace().get_reviews(listing_id, limit=limit, offset=offset, sort_by=sort_by)
 
 
@@ -2430,7 +2491,7 @@ async def add_review_reply(
 async def get_review_replies(review_id: str, current_user: dict = Depends(get_current_user)):
     """レビューの返信一覧"""
     if not get_marketplace:
-        return {"items": [], "total": 0}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     replies = get_marketplace().get_review_replies(review_id)
     return {"items": [r.to_dict() for r in replies], "total": len(replies)}
 
@@ -2452,7 +2513,7 @@ async def delete_review_reply(
 async def listing_price_history(listing_id: str):
     """リスティングの価格変更履歴を取得"""
     if not get_marketplace:
-        return {"items": [], "listing_id": listing_id}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     history = get_marketplace().get_price_history(listing_id)
     return {"listing_id": listing_id, "items": history, "total": len(history)}
 
@@ -2713,7 +2774,7 @@ async def publish_listing_version(
 async def list_listing_versions(listing_id: str):
     """リスティングの全バージョン履歴を取得（古い順）"""
     if not get_marketplace:
-        return {"listing_id": listing_id, "items": [], "total": 0}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     versions = get_marketplace().get_versions(listing_id)
     return {
         "listing_id": listing_id,
@@ -2773,7 +2834,7 @@ async def gift_credits(
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     try:
-        idem_key = f"{current_user['user_id']}:{idempotency_key}" if idempotency_key else None
+        idem_key = f"{current_user['user_id']}:{idempotency_key}" if isinstance(idempotency_key, str) and idempotency_key else None
         store = get_idempotency_store() if get_idempotency_store else None
         is_replay = store is not None and idem_key and store.seen(idem_key)
 
@@ -3056,8 +3117,7 @@ async def my_collections(
 ):
     """自分のコレクション一覧（ページネーション対応）"""
     if not get_collection_store:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="コレクション機能が利用できません")
     uid = current_user["user_id"]
     return get_collection_store().list_user_collections(uid, requester_id=uid, limit=limit, offset=offset)
 
@@ -3070,8 +3130,7 @@ async def browse_public_collections_early(
 ):
     """公開コレクションを閲覧（認証不要）"""
     if not get_collection_store:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="コレクション機能が利用できません")
     return get_collection_store().browse_public(query=q, limit=limit, offset=offset)
 
 
@@ -3190,8 +3249,7 @@ async def user_public_collections(
 ):
     """ユーザーの公開コレクション一覧（ページネーション対応）"""
     if not get_collection_store:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="コレクション機能が利用できません")
     return get_collection_store().list_user_collections(
         user_id, requester_id=current_user["user_id"], limit=limit, offset=offset
     )
@@ -3392,9 +3450,7 @@ async def my_earnings_summary(
 ):
     """自分の収益サマリー（販売・チップ・ギフト）を取得する"""
     if not get_marketplace:
-        return {"user_id": current_user["user_id"], "period_days": days,
-                "total_earned": 0, "sales": 0, "tips_received": 0,
-                "gifts_received": 0, "by_day": {}}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return get_marketplace().get_earnings_summary(current_user["user_id"], days=days)
 
 
@@ -3562,7 +3618,7 @@ async def export_audit_log(
 async def rate_limiter_stats(admin: dict = Depends(get_current_admin)):
     """レートリミッター統計"""
     if not get_rate_limiter:
-        return {"available": False}
+        raise HTTPException(status_code=503, detail="レートリミッターが利用できません")
     return get_rate_limiter().get_stats()
 
 
@@ -3584,7 +3640,7 @@ async def list_reports(
 ):
     """モデレーション通報一覧（管理者専用）"""
     if not get_marketplace:
-        return {"total": 0, "items": []}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return get_marketplace().get_reports(status=status, limit=limit, offset=offset)
 
 
@@ -3592,7 +3648,7 @@ async def list_reports(
 async def report_stats(admin: dict = Depends(get_current_admin)):
     """通報統計（管理者専用）"""
     if not get_marketplace:
-        return {"total": 0, "by_status": {}, "by_reason": {}}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return get_marketplace().get_report_stats()
 
 
@@ -3951,7 +4007,7 @@ async def create_promo_code(
 async def list_my_promo_codes(current_user: dict = Depends(get_current_user)):
     """自分が作成したプロモコード一覧を取得"""
     if not get_marketplace:
-        return {"items": [], "total": 0}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     codes = get_marketplace().list_promo_codes(current_user["user_id"])
     return {"items": codes, "total": len(codes)}
 
@@ -4012,7 +4068,7 @@ async def list_all_tags(
 ):
     """全タグと各タグを持つリスティング数を取得（管理者専用）"""
     if not get_marketplace:
-        return {"items": [], "total": 0}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     # Re-use same access pattern as get_categories
     from collections import Counter
     mp_store = get_marketplace()
@@ -4191,8 +4247,7 @@ async def list_commissions_received(
 ):
     """受け取ったコミッション一覧を取得（クリエイター用）"""
     if not get_commission_store:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="コミッションモジュールが利用できません")
     return get_commission_store().list_received(
         current_user["user_id"], status=status, limit=limit, offset=offset
     )
@@ -4207,8 +4262,7 @@ async def list_commissions_sent(
 ):
     """送ったコミッション一覧を取得"""
     if not get_commission_store:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="コミッションモジュールが利用できません")
     return get_commission_store().list_sent(
         current_user["user_id"], status=status, limit=limit, offset=offset
     )
@@ -4373,7 +4427,7 @@ async def send_tip(
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     try:
-        idem_key = f"{current_user['user_id']}:{idempotency_key}" if idempotency_key else None
+        idem_key = f"{current_user['user_id']}:{idempotency_key}" if isinstance(idempotency_key, str) and idempotency_key else None
         store = get_idempotency_store() if get_idempotency_store else None
         is_replay = store is not None and idem_key and store.seen(idem_key)
 
@@ -4408,8 +4462,7 @@ async def get_tips_received(
 ):
     """自分が受け取ったチップ一覧を取得"""
     if not get_marketplace:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return get_marketplace().get_tips_received(current_user["user_id"], limit=limit, offset=offset)
 
 
@@ -4421,8 +4474,7 @@ async def get_tips_sent(
 ):
     """自分が送ったチップ一覧を取得"""
     if not get_marketplace:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     return get_marketplace().get_tips_sent(current_user["user_id"], limit=limit, offset=offset)
 
 
@@ -4434,8 +4486,7 @@ async def get_user_public_tips(
 ):
     """ユーザーが受け取ったチップの公開一覧を取得（送信者ユーザー名と金額のみ）"""
     if not get_marketplace:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
     # public=True returns the public-safe view (no sender_id, no private
     # message), enforced at the model layer rather than ad-hoc stripping here.
     return get_marketplace().get_tips_received(user_id, limit=limit, offset=offset, public=True)
@@ -4454,8 +4505,7 @@ class CartSetPromoRequest(BaseModel):
 async def get_cart(current_user: dict = Depends(get_current_user)):
     """現在のカートを取得する"""
     if not get_cart_manager:
-        return {"cart_id": "", "user_id": current_user["user_id"],
-                "items": [], "item_count": 0, "subtotal_credits": 0}
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
     return get_cart_manager().get_cart(current_user["user_id"])
 
 
@@ -4542,7 +4592,7 @@ async def checkout_cart(
     if not get_cart_manager or not get_marketplace:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     try:
-        idem_key = f"{current_user['user_id']}:{idempotency_key}" if idempotency_key else None
+        idem_key = f"{current_user['user_id']}:{idempotency_key}" if isinstance(idempotency_key, str) and idempotency_key else None
         store = get_idempotency_store() if get_idempotency_store else None
         is_replay = store is not None and idem_key and store.seen(idem_key)
 
@@ -4618,8 +4668,7 @@ async def get_orders(
 ):
     """自分の注文履歴を取得する"""
     if not get_cart_manager:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
     return get_cart_manager().get_orders(current_user["user_id"], limit=limit, offset=offset)
 
 
@@ -4682,8 +4731,7 @@ async def list_active_bundles(
 ):
     """公開中のバンドル一覧を取得する（認証不要）"""
     if not get_bundle_manager:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
     return get_bundle_manager().list_active_bundles(limit=limit, offset=offset)
 
 
@@ -4696,8 +4744,7 @@ async def list_my_bundles(
 ):
     """自分が作成したバンドルの一覧を取得する"""
     if not get_bundle_manager:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
     return get_bundle_manager().list_my_bundles(
         current_user["user_id"], include_inactive=include_inactive,
         limit=limit, offset=offset
@@ -4801,7 +4848,7 @@ async def purchase_bundle(
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     cart = get_cart_manager() if get_cart_manager else None
     try:
-        idem_key = f"{current_user['user_id']}:{idempotency_key}" if idempotency_key else None
+        idem_key = f"{current_user['user_id']}:{idempotency_key}" if isinstance(idempotency_key, str) and idempotency_key else None
         store = get_idempotency_store() if get_idempotency_store else None
         is_replay = store is not None and idem_key and store.seen(idem_key)
 
@@ -4882,8 +4929,7 @@ async def get_my_licenses(
 ):
     """自分が保有するライセンスキーの一覧を取得する"""
     if not get_license_manager:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
     return get_license_manager().get_my_licenses(current_user["user_id"], limit=limit, offset=offset)
 
 
@@ -4925,7 +4971,7 @@ async def revoke_license(
 async def verify_license(key: str = Query(..., description="ライセンスキー文字列")):
     """ライセンスキーが有効か検証する（認証不要）"""
     if not get_license_manager:
-        return {"valid": False, "reason": "service_unavailable"}
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
     return get_license_manager().verify_key(key)
 
 
@@ -4938,8 +4984,7 @@ async def get_listing_licenses(
 ):
     """リスティングに対して発行済みのライセンスキー一覧（オーナー専用）"""
     if not get_license_manager:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
     try:
         return get_license_manager().get_listing_licenses(
             listing_id, current_user["user_id"], limit=limit, offset=offset
@@ -4978,8 +5023,7 @@ async def get_my_wishlist(
     を付与する（値下がり・再入荷通知から遷移した一覧をそのまま actionable にする）。
     """
     if not get_wishlist_manager:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
     wm = get_wishlist_manager()
     if with_status and get_marketplace:
         return wm.get_wishlist_with_status(
@@ -5021,7 +5065,7 @@ async def check_wishlist(
 ):
     """リスティングがウィッシュリストに含まれているか確認する"""
     if not get_wishlist_manager:
-        return {"in_wishlist": False}
+        raise HTTPException(status_code=503, detail="サービスが利用できません")
     return {"in_wishlist": get_wishlist_manager().contains(current_user["user_id"], listing_id)}
 
 
@@ -5038,7 +5082,7 @@ async def clear_my_wishlist(current_user: dict = Depends(get_current_user)):
 async def get_my_referral_code(current_user: dict = Depends(get_current_user)):
     """自分の招待コードを取得する（存在しない場合は新規発行）"""
     if not get_referral_manager:
-        return {"code": ""}
+        raise HTTPException(status_code=503, detail="紹介モジュールが利用できません")
     code = get_referral_manager().get_my_code(current_user["user_id"])
     return {"code": code, "user_id": current_user["user_id"]}
 
@@ -5051,8 +5095,7 @@ async def get_my_referrals(
 ):
     """自分が招待したユーザーの一覧を取得する"""
     if not get_referral_manager:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="紹介モジュールが利用できません")
     return get_referral_manager().get_my_referrals(current_user["user_id"], limit=limit, offset=offset)
 
 
@@ -5060,8 +5103,7 @@ async def get_my_referrals(
 async def get_my_referral_stats(current_user: dict = Depends(get_current_user)):
     """自分の招待統計（総招待数・変換数・ボーナス合計）を取得する"""
     if not get_referral_manager:
-        return {"referrer_id": current_user["user_id"], "total_referrals": 0,
-                "converted": 0, "pending": 0, "total_bonus_earned": 0}
+        raise HTTPException(status_code=503, detail="紹介モジュールが利用できません")
     return get_referral_manager().get_my_stats(current_user["user_id"])
 
 
@@ -5134,8 +5176,7 @@ async def list_banned_users(
 ):
     """停止中ユーザーの一覧を取得（管理者専用）"""
     if not get_auth_manager:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     return get_auth_manager().get_banned_users(admin, limit=limit, offset=offset)
 
 
@@ -5176,8 +5217,7 @@ async def list_moderation_items(
 ):
     """モデレーションキューの一覧を取得する（管理者専用）"""
     if not get_moderation_queue:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="モデレーション機能が利用できません")
     return get_moderation_queue().list_items(
         status=status, kind=kind, priority=priority,
         assigned_to=assigned_to, limit=limit, offset=offset, sort_by=sort_by,
@@ -5188,9 +5228,7 @@ async def list_moderation_items(
 async def moderation_stats(admin: dict = Depends(get_current_admin)):
     """モデレーションキューの統計を取得する（管理者専用）"""
     if not get_moderation_queue:
-        return {"total": 0, "pending": 0, "in_review": 0,
-                "resolved": 0, "dismissed": 0, "open": 0,
-                "by_kind": {}, "by_priority": {}}
+        raise HTTPException(status_code=503, detail="モデレーション機能が利用できません")
     return get_moderation_queue().get_stats()
 
 
@@ -5512,7 +5550,7 @@ async def purchase_gift_card(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"expires_at形式が不正です: {e}") from e
     try:
-        idem_key = f"{payload['sub']}:{idempotency_key}" if idempotency_key else None
+        idem_key = f"{payload['sub']}:{idempotency_key}" if isinstance(idempotency_key, str) and idempotency_key else None
         store = get_idempotency_store() if get_idempotency_store else None
         return (store.get_or_execute(idem_key, lambda: get_gift_card_manager().purchase(
             payload["sub"], body.amount, get_marketplace(), body.message, expires_at
@@ -5549,7 +5587,7 @@ async def redeem_gift_card(
     try:
         # The gift card code itself is a natural idempotency key — one code, one redemption.
         # We also accept an explicit Idempotency-Key header to guard the HTTP retry window.
-        idem_key = f"{payload['sub']}:{idempotency_key or body.code}"
+        idem_key = f"{payload['sub']}:{idempotency_key if isinstance(idempotency_key, str) and idempotency_key else body.code}"
         store = get_idempotency_store() if get_idempotency_store else None
         return (store.get_or_execute(idem_key, lambda: get_gift_card_manager().redeem(
             body.code, payload["sub"], get_marketplace()
