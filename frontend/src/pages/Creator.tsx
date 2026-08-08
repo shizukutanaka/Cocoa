@@ -120,7 +120,7 @@ export function Creator() {
           <h1 style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
             {profile.display_name}
             {profile.is_creator_verified && (
-              <span className="badge badge-success" title="認証済みクリエイター">
+              <span className="badge badge-success" title="運営が申請理由とポートフォリオを確認済みのクリエイターです（本人確認・法人確認は含みません）">
                 ✓ 認証済み
               </span>
             )}
@@ -357,7 +357,7 @@ function FollowPanel({
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <strong>{p.display_name}</strong>
                   {p.is_creator_verified && (
-                    <span className="badge badge-success" title="認証済みクリエイター">
+                    <span className="badge badge-success" title="運営が申請理由とポートフォリオを確認済みのクリエイターです（本人確認・法人確認は含みません）">
                       ✓
                     </span>
                   )}

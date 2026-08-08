@@ -1097,7 +1097,7 @@ class AuthManager:
             if app.status != "pending":
                 raise ValueError("この申請はすでに審査済みです")
             app.status = decision
-            app.reviewed_by = admin_payload.get("sub", "")
+            app.reviewed_by = self._actor_id(admin_payload)
             app.review_note = note.strip()[:500]
             app.reviewed_at = datetime.now(timezone.utc)
             if decision == "approved":
@@ -1217,13 +1217,25 @@ class AuthManager:
 
     # --- User ban management ---
 
+    @staticmethod
+    def _actor_id(payload: Dict[str, Any]) -> str:
+        """Return the acting admin's user id from either payload shape.
+
+        A raw JWT payload carries the id as "sub", but api_server's
+        get_current_admin() dependency hands over a normalised dict that uses
+        "user_id" instead. Reading only "sub" silently produced an empty id:
+        approvals and bans recorded no reviewer, and ban_user's self-ban guard
+        compared against "" so it never fired.
+        """
+        return payload.get("sub") or payload.get("user_id", "")
+
     def ban_user(self, admin_payload: Dict[str, Any], user_id: str, reason: str = "") -> UserRecord:
         """Ban a user account. Admin only."""
         self.require_role(admin_payload, "admin")
         user = self.store.get_by_id(user_id)
         if not user:
             raise AuthError("not_found", "ユーザーが見つかりません")
-        admin_id = admin_payload.get("sub", "")
+        admin_id = self._actor_id(admin_payload)
         if user_id == admin_id:
             raise AuthError("forbidden", "自分自身を停止することはできません")
         user.is_banned = True
@@ -1243,7 +1255,7 @@ class AuthManager:
         user.ban_reason = ""
         user.banned_at = None
         user.banned_by = ""
-        logger.info("User unbanned: %s by admin: %s", user_id, admin_payload.get("sub", ""))
+        logger.info("User unbanned: %s by admin: %s", user_id, self._actor_id(admin_payload))
         return user
 
     def get_banned_users(self, admin_payload: Dict[str, Any], limit: int = 50, offset: int = 0) -> Dict[str, Any]:
