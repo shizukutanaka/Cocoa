@@ -2521,6 +2521,72 @@ async def unpublish_avatar(listing_id: str, current_user: dict = Depends(get_cur
         raise HTTPException(status_code=403, detail=str(e)) from e
 
 
+def _reindex_listing(listing) -> None:
+    """Put a listing back into the search index after it is re-activated.
+
+    unpublish/takedown remove the document, so restoring is_active alone would
+    leave the listing invisible to search while claiming to be public.
+    """
+    if not get_search_index:
+        return
+    try:
+        get_search_index().index_from_dict({
+            "doc_id": listing.listing_id,
+            "owner_id": listing.owner_id,
+            "name": listing.name,
+            "description": listing.description,
+            "tags": listing.tags,
+            "category": listing.category,
+            "platform": listing.platform,
+            "parameters": listing.parameters,
+            "is_public": True,
+        })
+    except Exception:
+        pass
+
+
+@app.post("/api/marketplace/{listing_id}/republish", tags=["marketplace"])
+async def republish_avatar(listing_id: str, current_user: dict = Depends(get_current_user)):
+    """取り下げたリスティングを再公開（オーナーのみ）"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    mp = get_marketplace()
+    try:
+        ok = mp.republish(listing_id, current_user["user_id"])
+        if not ok:
+            raise HTTPException(status_code=404, detail="リスティングが見つかりません")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    listing = mp.get_listing(listing_id)
+    if listing:
+        _reindex_listing(listing)
+    return {"status": "republished", "listing_id": listing_id}
+
+
+@app.post("/api/admin/listings/{listing_id}/restore", tags=["admin"])
+async def admin_restore_listing(listing_id: str, admin: dict = Depends(get_current_admin)):
+    """取り下げたリスティングを復元（管理者専用）。モデレーション判断の取り消し用"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    mp = get_marketplace()
+    if not mp.admin_restore(listing_id):
+        raise HTTPException(status_code=404, detail="リスティングが見つかりません")
+    listing = mp.get_listing(listing_id)
+    if listing:
+        _reindex_listing(listing)
+        if get_notification_queue:
+            try:
+                get_notification_queue().push(
+                    listing.owner_id, "system",
+                    "リスティングが復元されました",
+                    f"「{listing.name}」はモデレーション判断の見直しにより再公開されました",
+                    {"listing_id": listing_id},
+                )
+            except Exception:
+                pass
+    return {"status": "restored", "listing_id": listing_id}
+
+
 @app.patch("/api/marketplace/{listing_id}", tags=["marketplace"])
 async def update_listing(listing_id: str, body: UpdateListingRequest, current_user: dict = Depends(get_current_user)):
     """リスティングを更新（名前・説明・タグ・パラメータ・価格）。オーナーのみ可"""

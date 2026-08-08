@@ -154,6 +154,16 @@ function ListingRow({ listing }: { listing: Listing }) {
     }
   }
 
+  async function handleRepublish() {
+    try {
+      await marketplaceService.republishListing(listing.listing_id);
+      show("再公開しました");
+      queryClient.invalidateQueries({ queryKey: ["my-listings"] });
+    } catch (err) {
+      show(apiErrorMessage(err, "再公開に失敗しました"), "error");
+    }
+  }
+
   return (
     <div className="row-item" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -179,9 +189,17 @@ function ListingRow({ listing }: { listing: Listing }) {
           <button className="btn btn-ghost btn-sm" onClick={() => setExpanded((v) => !v)}>
             {expanded ? "閉じる" : "詳細設定"}
           </button>
-          {listing.is_active && (
+          {listing.is_active ? (
             <button className="btn btn-ghost btn-sm" onClick={handleUnpublish}>
               取り下げ
+            </button>
+          ) : (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleRepublish}
+              aria-label={`「${listing.name}」を再公開`}
+            >
+              再公開
             </button>
           )}
         </div>
