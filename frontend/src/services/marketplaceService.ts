@@ -1,5 +1,6 @@
 import client from "./apiClient";
 import type {
+  AvatarData,
   CreatorAnalytics,
   EarningsSummary,
   Listing,
@@ -208,6 +209,27 @@ export interface DownloadHistoryEntry {
 export async function getDownloadHistory(limit = 20, offset = 0): Promise<Paginated<DownloadHistoryEntry>> {
   const { data } = await client.get("/api/marketplace/downloads/history", { params: { limit, offset } });
   return data;
+}
+
+// Whether the logged-in user has already downloaded (=owns) this listing.
+// Owning it makes re-download free forever (avatar_marketplace.py sets
+// paid=False for a re-download), which is what gates the delivery UI.
+export async function checkOwnership(listingId: string): Promise<boolean> {
+  const { data } = await client.get(`/api/marketplace/${listingId}/ownership`);
+  return !!data.owned;
+}
+
+// Retrieve the purchased avatar parameters. NOTE: this endpoint is also the
+// direct-purchase path -- it debits credits when the caller does NOT already
+// own a paid listing. Callers must only offer it for owned listings or free
+// ones, so a buyer can never be charged by accident.
+export async function downloadAvatar(listingId: string, promoCode = ""): Promise<AvatarData> {
+  const { data } = await client.post(
+    `/api/marketplace/${listingId}/download`,
+    null,
+    { params: promoCode ? { promo_code: promoCode } : {} },
+  );
+  return data.avatar_data;
 }
 
 export async function getRatingDistribution(listingId: string): Promise<RatingDistribution> {

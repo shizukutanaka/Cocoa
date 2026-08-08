@@ -73,6 +73,40 @@ class TestPublish(unittest.TestCase):
         listing = _listing(store, platform="VRChat")
         self.assertEqual(listing.platform, "vrchat")
 
+    def test_priced_listing_is_not_marked_free(self):
+        """A price must never coexist with is_free=True.
+
+        is_free defaults to True and used to be independent of price_credits,
+        so publishing with only a price produced a listing that DISPLAYED the
+        price but was handed over for free (download() gates payment on
+        `not is_free`) -- the seller earned nothing.
+        """
+        store = _store()
+        listing = _listing(store, price_credits=30)
+        self.assertFalse(listing.is_free)
+        self.assertEqual(listing.price_credits, 30)
+
+    def test_priced_listing_actually_charges(self):
+        store = _store()
+        listing = _listing(store, price_credits=30)
+        store.credit("buyer", 100, "test")
+        data = store.download(listing.listing_id, "buyer")
+        self.assertEqual(data["amount_paid"], 30)
+        self.assertEqual(store.get_balance("buyer"), 70)
+        self.assertEqual(store.get_balance("u1"), 30)
+
+    def test_zero_price_stays_free(self):
+        store = _store()
+        listing = _listing(store, price_credits=0)
+        self.assertTrue(listing.is_free)
+
+    def test_explicit_is_free_cannot_contradict_price(self):
+        """An explicit is_free=True is overridden by a positive price rather
+        than silently giving the work away."""
+        store = _store()
+        listing = _listing(store, price_credits=25, is_free=True)
+        self.assertFalse(listing.is_free)
+
     def test_platform_in_to_dict(self):
         store = _store()
         listing = _listing(store, platform="neos")
@@ -313,6 +347,22 @@ class TestUpdateListing(unittest.TestCase):
         updated = self.store.update_listing(self.listing.listing_id, "u1", is_free=False, price_credits=25)
         self.assertFalse(updated.is_free)
         self.assertEqual(updated.price_credits, 25)
+
+    def test_update_price_forces_is_free_false(self):
+        """Raising the price without touching is_free must start charging."""
+        updated = self.store.update_listing(self.listing.listing_id, "u1", price_credits=40)
+        self.assertFalse(updated.is_free)
+        self.assertEqual(updated.price_credits, 40)
+
+    def test_update_to_zero_price_becomes_free(self):
+        self.store.update_listing(self.listing.listing_id, "u1", price_credits=40)
+        updated = self.store.update_listing(self.listing.listing_id, "u1", price_credits=0)
+        self.assertTrue(updated.is_free)
+
+    def test_update_cannot_mark_priced_listing_free(self):
+        self.store.update_listing(self.listing.listing_id, "u1", price_credits=40)
+        updated = self.store.update_listing(self.listing.listing_id, "u1", is_free=True)
+        self.assertFalse(updated.is_free, "a listing priced 40 must not become free")
 
     def test_non_owner_raises_permission_error(self):
         with self.assertRaises(PermissionError):

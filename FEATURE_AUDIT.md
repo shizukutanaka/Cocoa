@@ -48,6 +48,7 @@
 | 18 | Docker イメージがフロントエンドを含まず、デフォルト CMD が矛盾 | `docker/Dockerfile`は単一ステージで `python main/main.py`（tkinter GUI）をデフォルト起動していた（`docker-compose.yml`側の`command:`上書きで実害は無かったが、`docker run`単体では起動しない）。かつ`frontend/`を一切ビルド・同梱しておらず、#17のStaticFiles配信は空振りする状態だった。node:22-slimでフロントエンドをビルドしpython:3.11-slimにコピーする2段階構成に変更、CMDもuvicorn起動に修正。`docker-compose.yml`の環境変数も実際にコードが読まない変数（`COCOA_SECRET_KEY`/`DATABASE_URL`等、到達不能な`config.py`専用）から実変数（`COCOA_JWT_SECRET`/`DB_HOST`等）に修正し、Postgres/Grafanaのハードコードパスワードも変数化（Grafanaは未設定時に明示的に失敗するよう`:?`必須指定）。存在しない`docker/frontend.Dockerfile`を参照していた別サービスも削除（フロントエンドはapiサービスの単一イメージに統合済みのため）。**検証の限界**: サンドボックスのegressポリシーがDocker Hub（`registry-1.docker.io`）を403で拒否するため、実際の`docker build`は実行できず未検証（`docker compose config`によるYAML/変数解決の検証のみ実施）。パス整合性（`WORKDIR /app` + `COPY main/`/`COPY frontend/dist` が `_FRONTEND_DIST_DIR` の実際の解決先と一致するか）は手動でトレース確認済み | `640fbb3` |
 | 19 | 架空ドメイン `cocoa-avatar.com` のハードコード | 到達不能な2モジュールが、このプロジェクトが所有していないドメインをあたかも実在するインフラのように直書きしていた: `nft_avatar_manager.py`のNFTメタデータ`external_url`が常に`https://cocoa-avatar.com/avatar/{hash}`を返し、`global_edge_manager.py`の`cdn_domains`が`cdn.cocoa-avatar.com`等3つを既定値としていた。前者は`COCOA_NFT_EXTERNAL_URL_BASE`未設定時はフィールド自体を省略（NFTメタデータ仕様上オプショナル）、後者は`COCOA_CDN_DOMAINS`（カンマ区切り）読み込み・未設定時は空リストに変更。「CDN未設定」を正直な既定値とした | `0b9299d` |
 | 20 | フロントエンドのAPIカバレッジが低い（221エンドポイント中25呼び出しのみ） | レビュー投稿/閲覧・注文詳細・ギフトカード購入/交換の3画面が未実装だった。`ListingDetail.tsx`にレビュー一覧+投稿フォーム（`StarRating`コンポーネント）、`me/OrderDetail.tsx`、`me/GiftCards.tsx`（購入/コード交換/自分のカード一覧）を追加。実uvicorn+Playwrightで検証: 未購入リスティングへのレビュー投稿が正しく400（「購入済みのリスティングのみレビューできます」）、購入後は成功（5つ星+テキスト+役に立った投票ボタンが表示、平均評価が更新）、残高超過のギフトカード購入が正しく400（「残高不足」）、許容範囲内では201+一覧に反映、を確認。25→28エンドポイント呼び出しに増加（依然として大部分は未カバー、優先度に応じて継続） | `ca50e0f` |
+| 44 | **買い手が購入した商品を受け取れない**（＋価格を表示したまま無料譲渡される実バグ） | First Principles で「マーケットプレイスが不可欠に満たすループ」を白紙から導出して突き合わせた結果、**買い手ループの中心が欠落**していると判明。Cocoa の商品はアバターパラメータ（本文書1節の意図的スコープ）であり `POST /api/marketplace/{id}/download` が `avatar_data.parameters` として返すが、**フロントに呼び出しが1件も存在しなかった**。決済・注文・ライセンス発行・履歴記録は全て動くのに、買った本人が中身を取得する手段が UI 上に皆無（履歴ページは名前を並べるだけ）。`AvatarData` 型・`checkOwnership`/`downloadAvatar`（どちらも未接続だった）・新規 `ParameterDelivery.tsx`（整形JSON表示＋クリップボードコピー＋`.json`保存＋VRChatツール導線）を追加し、`ListingDetail` と `DownloadHistory` に配線。**取得ボタンは無料になる場合（出品者本人・無料作品・購入済み）のみ表示**し、有料未購入はカート経路のみとして誤課金の第2経路を作らない設計とした。**検証中に実バグを発見**: `is_free` は既定 True で `price_credits` と独立だったため、価格のみ指定して出品すると（Webフォームは両方送るが、APIクライアントは指定しないのが自然）`is_free=True` のまま保存され、`download()` の課金判定 `not listing.is_free` により**価格を表示したまま0クレジットで引き渡され、売り手の収益もゼロ**になっていた（再現: price_credits=30 → amount_paid=0、双方の残高不変）。`is_free` は価格の従属属性であるため `publish_avatar()` で導出し `update_listing()` で再導出するよう修正、回帰テスト7件を追加（うち5件は修正前に失敗することを確認済み）。Playwright検証: 価格のみ指定の出品が `is_free=False` で保存され、購入前は取得ボタンが出ず、カート購入で12cr減算、取得で**出品時と同一のJSON**が表示され、再取得しても残高不変、履歴からも同一JSONを取得。`/api/` 4xx/5xxゼロ、601テスト緑（3件は環境起因の既存エラーで変化なし）、build/lintクリーン | `02a53ad` |
 | 43 | クリエイターのフォロワー/フォロー中一覧UI皆無 | `GET /api/users/{id}/followers`・`.../following`（公開: `public_profile()` の配列を返す）は完成・テスト済みだったがフロント呼び出しがゼロで、クリエイターページはフォロワー数を静的テキスト表示するのみ、閲覧者自身のフォロー一覧からフォローボタンの状態を導出するだけだった。誰がフォローしているか/誰をフォローしているかを閲覧する手段が皆無。`userService`に`getFollowers`/`getFollowing`（`{items,total}`）を追加、`Creator.tsx`のフォロワー数をクリック可能なトグルにし「フォロー中を見る」トグルを追加、双方が開いている間だけマウントされるオンデマンドの`FollowPanel`（アバター・表示名・認証バッジ・@ユーザー名の公開プロフィール行、各行は`/users/:id`へリンク）を展開。`components.css`にリンク風インラインボタン`.text-link-button`を追加。実uvicorn+Playwright検証: API経由でB→A・A→Cのフォローを構築し、Aのページでフォロワーパネルに B・フォロー中パネルに C が表示され、行クリックで当該クリエイターへ遷移。`/api/` 4xx/5xxゼロ、バックエンド変更なし、build/lintクリーン | `e067383` |
 | 42 | パスワードリセット（パスワード忘れ）フローのUI皆無 | `POST /api/auth/password-reset`・`.../confirm` は完成・テスト済みだったがフロント未接続で、パスワードを忘れたユーザーがアカウントを回復する手段が皆無だった（本番マーケットプレイスとしての実質的欠落）。ログインページに「パスワードをお忘れですか？」リンク、新規 `/forgot-password`（メール入力→存在の有無を漏らさない一律応答＝バックエンドの列挙防止設計と一致。開発環境で `COCOA_EXPOSE_RESET_TOKEN=true` 時は dev_token とconfirmページへの直リンクを表示）、新規 `/reset-password`（メールリンクの `?token=` から自動入力・手動編集可＋新パスワード＋確認フィールドでクライアント側不一致チェック→成功時ログインへリダイレクト）。Playwright検証（`COCOA_EXPOSE_RESET_TOKEN=true` の実サーバー）: リンク→リセット申請で dev token 表示→トークン自動入力で進む→新パスワード設定→ログインへリダイレクト、その後**新パスワードは認証成功（200）・旧パスワードは拒否（401）**でパスワードが実際に変更されたことを確認。バックエンド変更なし（225/225）、build/lintクリーン | `0433420` |
 | 41 | ギフトカードの事前確認（lookup）UI皆無 | `GET /api/gift-cards/lookup`（公開: 金額・有効性を購入者情報なしで返す）は完成・テスト済みだったがフロント未接続で、交換者はコードの金額や使用済みかどうかを実際に交換を試みるまで知る手段がなかった。ギフトカードページの交換フォームに「確認」ボタンを追加し、交換前に金額・有効期限を表示（使用済み/無効/期限切れの場合は明確なメッセージ）。lookup で無効が確定した場合は「使用する」ボタンを無効化し、既知の無効コードを送信できないようにした。コード編集時は古いプレビューをクリア。Playwright検証: 新規作成した10クレジットカードをlookupすると「10 クレジット」表示→交換で残高加算、存在しないコードのlookupはエラートースト（想定される404）でクラッシュせず処理。バックエンド変更なし（48/48）、build/lintクリーン | `a5f6f19` |
@@ -127,6 +128,17 @@
 - **注意**: 全ストアが同一のシングルトン + Lock パターンで書かれているため、
   ストアの下に永続化バックエンドを差す移行は機械的に進めやすい。
 
+### 3-5. First Principles 分析で新たに判明した不足（#44 ラウンド、未着手）
+
+3-1〜3-4 が事業判断待ちであるのに対し、以下は**事業判断を要さない実装可能な欠落**。
+
+| 項目 | 内容 | 規模 |
+|---|---|---|
+| **管理・モデレーション UI 皆無** | `/api/admin/*` は **46 エンドポイント**（全224中21%）あるが、`frontend/src` からの呼び出しは**1件もない**。通報裁定（`resolve_report` は `is_active=False` + 検索索引除去まで実装済み）・返金承認（`refund_manager.py` の clawback は堅牢）・紛争解決が、curl でしか実行できない。管理者アカウントは `COCOA_CREATE_DEFAULT_ADMIN`（既定 true, `auth_manager.py`）で自動生成されるため**到達は可能**。信頼ループを閉じる唯一の欠落 | 大（独立ラウンド） |
+| 出品後に編集できない | `marketplaceService.updateListing` がどこからも呼ばれていない。価格・説明・タグの修正手段が UI に存在しない（バックエンドの `update_listing` は完成済み） | 小 |
+| お気に入り機能が未露出 | `addFavorite`/`removeFavorite`/`listFavorites` の3関数が未使用。バックエンド機能ごと UI に無い | 小 |
+| **import 失敗時に 200＋空を返す 55 エンドポイント** | `api_server.py` 冒頭の巨大な `try/except ImportError` 2ブロックが、依存1つの失敗で**ブロック内の全名前を一括で `None`** にする。その結果 55 のエンドポイントが 503 ではなく「200 + 空配列」を返し、**検索・出品・注文が沈黙のうちに空になる**（正しく 503 を返すのは 148）。最も危険な静かな劣化 | 中 |
+
 ---
 
 ## 4. 過剰 — 死んでいる / 余剰な機能
@@ -137,6 +149,13 @@
 `main.py`）からの import 推移閉包を BFS で計算した結果、**60 モジュールがどちらからも
 到達不能**。BCI（脳コンピュータ接続）・ブロックチェーン監査・NFT・メタバース統合・
 エッジ AI・音声クローン・写真→アバター生成などの野心的 R&D 群がこれに含まれる。
+
+> **訂正（#44 ラウンドの再実測）**: 上記は tkinter ランチャー `main.py` を含む閉包での数値。
+> Docker が実際に起動するのは `uvicorn main.api_server:app`（`docker/Dockerfile`）のみであり、
+> **サーバ単独の閉包では生存 32/95（34%）、`main/` の 26,831/52,717 行（51%）が閉包外**。
+> さらに `config_validator`・`grafana_integration`・`i18n_manager`・`main` の4モジュールは
+> tkinter ランチャーからのみ到達可能で、サーバ実行形態では死んでいる。
+> 運用判断にはこのサーバ単独の数値のほうが実態に近い。
 
 再検証用スクリプト（リポジトリルートで実行）:
 
@@ -199,6 +218,9 @@ git rm main/preset_manager.py main/preset_diff_core.py main/preset_schema.py \
 「将来配線されたときの保険」の価値はあるため、即削除ではなく 4-1 の個別精査と
 セットで判断すべき。
 
+> **訂正（#44 ラウンドの再実測）**: 57 ファイル / **844 テスト関数 / 8,291 行**
+> （テスト関数の 27%・行数の 28%）。母数の増加により比率は 32% から低下している。
+
 ### 4-4. ~~虚構の 5 マイクロサービス docker-compose~~（解消済み）
 
 実在しない 5 つの Dockerfile を参照する構成だったが、`0f9a100` で実態
@@ -214,7 +236,7 @@ git rm main/preset_manager.py main/preset_diff_core.py main/preset_schema.py \
 |---|---|---|
 | 3D モデル配布機構の不在 | 重大な欠落 | 意図的スコープ（1 節参照）。README が宣言済み |
 | `preset_history_*` 系 5 ファイル | preset 残骸の仲間 | `if __name__ == "__main__"` を持つ独立 CLI ツール。削除不可 |
-| `billing_service` と `membership_manager` の二重「ティア」 | 概念の重複実装 | 別軸（サブスク課金プラン vs 生涯購入額ロイヤルティ）。統合不要 |
+| `billing_service` と `membership_manager` の二重「ティア」 | 概念の重複実装 | ~~別軸（サブスク課金プラン vs 生涯購入額ロイヤルティ）。統合不要~~ **訂正（#44）**: `billing_service.py`（875行, Stripe サブスク）は**リポジトリ全体で import 元がゼロ**であり、並立設計ではなく単なる死コード。`api_server.py` にコメントで言及されるのみ。生存しているティア実装は `membership_manager` だけ |
 | クレジット台帳（`_credit_ledger`） | in-memory で脆弱 | append 専用 + `verify_ledger_integrity()` による自己整合性検証つき。アプリ層の設計としては健全（永続化の問題は 3-4 に帰着） |
 
 ---

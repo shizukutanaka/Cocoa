@@ -815,6 +815,14 @@ class MarketplaceStore:
             raise ValueError("price_credits must be ≥ 0")
         if price_credits > _MAX_PRICE_CREDITS:
             raise ValueError(f"price_credits must be ≤ {_MAX_PRICE_CREDITS}")
+        # Keep is_free consistent with the price. These were independent inputs
+        # and is_free defaults to True, so a caller that set only price_credits
+        # (any API client -- the web form happens to send both) published a
+        # listing that DISPLAYED a price but was handed over for free:
+        # download() gates payment on `not listing.is_free`, so the buyer paid
+        # nothing and the seller earned nothing. is_free is a property of the
+        # price, so derive it rather than trusting a contradictory flag.
+        is_free = price_credits <= 0
         if len(parameters) > 500:
             raise ValueError("parametersのキー数は500以下にしてください")
         try:
@@ -929,7 +937,11 @@ class MarketplaceStore:
                 if price_credits != listing.price_credits:
                     price_changed = True
                 listing.price_credits = price_credits
-            if is_free is not None and is_free != old_is_free:
+            # Re-derive is_free from the resulting price for the same reason as
+            # publish_avatar(): the two must never disagree, or the listing shows
+            # a price it never charges (or charges a price it shows as free).
+            listing.is_free = listing.price_credits <= 0
+            if listing.is_free != old_is_free:
                 price_changed = True
             if license_type is not None:
                 listing.license_type = license_type

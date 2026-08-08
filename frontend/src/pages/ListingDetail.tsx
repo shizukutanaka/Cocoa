@@ -7,6 +7,8 @@ import { addToCart } from "../services/cartService";
 import * as wishlistService from "../services/wishlistService";
 import { CenterSpinner } from "../components/Spinner";
 import { StarRating } from "../components/StarRating";
+import { ParameterDelivery } from "../components/ParameterDelivery";
+import type { AvatarData } from "../types/api";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
 import { usePageTitle } from "../hooks/usePageTitle";
@@ -24,6 +26,9 @@ export function ListingDetail() {
   const [reportDetails, setReportDetails] = useState("");
   const [reportingListing, setReportingListing] = useState(false);
   const [cloning, setCloning] = useState(false);
+  // Avatar parameters delivered to the buyer, once retrieved.
+  const [delivered, setDelivered] = useState<AvatarData | null>(null);
+  const [retrieving, setRetrieving] = useState(false);
 
   const { data: listing, isLoading, isError } = useQuery({
     queryKey: ["listing", listingId],
@@ -34,6 +39,14 @@ export function ListingDetail() {
   const { data: inWishlist } = useQuery({
     queryKey: ["wishlist-check", listingId],
     queryFn: () => wishlistService.checkWishlist(listingId!),
+    enabled: !!listingId && !!user,
+  });
+
+  // Owning the listing makes retrieval free, which is what unlocks the
+  // delivery button for paid listings.
+  const { data: owned } = useQuery({
+    queryKey: ["ownership", listingId],
+    queryFn: () => marketplaceService.checkOwnership(listingId!),
     enabled: !!listingId && !!user,
   });
 
@@ -62,6 +75,26 @@ export function ListingDetail() {
       show(apiErrorMessage(err, "カートへの追加に失敗しました"), "error");
     } finally {
       setAddingToCart(false);
+    }
+  }
+
+  // Retrieve the avatar parameters. Only ever offered when the download is
+  // free (owner, free listing, or already owned) so this can never charge by
+  // surprise -- paid first-time purchases go through the cart.
+  async function handleRetrieve() {
+    if (!listing) return;
+    setRetrieving(true);
+    try {
+      const data = await marketplaceService.downloadAvatar(listing.listing_id);
+      setDelivered(data);
+      // A first-time free acquisition flips ownership and bumps the counter.
+      queryClient.invalidateQueries({ queryKey: ["ownership", listingId] });
+      queryClient.invalidateQueries({ queryKey: ["listing", listingId] });
+      queryClient.invalidateQueries({ queryKey: ["download-history"] });
+    } catch (err) {
+      show(apiErrorMessage(err, "パラメータの取得に失敗しました"), "error");
+    } finally {
+      setRetrieving(false);
     }
   }
 
@@ -224,6 +257,32 @@ export function ListingDetail() {
           </div>
         )}
         {isOwnListing && <p style={{ color: "var(--muted)" }}>これはあなたが出品したリスティングです。</p>}
+
+        {/* Delivery of the actual product. Shown only when retrieval is free:
+            the owner, a free listing, or a listing the user already bought. */}
+        {user && (isOwnListing || listing.is_free || owned) && (
+          <div style={{ marginTop: 12 }}>
+            <button
+              id="retrieve-parameters"
+              className={owned || isOwnListing ? "btn btn-secondary" : "btn btn-primary"}
+              onClick={handleRetrieve}
+              disabled={retrieving}
+            >
+              {retrieving
+                ? "取得中..."
+                : owned || isOwnListing
+                  ? "パラメータを取得"
+                  : "無料で入手する"}
+            </button>
+            {owned && !isOwnListing && (
+              <p style={{ fontSize: 12, color: "var(--faint)", marginTop: 4 }}>
+                購入済みです。何度でも無料で取得できます。
+              </p>
+            )}
+          </div>
+        )}
+
+        {delivered && <ParameterDelivery data={delivered} onClose={() => setDelivered(null)} />}
 
         {user && marketplaceService.CLONEABLE_LICENSES.includes(listing.license_type) && (
           <div style={{ marginTop: 10 }}>
