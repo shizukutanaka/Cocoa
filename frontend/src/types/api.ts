@@ -532,6 +532,29 @@ export interface PromoLookup {
   listing_id: string;
 }
 
+// Mirrors the dict returned by main/avatar_marketplace.py download() (wrapped
+// as `avatar_data` by POST /api/marketplace/{id}/download). This is the actual
+// product a buyer receives: `parameters` is the avatar parameter set.
+// `amount_paid` is authoritative for THIS download -- 0 for free listings,
+// owner self-downloads, and free re-downloads of an already-owned listing.
+export interface AvatarData {
+  source_listing_id: string;
+  source_avatar_id: string;
+  name: string;
+  parameters: Record<string, unknown>;
+  tags: string[];
+  category: string;
+  thumbnail_url: string;
+  amount_paid: number;
+  seller_id: string;
+  promo_applied?: {
+    code: string;
+    discount_percent: number;
+    original_price: number;
+    actual_price: number;
+  };
+}
+
 // Mirrors main/auth_manager.py User.public_profile() (+followers_count where
 // the endpoint adds it, e.g. /api/users/{id}/profile and storefront.profile)
 export interface PublicProfile {
