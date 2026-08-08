@@ -115,6 +115,13 @@ export async function unpublishListing(listingId: string) {
   await client.delete(`/api/marketplace/${listingId}`);
 }
 
+// Undo an unpublish. Unpublishing only hides the listing (is_active=False) and
+// keeps its reviews, ratings and download history, so the owner must be able to
+// bring it back rather than being forced to create a new listing.
+export async function republishListing(listingId: string) {
+  await client.post(`/api/marketplace/${listingId}/republish`);
+}
+
 export async function getCategories(): Promise<{ items: Array<{ category: string; count: number }>; total: number }> {
   const { data } = await client.get("/api/marketplace/categories");
   return data;

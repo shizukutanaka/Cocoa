@@ -972,6 +972,37 @@ class MarketplaceStore:
             listing.is_active = False
             return True
 
+    def republish(self, listing_id: str, requester_id: str) -> bool:
+        """Re-activate a listing the owner had unpublished.
+
+        unpublish() is a soft hide -- the listing keeps its reviews, ratings,
+        download history and id -- but nothing used to set is_active back to
+        True, so hiding a listing was permanent and the owner's only recourse
+        was to publish a new one and lose all of its accumulated history.
+        """
+        with self._lock:
+            listing = self._listings.get(listing_id)
+            if not listing:
+                return False
+            if listing.owner_id != requester_id:
+                raise PermissionError("Only the owner can republish a listing")
+            listing.is_active = True
+            return True
+
+    def admin_restore(self, listing_id: str) -> bool:
+        """Re-activate a listing regardless of owner (admin/moderator action).
+
+        The counterpart to admin_deactivate(): a moderation takedown has to be
+        reversible, or an incorrect decision permanently destroys a seller's
+        listing along with its reviews and history. Idempotent.
+        """
+        with self._lock:
+            listing = self._listings.get(listing_id)
+            if not listing:
+                return False
+            listing.is_active = True
+            return True
+
     def admin_deactivate(self, listing_id: str) -> bool:
         """Force-deactivate a listing regardless of owner (admin/moderator action).
 

@@ -252,6 +252,62 @@ class TestUnpublish(unittest.TestCase):
             store.set_quota("u1", -1)
 
 
+class TestRepublish(unittest.TestCase):
+    """unpublish() is a soft hide, so it must be reversible -- nothing used to
+    set is_active back to True, which made hiding a listing permanent."""
+
+    def setUp(self):
+        self.store = _store()
+        self.listing = _listing(self.store)
+
+    def test_owner_can_republish_after_unpublish(self):
+        self.store.unpublish(self.listing.listing_id, "u1")
+        self.assertFalse(self.store._listings[self.listing.listing_id].is_active)
+        self.assertTrue(self.store.republish(self.listing.listing_id, "u1"))
+        self.assertTrue(self.store._listings[self.listing.listing_id].is_active)
+
+    def test_republish_preserves_listing_identity_and_history(self):
+        lid = self.listing.listing_id
+        self.store.credit("buyer", 100, "t")
+        self.store.download(lid, "buyer")
+        before = self.store._listings[lid].download_count
+        self.store.unpublish(lid, "u1")
+        self.store.republish(lid, "u1")
+        again = self.store.get_listing(lid)
+        self.assertEqual(again.listing_id, lid)
+        self.assertEqual(again.download_count, before)
+
+    def test_non_owner_cannot_republish(self):
+        self.store.unpublish(self.listing.listing_id, "u1")
+        with self.assertRaises(PermissionError):
+            self.store.republish(self.listing.listing_id, "stranger")
+
+    def test_republish_unknown_listing_returns_false(self):
+        self.assertFalse(self.store.republish("no-such-id", "u1"))
+
+    def test_admin_restore_reverses_a_takedown(self):
+        """A moderation takedown must be reversible by an admin."""
+        lid = self.listing.listing_id
+        self.store.admin_deactivate(lid)
+        self.assertFalse(self.store._listings[lid].is_active)
+        self.assertTrue(self.store.admin_restore(lid))
+        self.assertTrue(self.store._listings[lid].is_active)
+
+    def test_admin_restore_ignores_ownership(self):
+        lid = self.listing.listing_id
+        self.store.admin_deactivate(lid)
+        self.assertTrue(self.store.admin_restore(lid))
+
+    def test_admin_restore_is_idempotent(self):
+        lid = self.listing.listing_id
+        self.assertTrue(self.store.admin_restore(lid))
+        self.assertTrue(self.store.admin_restore(lid))
+        self.assertTrue(self.store._listings[lid].is_active)
+
+    def test_admin_restore_unknown_listing_returns_false(self):
+        self.assertFalse(self.store.admin_restore("no-such-id"))
+
+
 class TestRelatedListings(unittest.TestCase):
     def setUp(self):
         self.store = _store()
