@@ -76,6 +76,26 @@ export async function resolveReviewReport(
   return data;
 }
 
+// --- Seller-level enforcement ---
+
+// Escalation beyond a single takedown. Removing one listing does nothing about
+// a seller who simply publishes again, so enforcement has to be able to act on
+// the account once the record justifies it.
+export async function banUser(userId: string, reason: string) {
+  const { data } = await client.post(`/api/admin/users/${userId}/ban`, { reason });
+  return data;
+}
+
+export async function unbanUser(userId: string) {
+  const { data } = await client.delete(`/api/admin/users/${userId}/ban`);
+  return data;
+}
+
+export async function listBannedUsers(limit = 50, offset = 0) {
+  const { data } = await client.get("/api/admin/users/banned", { params: { limit, offset } });
+  return data as { total: number; items: Array<Record<string, unknown>> };
+}
+
 // --- Creator verification applications ---
 
 export async function listCreatorApplications(

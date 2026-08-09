@@ -2318,7 +2318,15 @@ class MarketplaceStore:
             return report
 
     def get_reports(self, status: Optional[str] = None, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
-        """List moderation reports, optionally filtered by status (admin)."""
+        """List moderation reports, optionally filtered by status (admin).
+
+        Each item is enriched with the reported listing's owner and that
+        owner's standing record. Enforcement guidance is consistent that
+        repeat offenders are only visible when a seller's history is
+        considered rather than each report in isolation -- and a moderator
+        cannot assemble that client-side, because a taken-down listing is no
+        longer publicly readable.
+        """
         with self._lock:
             items = list(self._reports.values())
             if status:
@@ -2327,7 +2335,33 @@ class MarketplaceStore:
             total = len(items)
             offset, limit = normalize_pagination(offset, limit)
             page = items[offset: offset + limit]
-            serialized = [r.to_dict() for r in page]
+
+            # Owner history is computed across ALL reports, not just this page,
+            # so paging never changes a seller's apparent record. "upheld"
+            # counts reports a moderator actually actioned (resolved), which is
+            # the strike count; dismissed reports deliberately do not count, so
+            # a rival filing reports cannot manufacture strikes.
+            history: Dict[str, Dict[str, int]] = {}
+            for rep in self._reports.values():
+                lst = self._listings.get(rep.listing_id)
+                if not lst:
+                    continue
+                h = history.setdefault(lst.owner_id, {"reports_total": 0, "upheld_total": 0})
+                h["reports_total"] += 1
+                if rep.status == "resolved":
+                    h["upheld_total"] += 1
+
+            serialized = []
+            for rep in page:
+                d = rep.to_dict()
+                lst = self._listings.get(rep.listing_id)
+                if lst:
+                    d["listing_name"] = lst.name
+                    d["listing_is_active"] = lst.is_active
+                    d["owner_id"] = lst.owner_id
+                    d["owner_username"] = lst.owner_username
+                    d["owner_history"] = dict(history.get(lst.owner_id, {"reports_total": 0, "upheld_total": 0}))
+                serialized.append(d)
         has_more = offset + limit < total
         return {
             "total": total,

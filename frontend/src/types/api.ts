@@ -473,7 +473,9 @@ export interface RefundRequestRecord {
   resolved_at: string | null;
 }
 
-// Mirrors main/avatar_marketplace.py ListingReport.to_dict()
+// Mirrors main/avatar_marketplace.py ListingReport.to_dict(), plus the fields
+// get_reports() adds server-side: the reported listing's owner and that
+// owner's standing record. These are absent when the listing no longer exists.
 export interface ListingReport {
   report_id: string;
   listing_id: string;
@@ -485,6 +487,13 @@ export interface ListingReport {
   resolution_note: string;
   created_at: string;
   resolved_at: string | null;
+  listing_name?: string;
+  listing_is_active?: boolean;
+  owner_id?: string;
+  owner_username?: string;
+  // upheld_total is the strike count: dismissed reports are excluded so a
+  // rival cannot manufacture strikes by filing reports.
+  owner_history?: { reports_total: number; upheld_total: number };
 }
 
 // Mirrors main/avatar_marketplace.py ReviewReport.to_dict()

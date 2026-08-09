@@ -1298,6 +1298,61 @@ class TestCreatorAnalytics(unittest.TestCase):
         self.assertIsNone(a["top_listing"])
 
 
+class TestReportOwnerHistory(unittest.TestCase):
+    """get_reports() must expose the reported listing's owner and that owner's
+    standing record, so repeat offenders are visible to a moderator instead of
+    each report being judged in isolation."""
+
+    def setUp(self):
+        self.store = _store()
+        self.a1 = _listing(self.store, avatar_id="a1", name="A one")
+        self.a2 = _listing(self.store, avatar_id="a2", name="A two")
+        # A second seller, to prove counts do not leak across owners.
+        self.b1 = _listing(self.store, avatar_id="b1", owner_id="u2",
+                           owner_username="bob", name="B one")
+
+    def test_report_carries_owner_identity(self):
+        self.store.report_listing(self.a1.listing_id, "reporter", "spam", "x")
+        item = self.store.get_reports()["items"][0]
+        self.assertEqual(item["owner_id"], "u1")
+        self.assertEqual(item["owner_username"], "alice")
+        self.assertEqual(item["listing_name"], "A one")
+
+    def test_history_counts_across_the_owners_listings(self):
+        self.store.report_listing(self.a1.listing_id, "r1", "spam", "")
+        self.store.report_listing(self.a2.listing_id, "r2", "copyright", "")
+        item = self.store.get_reports()["items"][0]
+        self.assertEqual(item["owner_history"]["reports_total"], 2)
+
+    def test_only_upheld_reports_count_as_strikes(self):
+        """Dismissed reports must not become strikes, or a rival could
+        manufacture a ban by filing reports that a moderator throws out."""
+        r1 = self.store.report_listing(self.a1.listing_id, "r1", "spam", "")
+        r2 = self.store.report_listing(self.a2.listing_id, "r2", "spam", "")
+        self.store.resolve_report(r1.report_id, "mod", "resolved", "upheld")
+        self.store.resolve_report(r2.report_id, "mod", "dismissed", "not a problem")
+        item = self.store.get_reports()["items"][0]
+        self.assertEqual(item["owner_history"]["reports_total"], 2)
+        self.assertEqual(item["owner_history"]["upheld_total"], 1)
+
+    def test_history_does_not_bleed_between_owners(self):
+        self.store.report_listing(self.a1.listing_id, "r1", "spam", "")
+        self.store.report_listing(self.b1.listing_id, "r2", "spam", "")
+        by_owner = {i["owner_id"]: i["owner_history"] for i in self.store.get_reports()["items"]}
+        self.assertEqual(by_owner["u1"]["reports_total"], 1)
+        self.assertEqual(by_owner["u2"]["reports_total"], 1)
+
+    def test_history_survives_takedown(self):
+        """The record must remain readable after the listing is taken down --
+        that is exactly when a moderator needs it."""
+        r = self.store.report_listing(self.a1.listing_id, "r1", "malware", "")
+        self.store.resolve_report(r.report_id, "mod", "resolved", "removed", takedown=True)
+        item = self.store.get_reports(status="resolved")["items"][0]
+        self.assertEqual(item["owner_id"], "u1")
+        self.assertFalse(item["listing_is_active"])
+        self.assertEqual(item["owner_history"]["upheld_total"], 1)
+
+
 class TestModeration(unittest.TestCase):
     def setUp(self):
         self.store = _store()

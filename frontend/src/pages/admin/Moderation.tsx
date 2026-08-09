@@ -180,10 +180,25 @@ function ListingReportsTab() {
                     )}
                     <EditedSinceReport listingId={r.listing_id} reportedAt={r.created_at} />
                     <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
-                      <ListingName listingId={r.listing_id} /> · 通報者{" "}
+                      {r.listing_name ? (
+                        <Link to={`/listings/${r.listing_id}`}>
+                          {r.listing_name}
+                          {r.listing_is_active === false && "（取り下げ済み）"}
+                        </Link>
+                      ) : (
+                        <ListingName listingId={r.listing_id} />
+                      )}
+                      {r.owner_username && (
+                        <>
+                          {" · 出品者 "}
+                          <Link to={`/users/${r.owner_id}`}>{r.owner_username}</Link>
+                        </>
+                      )}
+                      {" · 通報者 "}
                       <ReporterName userId={r.reporter_id} /> ·{" "}
                       {new Date(r.created_at).toLocaleString("ja-JP")}
                     </div>
+                    <SellerRecord report={r} />
                     {r.details && (
                       <div style={{ fontSize: 13, marginTop: 6, whiteSpace: "pre-wrap" }}>{r.details}</div>
                     )}
@@ -218,6 +233,13 @@ function ListingReportsTab() {
                     取り下げる
                   </button>
                   <RestoreButton listingId={r.listing_id} />
+                  {r.owner_id && (
+                    <BanSellerButton
+                      ownerId={r.owner_id}
+                      ownerName={r.owner_username ?? r.owner_id}
+                      upheld={r.owner_history?.upheld_total ?? 0}
+                    />
+                  )}
                 </div>
               </div>
             ))}
@@ -529,6 +551,76 @@ function ListingName({ listingId }: { listingId: string }) {
       {data.name}
       {!data.is_active && "（取り下げ済み）"}
     </Link>
+  );
+}
+
+/**
+ * The seller's standing record, shown on every report.
+ *
+ * Enforcement guidance is consistent that repeat offenders only become visible
+ * when a seller's history is considered rather than each report in isolation --
+ * removing one listing does nothing about an account that simply publishes
+ * again. `upheld` counts only reports a moderator actioned, so reports that
+ * were thrown out never accumulate against the seller.
+ */
+function SellerRecord({ report }: { report: ListingReport }) {
+  const h = report.owner_history;
+  if (!h || h.reports_total <= 1) return null;
+  const repeat = h.upheld_total >= 2;
+  return (
+    <div style={{ fontSize: 13, marginTop: 4 }}>
+      <span className={repeat ? "badge badge-warning" : "badge"}>
+        この出品者: 通報 {h.reports_total} 件 / 是認 {h.upheld_total} 件
+      </span>
+      {repeat && (
+        <span style={{ marginLeft: 8, color: "var(--muted)" }}>
+          複数回の違反が確認されています。アカウント単位の対応を検討してください。
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Escalate from the listing to the account once the record justifies it. */
+function BanSellerButton({
+  ownerId,
+  ownerName,
+  upheld,
+}: {
+  ownerId: string;
+  ownerName: string;
+  upheld: number;
+}) {
+  const { show } = useToast();
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+
+  async function handleBan() {
+    const reason = window.prompt(
+      `「${ownerName}」のアカウントを停止します。\n是認済みの違反: ${upheld} 件\n\n停止の理由を入力してください（記録に残ります）`,
+      "",
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      show("停止の理由を入力してください", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      await adminService.banUser(ownerId, reason.trim());
+      show(`${ownerName} のアカウントを停止しました`);
+      queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
+    } catch (err) {
+      show(apiErrorMessage(err, "アカウント停止に失敗しました"), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button className="btn btn-ghost btn-sm" onClick={handleBan} disabled={busy}>
+      出品者を停止
+    </button>
   );
 }
 
