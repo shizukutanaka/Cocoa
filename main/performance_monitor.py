@@ -106,6 +106,24 @@ class PerformanceMonitor:
 
     HISTORY_METRICS = ("memory", "cpu", "disk_io", "process_memory", "network_io")
 
+    def _cfg_float(self, key: str, default: float) -> float:
+        """設定値を float に変換する。不正な値はデフォルトへフォールバック。"""
+        value = self.config.get(key, default)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            logger.warning("設定 %s の値が不正です (%r)。デフォルト %r を使用します", key, value, default)
+            return float(default)
+
+    def _cfg_int(self, key: str, default: int) -> int:
+        """設定値を int に変換する。不正な値はデフォルトへフォールバック。"""
+        value = self.config.get(key, default)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            logger.warning("設定 %s の値が不正です (%r)。デフォルト %r を使用します", key, value, default)
+            return int(default)
+
     def __init__(self, config: Optional[Dict[str, Any]] = None, *, log_component: str = "performance_monitor") -> None:
         """PerformanceMonitorを初期化します。
 
@@ -134,11 +152,14 @@ class PerformanceMonitor:
         - history_sizeは1以上である必要があります
         """
         self.config: Dict[str, Any] = dict(config or {})
-        self.interval: float = max(float(self.config.get("interval", 5.0)), 0.5)
-        self.history_size: int = max(1, int(self.config.get("history_size", 120)))
+        self.interval: float = max(self._cfg_float("interval", 5.0), 0.5)
+        self.history_size: int = max(1, self._cfg_int("history_size", 120))
         self._use_adaptive_interval: bool = bool(self.config.get("adaptive_interval", False))
-        self._interval_min: float = max(0.5, float(self.config.get("interval_min", self.interval)))
-        self._interval_max: float = max(self._interval_min, float(self.config.get("interval_max", max(self.interval, self.interval * 3))))
+        self._interval_min: float = max(0.5, self._cfg_float("interval_min", self.interval))
+        self._interval_max: float = max(
+            self._interval_min,
+            self._cfg_float("interval_max", max(self.interval, self.interval * 3)),
+        )
         self._current_interval: float = self.interval
 
         # 言語とタイムゾーン設定
@@ -146,18 +167,18 @@ class PerformanceMonitor:
         self._timezone: str = self.config.get("timezone", "UTC")
 
         self.thresholds: Dict[str, float] = {
-            "memory": float(self.config.get("memory_threshold", self.DEFAULT_THRESHOLDS["memory"])),
-            "cpu": float(self.config.get("cpu_threshold", self.DEFAULT_THRESHOLDS["cpu"])),
-            "disk_io": float(self.config.get("disk_io_threshold", self.DEFAULT_THRESHOLDS["disk_io"])),
-            "process_memory": float(
-                self.config.get("process_memory_threshold", self.DEFAULT_THRESHOLDS["process_memory"])
+            "memory": self._cfg_float("memory_threshold", self.DEFAULT_THRESHOLDS["memory"]),
+            "cpu": self._cfg_float("cpu_threshold", self.DEFAULT_THRESHOLDS["cpu"]),
+            "disk_io": self._cfg_float("disk_io_threshold", self.DEFAULT_THRESHOLDS["disk_io"]),
+            "process_memory": self._cfg_float(
+                "process_memory_threshold", self.DEFAULT_THRESHOLDS["process_memory"]
             ),
         }
 
         self.alert_config: Dict[str, Any] = {
             "enabled": bool(self.config.get("alert_enabled", self.DEFAULT_ALERT_CONFIG["enabled"])),
-            "trigger_count": max(1, int(self.config.get("alert_threshold", self.DEFAULT_ALERT_CONFIG["trigger_count"]))),
-            "cooldown": max(0.0, float(self.config.get("alert_cooldown", self.DEFAULT_ALERT_CONFIG["cooldown"]))),
+            "trigger_count": max(1, self._cfg_int("alert_threshold", self.DEFAULT_ALERT_CONFIG["trigger_count"])),
+            "cooldown": max(0.0, self._cfg_float("alert_cooldown", self.DEFAULT_ALERT_CONFIG["cooldown"])),
         }
 
         self.metrics_history: Dict[str, Deque[HistorySample]] = self._create_history_buffers(self.history_size)
