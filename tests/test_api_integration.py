@@ -52,6 +52,16 @@ with patch('integrated_security.get_security_manager', return_value=mock_securit
         WorkflowTrigger,
     )
 
+# Drop the stubs that shadow real project modules (main/video_creator.py,
+# main/template_library.py). Leaving them in sys.modules leaks into the rest
+# of the test session and makes tests/test_video_creator.py and
+# tests/test_template_library_manager.py fail to import their real symbols
+# ("cannot import name ... (unknown location)") when the whole suite runs.
+for _leaked, _stub in (('video_creator', vc_stub), ('template_library', tl_stub),
+                       ('integrated_security', is_stub)):
+    if sys.modules.get(_leaked) is _stub:
+        del sys.modules[_leaked]
+
 
 class TestIntegrationConfig(unittest.TestCase):
     """Tests for IntegrationConfig dataclass"""

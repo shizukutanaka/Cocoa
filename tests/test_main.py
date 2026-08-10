@@ -5,9 +5,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "main"))
+# Cocoa's tests load `main/<module>.py` by file path (see conftest._load_main_attr)
+# rather than as a package, because `main/` has no __init__.py and individual
+# tests insert main/ into sys.path (which shadows the `main` name). Mirror that
+# pattern here instead of `from main import CocoaLauncher`.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import importlib.util as _ilu
 
-from main import CocoaLauncher
+_spec = _ilu.spec_from_file_location("_cocoa_test_main", os.path.join(os.path.dirname(__file__), "..", "main", "main.py"))
+_main_mod = _ilu.module_from_spec(_spec)
+sys.modules["_cocoa_test_main"] = _main_mod
+_spec.loader.exec_module(_main_mod)
+CocoaLauncher = _main_mod.CocoaLauncher
 
 
 class TestCocoaLauncherInit(unittest.TestCase):

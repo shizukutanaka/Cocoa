@@ -22,9 +22,20 @@ try:
     from error_recovery_system import ErrorRecoverySystem
     from performance_manager import HealthStatus, MetricType, PerformanceMonitor
     from security_manager import SecurityManager
-except ImportError as e:
-    print(f"テスト対象モジュールのインポートエラー: {e}")
-    sys.exit(1)
+except ImportError as e:  # pragma: no cover - environment dependent
+    # Never sys.exit() at import time: under pytest that aborts the whole
+    # collection run (INTERNALERROR: SystemExit) instead of skipping this
+    # single module. Skip cleanly when the optional modules are unavailable.
+    try:
+        import pytest
+
+        pytest.skip(
+            f"テスト対象モジュールのインポートエラー: {e}",
+            allow_module_level=True,
+        )
+    except ImportError:
+        print(f"テスト対象モジュールのインポートエラー: {e}")
+        raise SystemExit(1) from e
 
 # テストロガー設定
 logging.basicConfig(level=logging.INFO)

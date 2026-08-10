@@ -60,14 +60,14 @@ class CocoaLauncher:
 
     def validate_config(self):
         """設定ファイルを検証"""
+        config_path = self.project_root / 'config' / 'config.json'
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+
         try:
             from config_validator import ConfigValidator
         except ImportError as e:
             raise ImportError("ConfigValidator module not found") from e
-
-        config_path = self.project_root / 'config' / 'config.json'
-        if not config_path.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
 
         validator = ConfigValidator()
         return validator.validate(str(config_path))

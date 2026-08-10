@@ -17,9 +17,49 @@ import pytest
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+# `main` を先にパッケージとして取り込んでおく。
+# 個々のテストが main/ を sys.path 先頭へ挿入するため、後から import すると
+# main/main.py が `main` を横取りし "'main' is not a package" になる。
+try:  # pragma: no cover - 環境依存
+    import importlib as _importlib
+
+    if "main" not in sys.modules:
+        _importlib.import_module("main")
+except Exception:
+    pass
+
 # テスト環境の設定
 os.environ['ENVIRONMENT'] = 'test'
 os.environ['LOG_LEVEL'] = 'DEBUG'
+
+
+def _load_main_attr(module_name: str, attr: str):
+    """main/<module_name>.py から attr を安全に取得する。
+
+    多くのテストが main/ を sys.path 先頭に挿入するため、通常の
+    ``import main.xxx`` は main/main.py に横取りされて失敗する。
+    ファイルパス指定でロードしてこの衝突を回避する。
+    """
+    import importlib.util
+
+    cached = sys.modules.get(f"_cocoa_conftest_{module_name}")
+    if cached is None:
+        path = project_root / "main" / f"{module_name}.py"
+        if not path.exists():
+            return None
+        spec = importlib.util.spec_from_file_location(
+            f"_cocoa_conftest_{module_name}", path
+        )
+        if spec is None or spec.loader is None:
+            return None
+        cached = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = cached
+        try:
+            spec.loader.exec_module(cached)
+        except Exception:
+            sys.modules.pop(spec.name, None)
+            return None
+    return getattr(cached, attr, None)
 
 
 # ==================== Session Fixtures ====================
@@ -172,11 +212,29 @@ def reset_globals():
     """グローバル状態をリセット"""
     yield
     # テスト後のリセット処理
-    from main.dependency_injection import init_container
-    from main.logging_config import set_correlation_id
-
-    init_container()
-    set_correlation_id(None)
+    #
+    # 多くのテストが main/ ディレクトリを sys.path の先頭に挿入するため、
+    # そのままだと `main` が main/main.py として解決され
+    # "No module named 'main.dependency_injection'; 'main' is not a package"
+    # になる。プロジェクトルートを一時的に最優先にして解決する。
+    root = str(project_root)
+    shadow = sys.modules.get("main")
+    if shadow is not None and not hasattr(shadow, "__path__"):
+        # main/main.py が sys.path 経由で `main` を占有している場合は退避
+        del sys.modules["main"]
+    sys.path.insert(0, root)
+    try:
+        init_container = _load_main_attr("dependency_injection", "init_container")
+        set_correlation_id = _load_main_attr("logging_config", "set_correlation_id")
+        if init_container is not None:
+            init_container()
+        if set_correlation_id is not None:
+            set_correlation_id(None)
+    finally:
+        try:
+            sys.path.remove(root)
+        except ValueError:
+            pass
 
 
 def pytest_collection_modifyitems(config, items):
