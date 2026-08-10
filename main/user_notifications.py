@@ -180,7 +180,10 @@ class NotificationQueue:
             items = list(self._queues.get(user_id, []))
             if unread_only:
                 items = [n for n in items if not n.is_read]
-            items.sort(key=lambda n: n.created_at, reverse=True)
+            # Tie-break on the monotonically increasing notification_id so that
+            # notifications created within the same clock tick (coarse timer
+            # resolution on Windows) still come back newest-first.
+            items.sort(key=lambda n: (n.created_at, n.notification_id), reverse=True)
             total = len(items)
             offset, limit = normalize_pagination(offset, limit)
             page = items[offset: offset + limit]
