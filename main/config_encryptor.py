@@ -183,10 +183,8 @@ class ConfigEncryptor:
             for key, value in d.items():
                 key_lower = key.lower()
                 if any(sensitive in key_lower for sensitive in sensitive_keys):
-                    if isinstance(value, str):
-                        masked[key] = f"***{'*' * max(0, len(value) - 6)}***"
-                    else:
-                        masked[key] = "***MASKED***"
+                    # 元の値の長さを漏らさないよう固定文字列でマスクする
+                    masked[key] = "***MASKED***"
                 elif isinstance(value, dict):
                     masked[key] = mask_dict(value)
                 elif isinstance(value, list):

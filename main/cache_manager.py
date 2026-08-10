@@ -204,10 +204,11 @@ class CacheManager:
             ttl_seconds=config.get('memory_cache_ttl', 300)
         )
 
+        file_cache_dir = config.get('file_cache_dir', 'cache')
         self.file_cache = FileCache(
-            cache_dir=config.get('file_cache_dir', 'cache'),
+            cache_dir=file_cache_dir,
             ttl_seconds=config.get('file_cache_ttl', 3600)
-        )
+        ) if file_cache_dir is not None else None
 
         # キャッシュ戦略設定
         self.cache_strategy = config.get('cache_strategy', 'memory_first')  # memory_first, file_only, hybrid
@@ -220,7 +221,7 @@ class CacheManager:
             return value
 
         # ファイルキャッシュから取得
-        if self.cache_strategy in ['file_only', 'hybrid']:
+        if self.file_cache is not None and self.cache_strategy in ['file_only', 'hybrid']:
             value = self.file_cache.get(key)
             if value is not None:
                 # メモリキャッシュにも保存（次回アクセス高速化）
@@ -235,12 +236,15 @@ class CacheManager:
         self.memory_cache.set(key, value)
 
         # ファイルキャッシュにも保存する場合
-        if use_file_cache or self.cache_strategy == 'file_only':
+        if self.file_cache is not None and (use_file_cache or self.cache_strategy == 'file_only'):
             self.file_cache.set(key, value)
 
     def invalidate(self, key: str) -> None:
         """キャッシュからキーを削除"""
         self.memory_cache.delete(key)
+
+        if self.file_cache is None:
+            return
 
         cache_path = self.file_cache._get_cache_path(key)
         if cache_path.exists():
@@ -252,7 +256,8 @@ class CacheManager:
     def clear_all(self) -> None:
         """全てのキャッシュをクリア"""
         self.memory_cache.clear()
-        self.file_cache.clear()
+        if self.file_cache is not None:
+            self.file_cache.clear()
 
     def get_stats(self) -> Dict[str, Any]:
         """キャッシュ統計情報を取得"""
@@ -262,7 +267,7 @@ class CacheManager:
                 'cache_dir': str(self.file_cache.cache_dir),
                 'ttl_seconds': self.file_cache.ttl_seconds,
                 'file_count': len(list(self.file_cache.cache_dir.glob("*.cache")))
-            },
+            } if self.file_cache is not None else {'enabled': False},
             'strategy': self.cache_strategy
         }
 
@@ -402,10 +407,11 @@ class AsyncCacheManager:
             ttl_seconds=config.get('memory_cache_ttl', 300)
         )
 
+        file_cache_dir = config.get('file_cache_dir', 'cache')
         self.file_cache = FileCache(
-            cache_dir=config.get('file_cache_dir', 'cache'),
+            cache_dir=file_cache_dir,
             ttl_seconds=config.get('file_cache_ttl', 3600)
-        )
+        ) if file_cache_dir is not None else None
 
         # キャッシュ戦略設定
         self.cache_strategy = config.get('cache_strategy', 'memory_first')
@@ -418,7 +424,7 @@ class AsyncCacheManager:
             return value
 
         # ファイルキャッシュから取得
-        if self.cache_strategy in ['file_only', 'hybrid']:
+        if self.file_cache is not None and self.cache_strategy in ['file_only', 'hybrid']:
             value = self.file_cache.get(key)
             if value is not None:
                 # メモリキャッシュにも保存（次回アクセス高速化）
@@ -433,7 +439,7 @@ class AsyncCacheManager:
         await self.memory_cache.set(key, value)
 
         # ファイルキャッシュにも保存する場合
-        if use_file_cache or self.cache_strategy == 'file_only':
+        if self.file_cache is not None and (use_file_cache or self.cache_strategy == 'file_only'):
             self.file_cache.set(key, value)
 
 

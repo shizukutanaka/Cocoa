@@ -21,6 +21,7 @@ import logging
 import secrets
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 class SecurityLevel(Enum):
     """セキュリティレベル"""
     BALANCED = "balanced"      # 一般用途: N=2^14
+    STANDARD = "balanced"      # BALANCED のエイリアス（互換名）
     HIGH = "high"              # 機密データ: N=2^16
     CRITICAL = "critical"      # 最重要データ: N=2^20
 
@@ -35,9 +37,9 @@ class SecurityLevel(Enum):
 @dataclass
 class ScryptParams:
     """Scryptパラメータ"""
-    n: int  # CPU/メモリコスト (2の累乗)
-    r: int  # ブロックサイズ
-    p: int  # 並列化パラメータ
+    n: int = 2**14  # CPU/メモリコスト (2の累乗)
+    r: int = 8      # ブロックサイズ
+    p: int = 1      # 並列化パラメータ
 
     @property
     def memory_cost_kb(self) -> int:
@@ -84,7 +86,7 @@ class EnhancedDataEncryptor:
 
     def __init__(
         self,
-        password: str,
+        password: Optional[str] = None,
         security_level: SecurityLevel = SecurityLevel.BALANCED
     ):
         """
@@ -94,12 +96,9 @@ class EnhancedDataEncryptor:
             password: マスターパスワード
             security_level: セキュリティレベル
         """
-        if len(password) < ScryptConfig.MIN_PASSWORD_LENGTH:
-            raise ValueError(
-                f"Password must be at least {ScryptConfig.MIN_PASSWORD_LENGTH} characters"
-            )
-
-        self.password = password.encode('utf-8')
+        self.password = (
+            self._encode_password(password) if password is not None else None
+        )
         self.security_level = security_level
         self.params = ScryptConfig.get_params(security_level)
 
@@ -108,7 +107,24 @@ class EnhancedDataEncryptor:
             f"(N={self.params.n}, memory~{self.params.memory_cost_kb}KB)"
         )
 
-    def derive_key(self, salt: bytes) -> bytes:
+    @staticmethod
+    def _encode_password(password: str) -> bytes:
+        """パスワードを検証してバイト列へ変換"""
+        if len(password) < ScryptConfig.MIN_PASSWORD_LENGTH:
+            raise ValueError(
+                f"Password must be at least {ScryptConfig.MIN_PASSWORD_LENGTH} characters"
+            )
+        return password.encode('utf-8')
+
+    def _resolve_password(self, password: Optional[str]) -> bytes:
+        """呼び出し時パスワード優先で使用するパスワードを決定"""
+        if password is not None:
+            return self._encode_password(password)
+        if self.password is None:
+            raise ValueError("Password is required (not provided at init or call)")
+        return self.password
+
+    def derive_key(self, salt: bytes, password: Optional[str] = None) -> bytes:
         """
         Scryptで鍵導出
 
@@ -128,12 +144,12 @@ class EnhancedDataEncryptor:
         )
 
         try:
-            return kdf.derive(self.password)
+            return kdf.derive(self._resolve_password(password))
         except Exception as e:
             logger.error(f"Key derivation failed: {e}")
             raise
 
-    def encrypt(self, plaintext: bytes) -> bytes:
+    def encrypt(self, plaintext: bytes, password: Optional[str] = None) -> bytes:
         """
         データを暗号化
 
@@ -151,9 +167,9 @@ class EnhancedDataEncryptor:
             nonce = secrets.token_bytes(ScryptConfig.NONCE_LENGTH)
 
             # Scryptで鍵導出
-            key = self.derive_key(salt)
+            key = self.derive_key(salt, password)
 
-            # AES-256-GCMで暗号化
+            # AES-256-GCMで復号化
             aesgcm = AESGCM(key)
             ciphertext_with_tag = aesgcm.encrypt(nonce, plaintext, None)
 
@@ -171,7 +187,7 @@ class EnhancedDataEncryptor:
             logger.error(f"Encryption failed: {e}")
             raise
 
-    def decrypt(self, encrypted_data: bytes) -> bytes:
+    def decrypt(self, encrypted_data: bytes, password: Optional[str] = None) -> bytes:
         """
         データを復号化
 
@@ -206,7 +222,7 @@ class EnhancedDataEncryptor:
             ]
 
             # Scryptで鍵導出
-            key = self.derive_key(salt)
+            key = self.derive_key(salt, password)
 
             # AES-256-GCMで復号化（認証タグ検証含む）
             aesgcm = AESGCM(key)
@@ -222,13 +238,13 @@ class EnhancedDataEncryptor:
             logger.error(f"Decryption failed: {e}")
             raise
 
-    def encrypt_string(self, plaintext: str) -> bytes:
+    def encrypt_string(self, plaintext: str, password: Optional[str] = None) -> bytes:
         """文字列を暗号化"""
-        return self.encrypt(plaintext.encode('utf-8'))
+        return self.encrypt(plaintext.encode('utf-8'), password)
 
-    def decrypt_string(self, encrypted_data: bytes) -> str:
+    def decrypt_string(self, encrypted_data: bytes, password: Optional[str] = None) -> str:
         """暗号化文字列を復号化"""
-        return self.decrypt(encrypted_data).decode('utf-8')
+        return self.decrypt(encrypted_data, password).decode('utf-8')
 
     def change_security_level(self, new_level: SecurityLevel):
         """

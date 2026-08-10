@@ -36,7 +36,13 @@ class EncryptedFileHandler(logging.handlers.RotatingFileHandler):
             logger.warning("cryptographyライブラリが利用できないため、暗号化を無効化します")
             self.fernet = None
 
-        super().__init__(filename, maxBytes, backupCount, encoding, delay)
+        super().__init__(
+            filename,
+            maxBytes=maxBytes,
+            backupCount=backupCount,
+            encoding=encoding,
+            delay=delay,
+        )
 
     def emit(self, record):
         if self.fernet:
@@ -121,7 +127,8 @@ class LoggingManager:
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """ログ管理システムを初期化"""
         self.config = config or {}
-        self.log_dir = Path(self.config.get("log_dir", "logs"))
+        # log_dir に None が明示指定された場合もデフォルトへフォールバック
+        self.log_dir = Path(self.config.get("log_dir") or "logs")
         self.log_level = self.config.get("log_level", "INFO")
         self.max_bytes = self.config.get("max_bytes", 10 * 1024 * 1024)  # 10MB
         self.backup_count = self.config.get("backup_count", 5)
