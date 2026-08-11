@@ -1894,8 +1894,10 @@ class QuantumSafeManager:
             # PQ Crystals Dilithium実装
             pass
         else:
-            # フォールバック: ECDSAを使用
-            return hashlib.sha256(message).digest()
+            # フォールバック: 鍵付きハッシュ。鍵を含まない sha256(message) では
+            # (a) _dilithium_verify が鍵付きの期待値と比較するため検証が常に
+            # 失敗し、(b) 誰でも再計算できるため署名の体をなさなかった。
+            return await self._fallback_sign(message, signer_key)
         return None
 
     async def _fallback_sign(self, message: bytes, signer_key: QuantumKeyPair) -> bytes:
