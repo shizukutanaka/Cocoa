@@ -240,5 +240,57 @@ class TestSignatureComparisonConstantTime(unittest.TestCase):
         )
 
 
+class TestQuantumSafeManagerFallback(unittest.IsolatedAsyncioTestCase):
+    """Execution-level cover for the liboqs-absent fallback path.
+
+    The pre-existing tests only inspected the source text, so a fallback that
+    raised AttributeError or never verified still read as green.
+    """
+
+    async def asyncSetUp(self):
+        from integrated_security import QuantumSafeManager
+        self.mgr = QuantumSafeManager()
+        await self.mgr._initialize_fallback_algorithms()
+
+    async def test_fallback_algorithms_are_callable(self):
+        self.assertTrue(all(callable(f) for f in self.mgr.fallback_algorithms.values()))
+
+    async def test_keypair_sizes(self):
+        for algorithm, size in (("Kyber768", 1184), ("Dilithium3", 1472),
+                                ("Falcon512", 897), ("SPHINCS256", 1280)):
+            with self.subTest(algorithm=algorithm):
+                public, private = await self.mgr._generate_fallback_keypair(algorithm)
+                self.assertEqual((len(public), len(private)), (size, size * 2))
+
+    async def test_unknown_algorithm_raises(self):
+        with self.assertRaises(ValueError):
+            await self.mgr._generate_fallback_keypair("NoSuchAlgorithm")
+
+    async def test_encrypt_decrypt_roundtrip(self):
+        key = await self.mgr.generate_quantum_keypair("Kyber768")
+        ciphertext = await self.mgr.quantum_safe_encrypt(b"cocoa", key.key_id)
+        self.assertIsInstance(ciphertext, bytes)  # un-awaited coroutine regression
+        self.assertEqual(await self.mgr.quantum_safe_decrypt(ciphertext, key.key_id), b"cocoa")
+
+    async def test_sign_verify_roundtrip(self):
+        for algorithm in ("Dilithium3", "Falcon512", "SPHINCS256"):
+            with self.subTest(algorithm=algorithm):
+                key = await self.mgr.generate_quantum_keypair(algorithm)
+                signature = await self.mgr.create_quantum_signature(b"msg", key.key_id)
+                self.assertTrue(await self.mgr.verify_quantum_signature(b"msg", signature))
+                self.assertFalse(await self.mgr.verify_quantum_signature(b"tampered", signature))
+
+
+class TestLocaleFilesParse(unittest.TestCase):
+    def test_all_locales_are_valid_json(self):
+        import json
+        import pathlib
+        locales = sorted((pathlib.Path(__file__).parent.parent / "locales").glob("*.json"))
+        self.assertTrue(locales, "no locale files found")
+        for path in locales:
+            with self.subTest(locale=path.name):
+                json.loads(path.read_text(encoding="utf-8"))
+
+
 if __name__ == '__main__':
     unittest.main()
