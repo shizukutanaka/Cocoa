@@ -381,13 +381,31 @@ class HealthMonitor:
                 message=f"プロセスチェックエラー: {str(e)}"
             )
 
+    def _backup_path(self) -> str:
+        """バックアップディレクトリのパスを設定から解決する。
+
+        優先順: HealthMonitor に渡された config['backup_dir'] →
+        環境変数 BACKUP_PATH → 既定 'data/backups'（main/config.py の
+        BackupConfig.path と同じ既定値）。config モジュールの import に
+        失敗しても環境変数と既定値で動作する。
+        """
+        configured = (self.config or {}).get("backup_dir")
+        if configured:
+            return str(configured)
+        return os.environ.get("BACKUP_PATH", "data/backups")
+
     def _check_file_permissions(self) -> HealthCheckResult:
         """ファイル権限チェック"""
         try:
+            # バックアップ先はハードコードせず設定(BACKUP_PATH, 既定 data/backups)を
+            # 参照する。以前ここだけが "backups" 固定で、実際に DisasterRecovery が
+            # 作成/使用するディレクトリと一致しなかったため、正常に構成された環境でも
+            # file_permissions が常に unhealthy になり /health 全体が unhealthy を
+            # 返していた（＝ヘルスチェックが常時偽陽性で無意味化していた）。
             critical_paths = [
                 "config",
                 "logs",
-                "backups",
+                self._backup_path(),
                 "data"
             ]
 
