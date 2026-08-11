@@ -47,7 +47,12 @@
     "info": "Information",
     "confirm": "Confirmer",
     "yes": "Oui",
-,
+    "no": "Non",
+    "reset": "Réinitialiser",
+    "clear": "Effacer",
+    "apply": "Appliquer",
+    "submit": "Soumettre"
+  },
 
   "auth": {
     "login": "Connexion",

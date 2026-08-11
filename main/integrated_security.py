@@ -1679,10 +1679,16 @@ class QuantumSafeManager:
     async def _initialize_fallback_algorithms(self):
         """フォールバック量子安全アルゴリズムの初期化"""
         # 簡易的なPQC実装（実際には標準ライブラリを使用）
+        # _kyber_fallback / _dilithium_fallback / _sphincs_fallback are not
+        # implemented anywhere in this class; referencing them raised
+        # AttributeError and made initialize() fail whenever OQS is absent
+        # (i.e. on every install without liboqs). Map each algorithm to the
+        # fallback primitive that actually exists: Kyber is a KEM -> encrypt,
+        # Dilithium/SPHINCS are signature schemes -> sign.
         self.fallback_algorithms = {
-            "Kyber768": self._kyber_fallback,
-            "Dilithium3": self._dilithium_fallback,
-            "SPHINCS256": self._sphincs_fallback
+            "Kyber768": self._fallback_encrypt,
+            "Dilithium3": self._fallback_sign,
+            "SPHINCS256": self._fallback_sign
         }
         logger.info("Fallback quantum-safe algorithms initialized")
 
@@ -1739,7 +1745,16 @@ class QuantumSafeManager:
     async def _generate_fallback_keypair(self, algorithm: str) -> Tuple[bytes, bytes]:
         """フォールバック鍵ペア生成"""
         # 簡易的な鍵生成（実際には標準PQCライブラリを使用）
-        key_size = {"Kyber768": 1184, "Dilithium3": 1472, "SPHINCS256": 1280}[algorithm]
+        # Falcon512 was advertised in enabled_algorithms but missing from this
+        # table, so generate_quantum_keypair("Falcon512") died with KeyError.
+        key_size = {
+            "Kyber768": 1184,
+            "Dilithium3": 1472,
+            "Falcon512": 897,
+            "SPHINCS256": 1280,
+        }.get(algorithm)
+        if key_size is None:
+            raise ValueError(f"No fallback key size defined for algorithm: {algorithm}")
         public_key = secrets.token_bytes(key_size)
         private_key = secrets.token_bytes(key_size * 2)  # 秘密鍵はより長い
         return public_key, private_key
@@ -1787,7 +1802,7 @@ class QuantumSafeManager:
             ciphertext, shared_secret = kem.encap_secret(recipient_key.public_key)
         else:
             # フォールバック: AES-256-GCMを使用（量子耐性ではないが、移行用）
-            ciphertext = self._fallback_encrypt(plaintext, recipient_key)
+            ciphertext = await self._fallback_encrypt(plaintext, recipient_key)
 
         self.encryption_operations += 1
         return ciphertext
@@ -1826,7 +1841,7 @@ class QuantumSafeManager:
             kem = oqs.KeyEncapsulation(sender_key.algorithm)
             # 共有鍵を使用してデータを復号化
             return kem.decap_secret(ciphertext, sender_key.private_key)  # 簡易実装
-        return self._fallback_decrypt(ciphertext, sender_key)
+        return await self._fallback_decrypt(ciphertext, sender_key)
 
     async def _fallback_decrypt(self, ciphertext: bytes, sender_key: QuantumKeyPair) -> bytes:
         """フォールバック復号化"""
@@ -1852,11 +1867,12 @@ class QuantumSafeManager:
 
         if algorithm.startswith("Dilithium"):
             signature = await self._dilithium_sign(message, signer_key)
-        elif algorithm.startswith("Falcon"):
-            signature = await self._falcon_sign(message, signer_key)
-        elif algorithm.startswith("SPHINCS"):
-            signature = await self._sphincs_sign(message, signer_key)
         else:
+            # Falcon/SPHINCS have no dedicated implementation in this class
+            # (_falcon_sign / _sphincs_sign never existed), so dispatching to
+            # them raised AttributeError for algorithms this manager
+            # advertises in enabled_algorithms. Use the shared fallback
+            # primitive until real PQC backends are wired in.
             signature = await self._fallback_sign(message, signer_key)
 
         quantum_signature = QuantumSignature(
@@ -1905,10 +1921,10 @@ class QuantumSafeManager:
         try:
             if signature.algorithm.startswith("Dilithium"):
                 return await self._dilithium_verify(message, signature, signer_key)
-            if signature.algorithm.startswith("Falcon"):
-                return await self._falcon_verify(message, signature, signer_key)
-            if signature.algorithm.startswith("SPHINCS"):
-                return await self._sphincs_verify(message, signature, signer_key)
+            # Falcon/SPHINCS: see create_quantum_signature -- no dedicated
+            # implementation exists, so verify through the same fallback the
+            # signing path uses (otherwise every such verification raised
+            # AttributeError and was swallowed into a silent False).
             return await self._fallback_verify(message, signature, signer_key)
         except Exception as e:
             logger.error(f"Signature verification failed: {e}")
