@@ -115,3 +115,7 @@ exports/
 
 # Claude Code internal state
 .claude/worktrees/
+
+# local test venv / runtime security artifacts
+.venv-test/
+data/security/quantum_keys/
