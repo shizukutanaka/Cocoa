@@ -2,9 +2,12 @@ name: Cocoa CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    # このリポジトリのデフォルトブランチは master。以前は main/develop のみを
+    # 対象にしていたため、master への push/PR ではワークフローが一度も起動せず、
+    # 「ブロッキングゲート」が実質無効だった。master を追加して実際に走らせる。
+    branches: [ master, main, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ master, main, develop ]
   workflow_dispatch:
 
 jobs:

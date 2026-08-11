@@ -59,7 +59,14 @@ class DisasterRecoveryManager:
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
-        self.backup_dir = Path(self.config.get('backup_dir', 'backups'))
+        # 既定値は main/config.py の BackupConfig.path (BACKUP_PATH, 既定
+        # 'data/backups') と一致させる。以前ここだけ 'backups' 固定だったため、
+        # 設定上のバックアップ先とマネージャが実際に作成するディレクトリが
+        # 食い違い、health_monitor のディレクトリ検査とも不整合になっていた。
+        self.backup_dir = Path(
+            self.config.get('backup_dir')
+            or os.environ.get('BACKUP_PATH', 'data/backups')
+        )
         self.data_dir = Path(self.config.get('data_dir', 'data'))
         self.config_dir = Path(self.config.get('config_dir', 'config'))
 

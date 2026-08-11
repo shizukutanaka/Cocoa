@@ -3,7 +3,9 @@
 Spec: docs/SPEC_HEALTH_MONITOR.md (REQ-HM-01..02)
 Runnable without pytest:  python3 -m unittest tests.test_health_monitor -v
 """
+import os
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -315,6 +317,122 @@ class TestGetHealthMonitorSingletonRaceSafe(unittest.TestCase):
         for r in results[1:]:
             self.assertIs(r, first,
                 "All threads must see the same singleton instance")
+
+
+class TestBackupPathResolution(unittest.TestCase):
+    """Regression: the file_permissions check hardcoded a 'backups' directory
+    that nothing in the project actually creates.
+
+    main/config.py's BackupConfig.path defaults to 'data/backups' (env
+    BACKUP_PATH), so on a correctly configured checkout the hardcoded
+    'backups' never existed and _check_file_permissions reported UNHEALTHY
+    unconditionally -- which propagated to run_all_checks() and made
+    GET /health always answer "unhealthy". A health endpoint that is always
+    unhealthy carries no signal, so this is a real defect, not cosmetics.
+    """
+
+    def setUp(self):
+        self._saved_env = os.environ.get("BACKUP_PATH")
+
+    def tearDown(self):
+        if self._saved_env is None:
+            os.environ.pop("BACKUP_PATH", None)
+        else:
+            os.environ["BACKUP_PATH"] = self._saved_env
+
+    def test_default_backup_path_matches_config_default(self):
+        os.environ.pop("BACKUP_PATH", None)
+        monitor = HealthMonitor()
+        self.assertEqual(monitor._backup_path(), "data/backups")
+
+    def test_env_var_overrides_default(self):
+        os.environ["BACKUP_PATH"] = "custom/bk"
+        monitor = HealthMonitor()
+        self.assertEqual(monitor._backup_path(), "custom/bk")
+
+    def test_explicit_config_wins_over_env(self):
+        os.environ["BACKUP_PATH"] = "from/env"
+        monitor = HealthMonitor(config={"backup_dir": "from/config"})
+        self.assertEqual(monitor._backup_path(), "from/config")
+
+    def test_file_permissions_healthy_when_configured_dirs_exist(self):
+        """With every configured directory present the check must pass.
+
+        Before the fix this asserted-healthy case failed because the check
+        looked for 'backups' rather than the configured backup directory.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for sub in ("config", "logs", "data", "data/backups"):
+                (root / sub).mkdir(parents=True, exist_ok=True)
+
+            cwd = os.getcwd()
+            os.chdir(root)
+            try:
+                os.environ.pop("BACKUP_PATH", None)
+                monitor = HealthMonitor()
+                result = monitor._check_file_permissions()
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(
+            result.status, HealthStatus.HEALTHY,
+            f"expected HEALTHY, got {result.status} ({result.message})"
+        )
+        self.assertIn("data/backups", result.details["checked_paths"])
+
+    def test_file_permissions_still_flags_a_genuinely_missing_dir(self):
+        """The fix must not defang the check: a real absence is still UNHEALTHY."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for sub in ("config", "logs", "data"):  # data/backups deliberately absent
+                (root / sub).mkdir(parents=True, exist_ok=True)
+
+            cwd = os.getcwd()
+            os.chdir(root)
+            try:
+                os.environ.pop("BACKUP_PATH", None)
+                monitor = HealthMonitor()
+                result = monitor._check_file_permissions()
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(result.status, HealthStatus.UNHEALTHY)
+        self.assertIn("data/backups", result.message)
+
+
+class TestDisasterRecoveryBackupDirAgreement(unittest.TestCase):
+    """The recovery manager and the health check must resolve the SAME dir.
+
+    They disagreed before ('backups' vs config's 'data/backups'), so the
+    manager created one directory while the health check demanded another.
+    """
+
+    def test_manager_default_matches_health_monitor_default(self):
+        saved = os.environ.get("BACKUP_PATH")
+        os.environ.pop("BACKUP_PATH", None)
+        try:
+            from disaster_recovery import DisasterRecoveryManager
+
+            with tempfile.TemporaryDirectory() as td:
+                cwd = os.getcwd()
+                os.chdir(td)
+                try:
+                    manager = DisasterRecoveryManager()
+                    monitor = HealthMonitor()
+                    self.assertEqual(
+                        str(manager.backup_dir).replace("\\", "/"),
+                        monitor._backup_path(),
+                    )
+                    self.assertTrue(
+                        manager.backup_dir.exists(),
+                        "manager should create the backup dir it advertises",
+                    )
+                finally:
+                    os.chdir(cwd)
+        finally:
+            if saved is not None:
+                os.environ["BACKUP_PATH"] = saved
 
 
 if __name__ == "__main__":
