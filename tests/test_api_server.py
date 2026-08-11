@@ -1804,5 +1804,39 @@ class TestUnavailableSubsystemIsNotSilentlyEmpty(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 503)
 
 
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestHealthEndpointStatusMapping(unittest.TestCase):
+    """Regression: GET /health could never report healthy.
+
+    health_check() compared run_all_checks()["status"] against the literal
+    "ok", but HealthMonitor only ever emits HealthStatus values
+    ("healthy"/"degraded"/"unhealthy"/"critical"). The comparison therefore
+    never matched and the endpoint answered "unhealthy" on a perfectly
+    healthy system -- making the probe useless for orchestrators.
+    """
+
+    def _status_for(self, monitor_status):
+        fake_monitor = MagicMock()
+        fake_monitor.run_all_checks.return_value = {"status": monitor_status}
+        with patch.object(api_server, "get_health_monitor", lambda: fake_monitor):
+            result = asyncio.run(api_server.health_check())
+        return result.status
+
+    def test_healthy_monitor_reports_healthy(self):
+        self.assertEqual(self._status_for("healthy"), "healthy")
+
+    def test_degraded_is_surfaced_not_flattened(self):
+        self.assertEqual(self._status_for("degraded"), "degraded")
+
+    def test_unhealthy_is_propagated(self):
+        self.assertEqual(self._status_for("unhealthy"), "unhealthy")
+
+    def test_critical_is_propagated(self):
+        self.assertEqual(self._status_for("critical"), "critical")
+
+    def test_missing_status_falls_back_to_unhealthy(self):
+        self.assertEqual(self._status_for(None), "unhealthy")
+
+
 if __name__ == "__main__":
     unittest.main()
