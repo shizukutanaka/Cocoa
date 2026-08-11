@@ -637,7 +637,14 @@ async def health_check():
         if get_health_monitor:
             health_monitor = get_health_monitor()
             health_result = health_monitor.run_all_checks()
-            health_status = "healthy" if health_result.get("status") == "ok" else "unhealthy"
+            # run_all_checks() は HealthStatus の値
+            # ("healthy"/"degraded"/"unhealthy"/"critical") を返す。以前ここは
+            # == "ok" と比較しており、その文字列は決して返らないため
+            # /health は構成が正常でも常に "unhealthy" を返していた。
+            # degraded は「機能低下だが提供中」なので healthy 側に倒さず、
+            # そのまま実際のステータスを反映させる。
+            raw_status = health_result.get("status")
+            health_status = raw_status if raw_status else "unhealthy"
         else:
             health_status = "healthy"
 
