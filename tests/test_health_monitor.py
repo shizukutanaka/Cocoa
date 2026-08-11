@@ -131,7 +131,9 @@ class TestGetLiveness(unittest.TestCase):
 
     def test_liveness_has_uptime_seconds(self):
         monitor = HealthMonitor()
-        time.sleep(0.01)
+        # Windows' monotonic clock ticks at ~15.6ms, so a 10ms sleep can leave
+        # uptime at exactly 0.0 and flake. Sleep past one tick.
+        time.sleep(0.05)
         result = monitor.get_liveness()
         self.assertGreater(result["uptime_seconds"], 0)
 
