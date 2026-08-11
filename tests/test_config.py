@@ -30,8 +30,19 @@ _SAFE_KEYS = {"secret_key", "password", "admin_password", "encryption_key"}
 
 class TestConfigCreation(unittest.TestCase):
     def test_default_config_creates_without_error(self):
-        c = Config()
-        self.assertEqual(c.environment, "development")
+        # tests/conftest.py sets ENVIRONMENT=test process-wide, so this must
+        # clear the variable to exercise the built-in "development" fallback
+        # rather than picking up the harness's value.
+        import unittest.mock
+        with unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ENVIRONMENT", None)
+            c = Config()
+            self.assertEqual(c.environment, "development")
+
+    def test_environment_env_var_is_honoured(self):
+        import unittest.mock
+        with unittest.mock.patch.dict(os.environ, {"ENVIRONMENT": "staging"}):
+            self.assertEqual(Config().environment, "staging")
 
     def test_config_has_all_sections(self):
         c = Config()

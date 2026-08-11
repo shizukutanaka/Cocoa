@@ -21,6 +21,11 @@ except BaseException:
 
 logger = logging.getLogger(__name__)
 
+# Name of the log file this project writes. It was hardcoded as "otedama.log"
+# in four places -- a leftover from the codebase this was forked from -- while
+# the tests referred to cocoa.log. Defined once so the two cannot drift.
+LOG_FILENAME = "cocoa.log"
+
 
 class EncryptedFileHandler(logging.handlers.RotatingFileHandler):
     """暗号化されたログファイルハンドラー"""
@@ -167,7 +172,7 @@ class LoggingManager:
                 handler.close()
 
             # ローテーティングファイルハンドラーの設定
-            log_file = self.log_dir / "otedama.log"
+            log_file = self.log_dir / LOG_FILENAME
             if self.enable_encryption and self.encryption_key:
                 file_handler = EncryptedFileHandler(
                     str(log_file),
@@ -188,15 +193,42 @@ class LoggingManager:
             # ルートロガーの設定
             root_logger.setLevel(self.log_levels.get(self.log_level, logging.INFO))
             root_logger.addHandler(file_handler)
+            # Track what we installed so close() can release the file handle.
+            self._own_handlers = [file_handler]
 
             if self.enable_console:
                 console_handler = logging.StreamHandler()
                 console_handler.setFormatter(formatter)
                 root_logger.addHandler(console_handler)
+                self._own_handlers.append(console_handler)
 
             logger.info("ログシステムを初期化しました")
         except Exception as e:
             logger.error(f"ログシステムの初期化に失敗しました: {e}")
+
+    def close(self) -> None:
+        """Detach and close the handlers this manager installed.
+
+        Without this the RotatingFileHandler keeps ``otedama.log`` open for the
+        life of the process. On Windows an open handle blocks deleting the
+        directory, so callers (and tests) that use a temporary log dir could
+        never clean it up -- ``shutil.rmtree`` raised
+        ``PermissionError: [WinError 32]``. Idempotent and safe to call twice.
+        """
+        root_logger = logging.getLogger()
+        for handler in list(getattr(self, "_own_handlers", [])):
+            try:
+                root_logger.removeHandler(handler)
+                handler.close()
+            except Exception as e:  # pragma: no cover - defensive
+                logger.debug("ハンドラーのクローズに失敗しました: %s", e)
+        self._own_handlers = []
+
+    def __enter__(self) -> "LoggingManager":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
 
     def set_log_level(self, level: str) -> bool:
         """ログレベルを設定"""
@@ -275,7 +307,7 @@ class LoggingManager:
         """ログを検索"""
         results = []
         try:
-            log_file = self.log_dir / "otedama.log"
+            log_file = self.log_dir / LOG_FILENAME
             if not log_file.exists():
                 logger.warning(f"ログファイルが存在しません: {log_file}")
                 return results
@@ -307,7 +339,7 @@ class LoggingManager:
     def get_log_stats(self) -> Dict[str, Any]:
         """ログ統計を取得"""
         try:
-            log_file = self.log_dir / "otedama.log"
+            log_file = self.log_dir / LOG_FILENAME
             if not log_file.exists():
                 return {"error": "ログファイルが存在しません"}
 
@@ -344,7 +376,7 @@ class LoggingManager:
     def export_logs(self, filename: str, format: str = "json") -> bool:
         """ログをエクスポート"""
         try:
-            log_file = self.log_dir / "otedama.log"
+            log_file = self.log_dir / LOG_FILENAME
             if not log_file.exists():
                 logger.warning(f"ログファイルが存在しません: {log_file}")
                 return False

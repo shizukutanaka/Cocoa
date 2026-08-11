@@ -289,3 +289,29 @@ class CustomAssertions:
 def assertions():
     """カスタムアサーションを提供"""
     return CustomAssertions()
+
+
+@pytest.fixture(autouse=True)
+def _release_root_log_file_handles():
+    """Close any file handlers left on the root logger after each test.
+
+    LoggingManager installs a RotatingFileHandler on the ROOT logger. Tests
+    that build one against a tempfile.TemporaryDirectory could not clean up on
+    Windows, because an open handle makes shutil.rmtree raise
+    ``PermissionError: [WinError 32]`` -- reported as a test failure even
+    though the code under test behaved correctly.
+
+    LoggingManager.close() is the proper fix for application code; this
+    fixture is the safety net for tests that never held a reference to the
+    manager they created.
+    """
+    yield
+    import logging as _logging
+    root = _logging.getLogger()
+    for handler in list(root.handlers):
+        if isinstance(handler, _logging.FileHandler):
+            try:
+                root.removeHandler(handler)
+                handler.close()
+            except Exception:
+                pass

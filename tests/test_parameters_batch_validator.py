@@ -75,7 +75,12 @@ class TestBatchValidatePresets(unittest.TestCase):
         return path
 
     def test_nonexistent_directory(self):
-        result = batch_validate_presets("/nonexistent/path", {})
+        # Must be a path guaranteed absent: a hardcoded "/nonexistent/path"
+        # resolves to C:\nonexistent\path on Windows and can actually exist,
+        # which made this test fail for environmental reasons.
+        with tempfile.TemporaryDirectory() as d:
+            missing = os.path.join(d, "definitely-absent-subdir")
+        result = batch_validate_presets(missing, {})
         self.assertIn("error", result["summary"])
         self.assertEqual(result["summary"]["total"], 0)
 

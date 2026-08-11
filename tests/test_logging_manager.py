@@ -103,7 +103,8 @@ class TestLoggingManager(unittest.TestCase):
 
     def test_log_file_created(self):
         import os
-        log_file = os.path.join(self.tmpdir, "otedama.log")
+        from logging_manager import LOG_FILENAME
+        log_file = os.path.join(self.tmpdir, LOG_FILENAME)
         self.assertTrue(os.path.exists(log_file))
 
     def test_set_log_level_valid(self):

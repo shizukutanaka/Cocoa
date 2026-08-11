@@ -5,6 +5,7 @@ Video Analytics Module for Cocoa
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import queue
@@ -112,7 +113,7 @@ class VideoAnalyticsService:
 
     async def _init_database(self):
         """データベース初期化"""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with contextlib.closing(sqlite3.connect(str(self.db_path))) as conn, conn:
             cursor = conn.cursor()
 
             # 動画イベントテーブル
@@ -195,7 +196,7 @@ class VideoAnalyticsService:
 
     async def _process_event_batch(self, events: List[VideoEvent]):
         """イベントバッチを処理"""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with contextlib.closing(sqlite3.connect(str(self.db_path))) as conn, conn:
             cursor = conn.cursor()
 
             for event in events:
@@ -318,7 +319,7 @@ class VideoAnalyticsService:
 
     async def _load_video_metrics(self, video_id: str) -> VideoMetrics:
         """データベースから動画メトリクスを読み込み"""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with contextlib.closing(sqlite3.connect(str(self.db_path))) as conn, conn:
             cursor = conn.cursor()
 
             cursor.execute('SELECT * FROM video_metrics WHERE video_id = ?', (video_id,))
@@ -343,7 +344,7 @@ class VideoAnalyticsService:
 
     async def _calculate_realtime_metrics(self, metrics: VideoMetrics):
         """リアルタイムメトリクスを計算"""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with contextlib.closing(sqlite3.connect(str(self.db_path))) as conn, conn:
             cursor = conn.cursor()
 
             # 総視聴数
@@ -494,7 +495,7 @@ class VideoAnalyticsService:
     async def _get_period_metrics(self, video_id: str, start_date: datetime,
                                 end_date: datetime) -> Dict[str, Any]:
         """期間内のメトリクスを取得"""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with contextlib.closing(sqlite3.connect(str(self.db_path))) as conn, conn:
             cursor = conn.cursor()
 
             start_str = start_date.isoformat()
@@ -589,7 +590,7 @@ class VideoAnalyticsService:
 
     async def _save_report(self, report: AnalyticsReport):
         """レポートを保存"""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with contextlib.closing(sqlite3.connect(str(self.db_path))) as conn, conn:
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -613,7 +614,7 @@ class VideoAnalyticsService:
     async def get_reports(self, video_id: Optional[str] = None,
                          report_type: Optional[str] = None) -> List[AnalyticsReport]:
         """レポートを取得"""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with contextlib.closing(sqlite3.connect(str(self.db_path))) as conn, conn:
             cursor = conn.cursor()
 
             query = "SELECT * FROM analytics_reports WHERE 1=1"
@@ -664,7 +665,7 @@ class VideoAnalyticsService:
         reports = await self.get_reports(video_id)
 
         # イベントデータ取得
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with contextlib.closing(sqlite3.connect(str(self.db_path))) as conn, conn:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM video_events WHERE video_id = ? ORDER BY timestamp',
                          (video_id,))
@@ -762,7 +763,7 @@ class VideoAnalyticsService:
         """古いデータをクリーンアップ"""
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
 
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with contextlib.closing(sqlite3.connect(str(self.db_path))) as conn, conn:
             cursor = conn.cursor()
 
             # 古いイベント削除

@@ -313,6 +313,9 @@ class TestLoggingManager(unittest.TestCase):
             # ログファイルの確認（簡易的にファイルが存在することを確認）
             log_files = list(Path(temp_dir).glob('*.log'))
             self.assertTrue(len(log_files) > 0)
+            # Release the log file handle before TemporaryDirectory cleanup,
+            # otherwise Windows raises PermissionError [WinError 32].
+            logging_manager.close()
 
     def test_avatar_log_recording(self):
         """アバターログ記録のテスト"""
@@ -349,6 +352,7 @@ class TestLoggingManager(unittest.TestCase):
             # 各結果に必要なフィールドがあることを確認
             for result in results:
                 self.assertIn('message', result)
+            logging_manager.close()
 
     def test_log_statistics(self):
         """ログ統計機能のテスト"""
@@ -372,6 +376,7 @@ class TestLoggingManager(unittest.TestCase):
 
             # ファイルサイズが0より大きいことを確認
             self.assertGreater(stats['file_size'], 0)
+            logging_manager.close()
 
     def test_log_export_functionality(self):
         """ログエクスポート機能のテスト"""
@@ -398,6 +403,7 @@ class TestLoggingManager(unittest.TestCase):
 
             self.assertIsInstance(exported_data, list)
             self.assertGreater(len(exported_data), 0)
+            logging_manager.close()
 
 
 class TestIntegrationFeatures(unittest.TestCase):

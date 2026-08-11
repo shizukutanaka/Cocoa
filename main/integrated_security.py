@@ -491,9 +491,26 @@ class SecurityAuditor:
             logger.error(f"セキュリティDBの初期化に失敗: {e}")
 
     def _connect(self):
-        """データベース接続を返す"""
+        """Return a connection context that both commits AND closes.
+
+        A bare ``with sqlite3.connect(...) as conn`` commits the transaction
+        but leaves the connection (and its file handle) open. On Windows that
+        keeps the .db file locked, so callers using a temporary directory
+        could not delete it afterwards.
+        """
+        import contextlib
         import sqlite3
-        return sqlite3.connect(self.db_path)
+
+        @contextlib.contextmanager
+        def _managed():
+            conn = sqlite3.connect(self.db_path)
+            try:
+                with conn:
+                    yield conn
+            finally:
+                conn.close()
+
+        return _managed()
 
     def log_event(self, event: SecurityEvent):
         """イベント記録 - 直接的で高速"""

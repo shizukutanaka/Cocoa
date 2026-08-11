@@ -106,13 +106,26 @@ class SearchIndex:
         self._query_log: List[str] = []  # raw queries, newest first (capped at 10_000)
         self._query_log_max = 10_000
         self._lock = threading.Lock()
+        # Monotonic insertion counter used as a tie-break for newest/oldest
+        # sorting. datetime.now() has a coarse resolution on Windows (~1-16ms),
+        # so several documents indexed in the same tick share an identical
+        # created_at and the sort degenerates to dict order, which put the
+        # OLDEST document first for sort_by="newest".
+        self._seq: Dict[str, int] = {}
+        self._seq_counter = 0
 
     # --- Indexing ---
+
+    def _recency_key(self, doc: "SearchDocument"):
+        """(created_at, insertion_seq) — stable ordering for equal timestamps."""
+        return (doc.created_at, self._seq.get(doc.doc_id, 0))
 
     def index(self, doc: SearchDocument) -> None:
         with self._lock:
             self._remove_from_inverted(doc.doc_id)
             self._docs[doc.doc_id] = doc
+            self._seq_counter += 1
+            self._seq[doc.doc_id] = self._seq_counter
             field_toks = _field_tokens(doc)
             for fname, toks in field_toks.items():
                 weight = _FIELD_WEIGHTS.get(fname, 1.0)
@@ -131,6 +144,7 @@ class SearchIndex:
                 return False
             self._remove_from_inverted(doc_id)
             del self._docs[doc_id]
+            self._seq.pop(doc_id, None)
             return True
 
     def _remove_from_inverted(self, doc_id: str) -> None:
@@ -236,9 +250,9 @@ class SearchIndex:
         if sort_by == "name":
             candidates.sort(key=lambda d: d.name.lower())
         elif sort_by == "newest":
-            candidates.sort(key=lambda d: d.created_at, reverse=True)
+            candidates.sort(key=self._recency_key, reverse=True)
         elif sort_by == "oldest":
-            candidates.sort(key=lambda d: d.created_at)
+            candidates.sort(key=self._recency_key)
         else:  # relevance
             candidates.sort(key=lambda d: d.score, reverse=True)
 

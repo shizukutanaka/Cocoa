@@ -126,7 +126,9 @@ class TestLoggingManager(unittest.TestCase):
 
     def tearDown(self):
         """テスト後のクリーンアップ"""
-        # テスト用ログディレクトリのクリーンアップ
+        # Release the RotatingFileHandler's file handle first; on Windows an
+        # open handle makes rmtree fail with PermissionError [WinError 32].
+        self.logger_manager.close()
         log_dir = Path("test_logs")
         if log_dir.exists():
             import shutil
@@ -340,6 +342,7 @@ class TestErrorHandling(unittest.TestCase):
         # 無効なログレベルでもシステムがクラッシュしないことを確認
         logger_manager = LoggingManager(config)
         self.assertIsNotNone(logger_manager)
+        logger_manager.close()
 
 class TestIntegration(unittest.TestCase):
     """統合テスト"""
@@ -367,7 +370,8 @@ class TestIntegration(unittest.TestCase):
         if self.performance_monitor.running:
             self.performance_monitor.stop_monitoring()
 
-        # テスト用ログディレクトリのクリーンアップ
+        # Release the log file handle before removing the directory (Windows).
+        self.logging_manager.close()
         log_dir = Path("integration_test_logs")
         if log_dir.exists():
             import shutil

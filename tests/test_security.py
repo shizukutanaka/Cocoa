@@ -281,6 +281,8 @@ class PerformanceTestCase(unittest.TestCase):
 
         # ログ記録テスト
         log_manager.log_message("INFO", "テストメッセージ")
+        # Close so tearDown's rmtree of temp_dir isn't blocked on Windows.
+        log_manager.close()
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
