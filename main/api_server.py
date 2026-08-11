@@ -583,6 +583,20 @@ def _verify_legacy_api_secret(token: str) -> bool:
     return hmac.compare_digest(token, configured)
 
 
+def _bearer_token(credentials) -> str:
+    """Extract the raw Bearer token from HTTPBearer(auto_error=False) output.
+
+    ``security`` is declared with ``auto_error=False`` so FastAPI passes ``None``
+    instead of raising when the Authorization header is absent or malformed.
+    Endpoints must therefore never touch ``credentials.credentials`` directly:
+    doing so raises AttributeError -> HTTP 500 for an unauthenticated caller,
+    when the correct response is 401.
+    """
+    if credentials is None or not getattr(credentials, "credentials", None):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="認証が必要です")
+    return credentials.credentials
+
+
 def _verify_token(token: str) -> dict:
     """Verify a Bearer JWT and return the raw payload dict.
     Raises HTTPException(401) on invalid/expired token.
@@ -1347,7 +1361,7 @@ async def logout(body: RefreshRequest, current_user: dict = Depends(get_current_
     if not get_auth_manager:
         raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     auth = get_auth_manager()
-    auth.logout(credentials.credentials, body.refresh_token)
+    auth.logout(_bearer_token(credentials), body.refresh_token)
     return {"status": "logged_out"}
 
 
@@ -5331,7 +5345,7 @@ async def get_my_membership(
     """自分の会員ティアと特典を取得する"""
     if not get_membership_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     return get_membership_manager().get_membership(payload["sub"])
 
 
@@ -5345,7 +5359,7 @@ async def admin_list_membership(
     """管理者: 会員一覧をティア別に取得する"""
     if not get_membership_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     try:
         return get_membership_manager().list_members(payload, tier=tier, limit=limit, offset=offset)
     except (ValueError, PermissionError) as e:
@@ -5361,7 +5375,7 @@ async def admin_membership_distribution(
     """管理者: ティア別会員分布を取得する"""
     if not get_membership_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     try:
         return get_membership_manager().tier_distribution(payload)
     except PermissionError as e:
@@ -5376,7 +5390,7 @@ async def admin_adjust_membership(
     """管理者: ユーザーのライフタイムクレジットを調整する"""
     if not get_membership_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     try:
         return get_membership_manager().admin_adjust(payload, body.user_id, body.lifetime_credits)
     except (ValueError, PermissionError) as e:
@@ -5406,7 +5420,7 @@ async def request_refund(
     """注文に対する払い戻しを申請する"""
     if not get_refund_manager or not get_cart_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     try:
         return get_refund_manager().request_refund(
             payload["sub"], body.order_id, body.reason, get_cart_manager()
@@ -5424,7 +5438,7 @@ async def my_refunds(
     """自分の払い戻しリクエスト一覧を取得する"""
     if not get_refund_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     return get_refund_manager().get_my_refunds(payload["sub"], limit=limit, offset=offset)
 
 
@@ -5438,7 +5452,7 @@ async def admin_list_refunds(
     """管理者: 払い戻しリクエスト一覧"""
     if not get_refund_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     try:
         return get_refund_manager().list_refunds(payload, status=status, limit=limit, offset=offset)
     except (ValueError, PermissionError) as e:
@@ -5453,7 +5467,7 @@ async def admin_approve_refund(
     """管理者: 払い戻しを承認してクレジットを返還する"""
     if not get_refund_manager or not get_marketplace or not get_cart_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     try:
         result = get_refund_manager().approve_refund(
             payload, request_id, get_marketplace(), get_cart_manager()
@@ -5494,7 +5508,7 @@ async def admin_reject_refund(
     """管理者: 払い戻し申請を却下する"""
     if not get_refund_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     try:
         result = get_refund_manager().reject_refund(payload, request_id, body.notes)
         buyer_id = result.get("user_id")
@@ -5538,7 +5552,7 @@ async def purchase_gift_card(
     """ギフトカードを購入する"""
     if not get_gift_card_manager or not get_marketplace:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     expires_at = None
     if body.expires_at:
         from datetime import timezone as _tz
@@ -5570,7 +5584,7 @@ async def list_my_gift_cards(
     """自分が購入したギフトカード一覧を取得する"""
     if not get_gift_card_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     return get_gift_card_manager().get_my_cards(payload["sub"], limit=limit, offset=offset)
 
 
@@ -5583,7 +5597,7 @@ async def redeem_gift_card(
     """ギフトカードコードを使用してクレジットを受け取る"""
     if not get_gift_card_manager or not get_marketplace:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    payload = _verify_token(credentials.credentials)
+    payload = _verify_token(_bearer_token(credentials))
     try:
         # The gift card code itself is a natural idempotency key — one code, one redemption.
         # We also accept an explicit Idempotency-Key header to guard the HTTP retry window.
