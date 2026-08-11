@@ -17,6 +17,7 @@ except (KeyboardInterrupt, SystemExit):
 except BaseException:
     CRYPTO_AVAILABLE = False
 
+import json
 import logging
 import secrets
 from dataclasses import dataclass
@@ -308,7 +309,18 @@ class EncryptionMigrationHelper:
             from .integrated_security import DataEncryptor
 
             pbkdf2_encryptor = DataEncryptor(pbkdf2_password)
-            plaintext = pbkdf2_encryptor.decrypt(pbkdf2_encrypted_data)
+            # DataEncryptor が提供するのは decrypt_data(str) -> dict であり
+            # decrypt(bytes) は存在しない。以前はこの行が必ず AttributeError で
+            # 落ちていたため、移行ヘルパーは一度も機能していなかった。
+            if isinstance(pbkdf2_encrypted_data, (bytes, bytearray)):
+                pbkdf2_payload = bytes(pbkdf2_encrypted_data).decode('ascii')
+            else:
+                pbkdf2_payload = pbkdf2_encrypted_data
+            decrypted_obj = pbkdf2_encryptor.decrypt_data(pbkdf2_payload)
+            # Scrypt 側の encrypt() は bytes を取るので JSON バイト列へ正規化する
+            plaintext = json.dumps(
+                decrypted_obj, ensure_ascii=False, sort_keys=True
+            ).encode('utf-8')
 
             # Scryptで再暗号化
             scrypt_encryptor = EnhancedDataEncryptor(

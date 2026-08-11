@@ -560,8 +560,13 @@ class DataEncryptor:
             logger.critical("cryptography package not available - encryption disabled")
             raise ImportError("Install cryptography package for secure encryption")
 
+        # 明示的に渡された key を最優先する。以前は env_key を先に評価していたため、
+        # DataEncryptor("password") と明示指定しても OTEDAMA_ENCRYPTION_KEY が
+        # 設定されている環境では黙ってそちらが使われ、呼び出し側の意図した鍵と
+        # 異なる鍵で暗号化/復号され復号に失敗していた（環境変数は既定値であり、
+        # 引数のオーバーライドではない）。
         env_key = os.environ.get('OTEDAMA_ENCRYPTION_KEY')
-        self.master_key = (env_key or key or secrets.token_urlsafe(32)).encode()
+        self.master_key = (key or env_key or secrets.token_urlsafe(32)).encode()
 
         # PBKDF2でマスターキーから派生キーを生成
         kdf = PBKDF2HMAC(
@@ -622,8 +627,11 @@ class DataEncryptor:
             json_str = plaintext.decode('utf-8')
             return json.loads(json_str)
         except Exception as e:
+            # 空 dict を返すと GCM の認証失敗（改竄・鍵違い）が「中身が空だった」と
+            # 区別できず、呼び出し側が改竄データを正常系として処理してしまう。
+            # 認証付き暗号の復号失敗は必ず例外として伝播させる。
             logger.error(f"復号化エラー: {e}")
-            return {}
+            raise
 
 class SecurityValidator:
     """Production-Grade入力検証とアクセス制御"""
