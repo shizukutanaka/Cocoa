@@ -12,19 +12,36 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'main'))
 
 # Stub heavy optional dependencies before importing the module
+def _stub_if_missing(name, module):
+    """Install a stub module only when the real package is unavailable.
+
+    These stubs live in sys.modules for the whole session, so stubbing a
+    package that IS installed corrupts unrelated tests imported later. That
+    really happened: the MagicMock 'PIL' stub below made qrcode pick its
+    Pillow image factory and emit a MagicMock-written buffer instead of a
+    real PNG, failing tests/test_two_factor_auth.py's data-URI test.
+    """
+    if name in sys.modules:
+        return
+    try:
+        __import__(name)
+    except ImportError:
+        sys.modules[name] = module
+
+
 cv2_stub = types.ModuleType('cv2')
 cv2_stub.imwrite = MagicMock(return_value=True)
 cv2_stub.resize = MagicMock()
 cv2_stub.cvtColor = MagicMock()
 cv2_stub.COLOR_RGB2BGR = 4
-sys.modules.setdefault('cv2', cv2_stub)
+_stub_if_missing('cv2', cv2_stub)
 
 numpy_stub = types.ModuleType('numpy')
 numpy_stub.ndarray = object
 numpy_stub.full = MagicMock(return_value=MagicMock())
 numpy_stub.array = MagicMock(return_value=MagicMock())
 numpy_stub.uint8 = int
-sys.modules.setdefault('numpy', numpy_stub)
+_stub_if_missing('numpy', numpy_stub)
 
 pil_stub = types.ModuleType('PIL')
 pil_image_stub = types.ModuleType('PIL.Image')
@@ -40,14 +57,14 @@ pil_font_stub.load_default = MagicMock(return_value=MagicMock())
 pil_stub.Image = pil_image_stub
 pil_stub.ImageDraw = pil_draw_stub
 pil_stub.ImageFont = pil_font_stub
-sys.modules.setdefault('PIL', pil_stub)
-sys.modules.setdefault('PIL.Image', pil_image_stub)
-sys.modules.setdefault('PIL.ImageDraw', pil_draw_stub)
-sys.modules.setdefault('PIL.ImageFont', pil_font_stub)
+_stub_if_missing('PIL', pil_stub)
+_stub_if_missing('PIL.Image', pil_image_stub)
+_stub_if_missing('PIL.ImageDraw', pil_draw_stub)
+_stub_if_missing('PIL.ImageFont', pil_font_stub)
 
 mp_stub = types.ModuleType('moviepy.editor')
-sys.modules.setdefault('moviepy', types.ModuleType('moviepy'))
-sys.modules.setdefault('moviepy.editor', mp_stub)
+_stub_if_missing('moviepy', types.ModuleType('moviepy'))
+_stub_if_missing('moviepy.editor', mp_stub)
 
 # Stub integrated_security
 mock_security_manager = MagicMock()
