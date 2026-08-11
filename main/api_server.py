@@ -5655,7 +5655,29 @@ async def general_exception_handler(request, exc):
 # 未知のパスに対して index.html を返して react-router に処理を委ねる。
 # _is_spa_route() が /api・/docs・/health 等バックエンド自身が所有する
 # プレフィックスを除外するため、typo した API パス等は本来通りの 404 になる。
+# _BACKEND_RESERVED_PREFIXES は手書きの静的リストだったため、後から追加された
+# バックエンドのルート（/live・/ready のような k8s プローブ）が漏れていた。
+# 結果、/ready/x や /readyz といった「バックエンドが所有するプレフィックス配下の
+# 存在しないパス」が 404 ではなく index.html (200/text-html) を返し、
+# ロードバランサや監視のヘルスチェックが「常に成功」と誤判定する状態だった
+# （/health/x は正しく 404 を返しており、そこで挙動が食い違っていた）。
+# 静的リストを再度手書きすると同じ乖離が再発するため、実際に登録済みの
+# ルートから第一セグメントを導出して合成する。
+def _derive_backend_prefixes() -> tuple:
+    derived = set(_BACKEND_RESERVED_PREFIXES)
+    for route in getattr(app, "routes", []):
+        path = getattr(route, "path", "")
+        if not isinstance(path, str) or not path.startswith("/"):
+            continue
+        segment = path.strip("/").split("/", 1)[0]
+        if segment and not segment.startswith("{"):
+            derived.add(segment)
+    return tuple(sorted(derived))
+
+
 if FASTAPI_AVAILABLE:
+    _BACKEND_RESERVED_PREFIXES = _derive_backend_prefixes()
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str):
         if not _is_frontend_dist_available() or not _is_spa_route(full_path):
