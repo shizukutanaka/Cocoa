@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from quantum_safe_manager import get_quantum_safe_manager
+    # get_quantum_safe_manager lives in integrated_security, not in a
+    # (nonexistent) top-level quantum_safe_manager module. The old import
+    # always raised ImportError, so the name was silently bound to None and
+    # initialize() crashed with "'NoneType' object is not callable".
+    from integrated_security import get_quantum_safe_manager
 except ImportError:
     get_quantum_safe_manager = None
 
