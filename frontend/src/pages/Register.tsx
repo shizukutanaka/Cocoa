@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import * as authService from "../services/authService";
 import { apiErrorMessage } from "../services/apiClient";
 import { useAuth } from "../hooks/useAuth";
+import { useToast } from "../hooks/useToast";
 import { usePageTitle } from "../hooks/usePageTitle";
 
 export function Register() {
@@ -18,6 +19,7 @@ export function Register() {
 
   const { refresh } = useAuth();
   const navigate = useNavigate();
+  const { show } = useToast();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -27,6 +29,8 @@ export function Register() {
       await authService.register(username, email, password, referralCode);
       await authService.login(username, password);
       await refresh();
+      // The verification link is delivered by email (console log in dev).
+      show("登録しました。確認メールを送信したので、メール内のリンクからアドレスを確認してください。");
       navigate("/", { replace: true });
     } catch (err) {
       setError(apiErrorMessage(err, "登録に失敗しました"));

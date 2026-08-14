@@ -1723,6 +1723,115 @@ class TestVRChatToolsPackagedImport(unittest.TestCase):
         self.assertIn("OK", proc.stdout)
 
 
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestEmailDeliveryAndTokenExposure(unittest.TestCase):
+    """Reset/verification tokens must travel by email, not the API response.
+
+    An in-band verification token lets anyone register with someone else's
+    address and self-verify (the token proves mailbox ownership only if it
+    travels through the mailbox); the reset token was simply never delivered
+    at all in production, permanently locking out anyone who forgot their
+    password.
+    """
+
+    def _register_body(self):
+        body = MagicMock()
+        body.username = "alice"
+        body.email = "alice@example.com"
+        body.password = "hunter22"
+        body.referral_code = None
+        return body
+
+    def _fake_user(self):
+        user = MagicMock()
+        user.user_id = "u1"
+        user.username = "alice"
+        user.role = "user"
+        user.email = "alice@example.com"
+        user.is_email_verified = False
+        return user
+
+    def _register(self, expose=False):
+        mock_auth = MagicMock()
+        mock_auth.register.return_value = self._fake_user()
+        mock_auth.create_email_verification_token.return_value = "tokV"
+        env = {"COCOA_EXPOSE_VERIFY_TOKEN": "true"} if expose else {}
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "get_marketplace", None), \
+             patch.object(api_server, "send_email") as mock_send, \
+             patch.dict(os.environ, env, clear=False):
+            if not expose:
+                os.environ.pop("COCOA_EXPOSE_VERIFY_TOKEN", None)
+            result = asyncio.run(api_server.register(self._register_body()))
+        return result, mock_send
+
+    def test_register_does_not_return_verification_token_by_default(self):
+        result, _ = self._register(expose=False)
+        self.assertNotIn("email_verification_token", result)
+
+    def test_register_returns_token_with_dev_optin(self):
+        result, _ = self._register(expose=True)
+        self.assertEqual(result["email_verification_token"], "tokV")
+
+    def test_register_emails_the_verification_link(self):
+        _, mock_send = self._register(expose=False)
+        mock_send.assert_called_once()
+        to, _subject, bodytext = mock_send.call_args[0]
+        self.assertEqual(to, "alice@example.com")
+        self.assertIn("/verify-email?token=tokV", bodytext)
+
+    def test_resend_does_not_return_token_by_default(self):
+        mock_auth = MagicMock()
+        mock_auth.store.get_by_id.return_value = self._fake_user()
+        mock_auth.create_email_verification_token.return_value = "tokR"
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "send_email") as mock_send:
+            os.environ.pop("COCOA_EXPOSE_VERIFY_TOKEN", None)
+            result = asyncio.run(api_server.resend_verification({"user_id": "u1"}))
+        self.assertNotIn("email_verification_token", result)
+        to, _s, bodytext = mock_send.call_args[0]
+        self.assertEqual(to, "alice@example.com")
+        self.assertIn("/verify-email?token=tokR", bodytext)
+
+    def test_password_reset_emails_the_reset_link(self):
+        mock_auth = MagicMock()
+        mock_auth.request_password_reset.return_value = "tokRESET"
+        body = MagicMock()
+        body.email = "alice@example.com"
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "send_email") as mock_send:
+            os.environ.pop("COCOA_EXPOSE_RESET_TOKEN", None)
+            result = asyncio.run(api_server.request_password_reset(body))
+        self.assertEqual(result, {"status": "sent"})
+        to, _s, bodytext = mock_send.call_args[0]
+        self.assertEqual(to, "alice@example.com")
+        self.assertIn("/reset-password?token=tokRESET", bodytext)
+
+    def test_password_reset_uniform_response_for_unknown_email(self):
+        """Enumeration prevention: unknown address -> same response, no mail."""
+        mock_auth = MagicMock()
+        mock_auth.request_password_reset.return_value = None
+        body = MagicMock()
+        body.email = "nobody@example.com"
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "send_email") as mock_send:
+            result = asyncio.run(api_server.request_password_reset(body))
+        self.assertEqual(result, {"status": "sent"})
+        mock_send.assert_not_called()
+
+    def test_mail_failure_does_not_break_registration(self):
+        """send_email reports failure as False (it catches internally); the
+        account must still be created and the endpoint still succeed."""
+        mock_auth = MagicMock()
+        mock_auth.register.return_value = self._fake_user()
+        mock_auth.create_email_verification_token.return_value = "tokV"
+        with patch.object(api_server, "get_auth_manager", lambda: mock_auth), \
+             patch.object(api_server, "get_marketplace", None), \
+             patch.object(api_server, "send_email", return_value=False):
+            result = asyncio.run(api_server.register(self._register_body()))
+        self.assertEqual(result["status"], "created")
+
+
 class TestSubsystemImportIsolation(unittest.TestCase):
     """A broken module must not disable unrelated subsystems.
 

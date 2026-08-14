@@ -130,6 +130,30 @@ except ImportError:
     get_prometheus_monitor = None
     PROMETHEUS_AVAILABLE = False
 
+# Email delivery (pure stdlib -- import cannot fail for missing deps, but keep
+# the packaged/flat duality that the canonical `uvicorn main.api_server:app`
+# run form requires).
+try:
+    from .email_sender import send_email
+except ImportError:  # pragma: no cover - flat import context (tests)
+    from email_sender import send_email
+
+
+def _public_url(path: str) -> str:
+    """Absolute URL for links placed in outbound email."""
+    base = os.getenv("COCOA_PUBLIC_URL", "http://localhost:8000").rstrip("/")
+    return f"{base}{path}"
+
+
+def _expose_dev_token(var: str) -> bool:
+    """Opt-in dev switch for returning a secret token in an API response.
+
+    Mirrors COCOA_EXPOSE_RESET_TOKEN: default off, because in-band tokens
+    either lock users out (reset) or defeat the check (verification).
+    """
+    return os.getenv(var, "false").lower() == "true"
+
+
 # Core subsystems. These are imported one module at a time: a single broken
 # module used to null out every name in a shared try/except, so one bad import
 # silently disabled the whole marketplace. Failures are recorded here and
@@ -1254,14 +1278,28 @@ async def register(body: RegisterRequest):
                 get_referral_manager().apply_referral_code(user.user_id, body.referral_code)
             except Exception:
                 pass
-        return {
+        # Deliver the verification link out-of-band (best-effort, like the
+        # signup bonus above -- registration never fails over mail).
+        send_email(
+            body.email,
+            "Cocoa メールアドレスの確認",
+            f"{user.username} さん、Cocoa へようこそ。\n\n"
+            "以下のリンクからメールアドレスを確認してください:\n"
+            f"{_public_url('/verify-email?token=' + verification_token)}\n",
+        )
+        response = {
             "user_id": user.user_id,
             "username": user.username,
             "role": user.role,
             "status": "created",
             "is_email_verified": user.is_email_verified,
-            "email_verification_token": verification_token,
         }
+        # Verification proves mailbox OWNERSHIP, so the token must arrive via
+        # the mailbox. Handing it to the API caller lets anyone register with
+        # someone else's address and self-verify. Opt-in for local dev only.
+        if _expose_dev_token("COCOA_EXPOSE_VERIFY_TOKEN"):
+            response["email_verification_token"] = verification_token
+        return response
     except (ValueError, AuthError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -1292,7 +1330,19 @@ async def resend_verification(current_user: dict = Depends(get_current_user)):
     if user.is_email_verified:
         raise HTTPException(status_code=400, detail="メールアドレスは既に確認済みです")
     token = auth.create_email_verification_token(user.user_id)
-    return {"status": "sent", "email_verification_token": token}
+    send_email(
+        user.email,
+        "Cocoa メールアドレスの確認",
+        f"{user.username} さん\n\n"
+        "以下のリンクからメールアドレスを確認してください:\n"
+        f"{_public_url('/verify-email?token=' + token)}\n",
+    )
+    # Same reasoning as register(): the token proves mailbox ownership only if
+    # it travels through the mailbox. Dev opt-in only.
+    response = {"status": "sent"}
+    if _expose_dev_token("COCOA_EXPOSE_VERIFY_TOKEN"):
+        response["email_verification_token"] = token
+    return response
 
 
 @app.post("/api/auth/login", tags=["auth"])
@@ -1804,11 +1854,23 @@ async def request_password_reset(body: PasswordResetRequest):
         raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     auth = get_auth_manager()
     reset_token = auth.request_password_reset(body.email)
-    # In production the token is delivered out-of-band (email); it must NEVER be
+    # Out-of-band delivery. Best-effort: the uniform response below must be
+    # returned whether or not the mail relay is up, and on the same timing
+    # path for known and unknown addresses as far as this handler controls.
+    if reset_token:
+        send_email(
+            body.email,
+            "Cocoa パスワード再設定",
+            "パスワード再設定のリクエストを受け付けました。\n\n"
+            f"以下のリンクから新しいパスワードを設定してください（15分間有効）:\n"
+            f"{_public_url('/reset-password?token=' + reset_token)}\n\n"
+            "心当たりがない場合はこのメールを無視してください。",
+        )
+    # In production the token is delivered ONLY by email; it must never be
     # returned in the API response, or any unauthenticated caller could reset an
     # arbitrary account's password. Exposing it is opt-in for local dev only.
     response = {"status": "sent"}  # uniform response — don't leak whether email exists
-    if reset_token and os.getenv("COCOA_EXPOSE_RESET_TOKEN", "false").lower() == "true":
+    if reset_token and _expose_dev_token("COCOA_EXPOSE_RESET_TOKEN"):
         response["dev_token"] = reset_token
     return response
 
