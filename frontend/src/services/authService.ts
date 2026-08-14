@@ -61,6 +61,19 @@ export async function updateProfile(patch: Partial<Pick<CurrentUser, "display_na
 // response only confirms the request was accepted -- it never reveals whether
 // the email exists. A dev_token is returned only when the server sets
 // COCOA_EXPOSE_RESET_TOKEN=true (local dev / testing).
+// Confirm the mailbox using the token from the verification email.
+export async function verifyEmail(token: string) {
+  const { data } = await client.post("/api/auth/verify-email", { token });
+  return data as { status: string };
+}
+
+// Ask the server to email a fresh verification link to the account address.
+// email_verification_token is only present in dev (COCOA_EXPOSE_VERIFY_TOKEN).
+export async function resendVerification(): Promise<{ status: string; email_verification_token?: string }> {
+  const { data } = await client.post("/api/auth/resend-verification");
+  return data;
+}
+
 export async function requestPasswordReset(email: string): Promise<{ status: string; dev_token?: string }> {
   const { data } = await client.post("/api/auth/password-reset", { email });
   return data;

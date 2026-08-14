@@ -1,12 +1,76 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import * as authService from "../../services/authService";
+import * as userService from "../../services/userService";
 import { apiErrorMessage } from "../../services/apiClient";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../hooks/useToast";
 import { CenterSpinner } from "../../components/Spinner";
 import type { ApiKey, TwoFactorSetupData } from "../../types/api";
+
+/**
+ * Email verification status + resend. The auth token payload doesn't carry
+ * is_email_verified, so it is read from the public profile (shared
+ * ["public-profile", id] query key). The resend response only contains the
+ * token in dev (COCOA_EXPOSE_VERIFY_TOKEN) -- in production the link arrives
+ * by email, which is the whole point.
+ */
+function EmailVerificationSection({ userId }: { userId: string }) {
+  const { show } = useToast();
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [devToken, setDevToken] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+
+  const { data: profile } = useQuery({
+    queryKey: ["public-profile", userId],
+    queryFn: () => userService.getPublicProfile(userId),
+  });
+
+  if (!profile || profile.is_email_verified) return null;
+
+  async function handleResend() {
+    setBusy(true);
+    try {
+      const res = await authService.resendVerification();
+      setSent(true);
+      setDevToken(res.email_verification_token ?? null);
+      show("確認メールを送信しました。メールをご確認ください。");
+      queryClient.invalidateQueries({ queryKey: ["public-profile", userId] });
+    } catch (err) {
+      show(apiErrorMessage(err, "確認メールの送信に失敗しました"), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card card-pad" style={{ marginBottom: 20 }}>
+      <h2 style={{ fontSize: 16, marginTop: 0 }}>メールアドレスの確認</h2>
+      <p style={{ fontSize: 13, color: "var(--muted)" }}>
+        メールアドレスが未確認です。確認メールのリンクから確認を完了してください。
+      </p>
+      <button
+        id="resend-verification"
+        className="btn btn-secondary btn-sm"
+        onClick={handleResend}
+        disabled={busy || sent}
+      >
+        {busy ? "送信中..." : sent ? "送信しました" : "確認メールを再送する"}
+      </button>
+      {devToken && (
+        <div className="card card-pad" style={{ fontSize: 13, marginTop: 10 }}>
+          <div style={{ color: "var(--muted)" }}>開発用トークン（本番では表示されません）:</div>
+          <code style={{ wordBreak: "break-all" }}>{devToken}</code>
+          <div style={{ marginTop: 8 }}>
+            <Link to={`/verify-email?token=${encodeURIComponent(devToken)}`}>このトークンで確認に進む</Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Security() {
   const { user, logout } = useAuth();
@@ -24,6 +88,7 @@ export function Security() {
   return (
     <div>
       <h1>セキュリティ</h1>
+      <EmailVerificationSection userId={user!.user_id} />
       <TwoFactorSection enabled={!!status?.is_enabled} username={user!.username} onChanged={() => queryClient.invalidateQueries({ queryKey: ["2fa-status"] })} />
       <ChangePasswordSection />
       <ApiKeysSection />
