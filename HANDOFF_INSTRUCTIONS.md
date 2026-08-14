@@ -45,7 +45,7 @@
 3. **サービス**: `frontend/src/services/<feature>Service.ts` に関数を追加。決済系は Idempotency-Key を付与(`newIdempotencyKey()`)。
 4. **ページ**: `frontend/src/pages/` にページを追加/拡張。
 5. **配線**: `App.tsx` にルート追加、`MyPageLayout.tsx` / `Layout.tsx` にタブ・リンク追加。
-6. **ビルド**: `cd frontend && npm run build`(`tsc --noEmit` 含む)+ `npm run lint`。
+6. **ビルド/テスト**: `cd frontend && npm run build`(`tsc --noEmit` 含む)+ `npm run lint` + `npm test`(Vitest。テストは `src/` に `*.test.ts(x)` で同居)。
 7. **E2E**: 実 uvicorn + Playwright(§3)。/api/ への 400 以上の応答を全捕捉し、スクリーンショットを撮る。
 8. **回帰**: `python -m unittest`(§3)。バックエンドを変えたら必ず。
 9. **コミット**: 機能コミット 1 件(詳細メッセージ)。
@@ -64,7 +64,7 @@ cd /home/user/Cocoa && python -m unittest tests.test_api_server tests.test_avata
 
 ### 3.2 フロントエンド
 ```
-cd /home/user/Cocoa/frontend && npm run build && npm run lint
+cd /home/user/Cocoa/frontend && npm run build && npm run lint && npm test
 ```
 
 ### 3.3 E2E 用 uvicorn 起動(バックグラウンド)
