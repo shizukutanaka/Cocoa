@@ -114,9 +114,16 @@ export async function enableTwoFactor(username: string, token: string) {
   return data;
 }
 
-export async function getTwoFactorStatus(): Promise<TwoFactorStatus> {
+// `available` is false when this deployment has no 2FA configured (no
+// COCOA_2FA_SECRET). The endpoint answers 200 in that case -- "2FA is off and
+// isn't offered here" is an answer, not an error -- so callers must branch on
+// it rather than assuming 2FA can be switched on.
+export async function getTwoFactorStatus(): Promise<TwoFactorStatus & { available: boolean }> {
   const { data } = await client.get("/api/2fa/status");
-  return data.status as TwoFactorStatus;
+  return {
+    ...(data.status as TwoFactorStatus),
+    available: data.available !== false,
+  };
 }
 
 export async function disableTwoFactor(password: string) {
