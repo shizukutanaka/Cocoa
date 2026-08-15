@@ -3,7 +3,7 @@
 このドキュメントは、**前提知識ゼロの新しい Claude セッション(Opus / Sonnet いずれも)が、この作業を安全に引き継ぐ**ために書かれている。
 標準指示書ロジックのみで読めるよう、リポジトリ内の事実と実証済みコマンドだけを載せている。推測は書いていない。
 
-まず `PRODUCT_ASSESSMENT.md`(長所・短所・改善案)と `FEATURE_AUDIT.md`(全 42 監査エントリ)を読むこと。この2つがプロダクトの現状の一次資料。
+まず `PRODUCT_ASSESSMENT.md`(長所・短所・改善案)と `FEATURE_AUDIT.md`(全 53 監査エントリ)を読むこと。この2つがプロダクトの現状の一次資料。
 
 ---
 
@@ -19,7 +19,7 @@
 ## 1. アーキテクチャと正典 (Canonical facts)
 
 ### 1.1 バックエンド
-- 本体: `main/api_server.py`(FastAPI モノリス、225 エンドポイント宣言)。
+- 本体: `main/api_server.py`(FastAPI モノリス、227 エンドポイント宣言)。
 - ストア: すべて **プロセス内メモリのシングルトン**(`main/*_manager.py`, `main/avatar_marketplace.py` 等)。永続化なし = 再起動でデータ消失。
 - **正典の起動形態は `main` パッケージ文脈**:
   ```
@@ -38,7 +38,7 @@
 
 ## 2. 確立済みラウンド手順 (The proven per-round workflow)
 
-新機能・改善は毎回この順で進める。20 ラウンドこれで回してきた。
+新機能・改善は毎回この順で進める。30 ラウンド超これで回してきた。
 
 1. **契約読解**: 対象機能のバックエンド `to_dict()` とエンドポイント本体を読み、**正確なフィールド形状**を把握する(推測しない。例: performance の `issues` は文字列でなくオブジェクト配列)。
 2. **型ミラー**: `frontend/src/types/api.ts` に型を追加/修正。
@@ -60,7 +60,9 @@
 ```
 cd /home/user/Cocoa && python -m unittest tests.test_api_server tests.test_avatar_marketplace
 ```
-フル回帰は `python -m unittest discover tests`。約 1,200 件超が緑になるのが基準。
+主要4モジュール(`tests.test_api_server tests.test_avatar_marketplace tests.test_auth_manager tests.test_email_sender`)で約 700 件。
+フル回帰は `python -m unittest discover tests`(約 3,100 件)。ただし**到達不能な R&D モジュール由来の失敗が数十件あり、これは既存**(§4 参照)。
+変更前後で失敗集合が増えていないかを比較すること。
 
 ### 3.2 フロントエンド
 ```
@@ -72,7 +74,9 @@ cd /home/user/Cocoa/frontend && npm run build && npm run lint && npm test
 cd /home/user/Cocoa && COCOA_EXPOSE_RESET_TOKEN=true uvicorn main.api_server:app --port 8151
 ```
 - `cd /home/user/Cocoa` を**必ず先に**。でないと `ModuleNotFoundError: No module named 'main'`。
-- `COCOA_EXPOSE_RESET_TOKEN=true` はパスワードリセットのトークンを API 応答で返す開発用フラグ。
+- `COCOA_EXPOSE_RESET_TOKEN=true` / `COCOA_EXPOSE_VERIFY_TOKEN=true` はリセット/メール確認トークンを API 応答で返す**開発用**フラグ(既定 OFF。本番はメール配送のみ = 監査 #51)。
+- `COCOA_2FA_SECRET` 未設定だと 2FA は「利用不可」として degrade する(500 にはならない = 監査 #53)。2FA を実際に試すなら設定する。
+- メールは既定で `ConsoleEmailSender` がサーバーログに全文出力する。E2E はそのログで配送を検証できる。
 - フロントは `frontend` を build 済みなら uvicorn が配信する(SPA フォールバックあり)。
 
 ### 3.4 Playwright(実ブラウザ)
@@ -132,12 +136,17 @@ git fetch origin master && git checkout -B claude/deepresearch-ultrathink-improv
 ## 7. バックログ(事業判断不要・すぐ着手できる順)
 
 `PRODUCT_ASSESSMENT.md` §3〜§4 の詳細に対応する、次ラウンド候補:
-1. **メール送信抽象化(P2)**: `EmailSender` インターフェース + 開発用コンソール実装 + SMTP 実装。パスワードリセット/メール認証/通知を接続。リセットは現状 `COCOA_EXPOSE_RESET_TOKEN` の dev モードのみ(監査 #42)。
-2. **frontend テストのコミット(P2)**: Vitest + Testing Library。既存 E2E スクリプト資産をリポジトリ化。
-3. **メール認証の再送 UI(P3)**: バックエンドに再送エンドポイントがあれば `me/Security.tsx` にボタン追加。
-4. **Creator ページのフォロワー/フォロー中一覧(P3)**: フォロー API は配線済み。`pages/Creator.tsx` にリスト追加。
-5. **リーダーボード / トレンドタグ ウィジェット(P3)**: 対応エンドポイントを確認して `Marketplace.tsx` に配置。
-6. **`useMutation` リファクタ / `api_server.py` の APIRouter 分割(P3)**: 動作は変えず整理。
+~~1. メール送信抽象化~~ → **#51 で完了**(`main/email_sender.py`)
+~~2. frontend テストのコミット~~ → **#52 で完了**(Vitest + Testing Library、50テスト)
+~~3. メール認証の再送 UI~~ → **#51 で完了**(`me/Security.tsx` + `/verify-email`)
+~~4. Creator ページのフォロワー/フォロー中一覧~~ → **#43 で完了**
+
+残っている候補:
+1. **お気に入り機能の未露出(P3)**: `addFavorite`/`removeFavorite`/`listFavorites` が未使用。バックエンドはあるが UI が無い。
+2. **リーダーボード / トレンドタグ ウィジェット(P3)**: `GET /api/marketplace/leaderboard`・`.../trending-tags` が未接続。`Marketplace.tsx` に配置。
+3. **残りの admin エンドポイント(P3)**: ユーザー一覧・クレジット付与・モデレーションキュー・会員ティア調整・監査エクスポート。
+4. **構成状態を500で報告している残り2件(P2)**: `GET /backups` と `GET /security/report`(`FEATURE_AUDIT.md` §3-6)。
+5. **`useMutation` リファクタ / `api_server.py` の APIRouter 分割(P3)**: 動作は変えず整理。
 
 各候補も §2 のラウンド手順に従って進めること。
 
