@@ -215,6 +215,47 @@ PendingTwoFactor = PendingTwoFactor or type("PendingTwoFactor", (), {})
 
 _NEW_MODULES_AVAILABLE = not _SUBSYSTEM_ERRORS
 
+_TWO_FACTOR_UNCONFIGURED_DETAIL = (
+    "このデプロイでは2要素認証が構成されていません（COCOA_2FA_SECRET 未設定）"
+)
+
+
+def _two_factor_available() -> bool:
+    """Whether this deployment can actually do 2FA.
+
+    Two separate things can make it unavailable: the module may not have
+    imported, or COCOA_2FA_SECRET may be unset -- the latter makes
+    TwoFactorAuthService() raise by design (fail closed rather than encrypt
+    TOTP seeds under a shared default key).
+
+    Deliberately not cached, matching _wire_auth_2fa(): a failure here is a
+    configuration state, so setting the env var later must take effect without
+    a restart. get_two_factor_service() only assigns its singleton when the
+    constructor returns, so it re-raises cheaply on every call.
+    """
+    if not get_two_factor_service:
+        return False
+    try:
+        get_two_factor_service()
+        return True
+    except Exception:
+        return False
+
+
+def _require_two_factor_configured() -> None:
+    """Raise 501 when 2FA isn't configured on this deployment.
+
+    501 ("the server does not support the functionality required to fulfil the
+    request") is the honest code here: this is neither a bug (500) nor a
+    transient outage (503), it is a capability this deployment does not have.
+    Reporting it as 500 made every Security-page load emit a server error,
+    polluting the 5xx metrics recorded by the Prometheus instrumentation and
+    burying real faults.
+    """
+    if not _two_factor_available():
+        raise HTTPException(status_code=501, detail=_TWO_FACTOR_UNCONFIGURED_DETAIL)
+
+
 _auth_2fa_wired = False
 
 
@@ -714,6 +755,11 @@ _OPTIONAL_SUBSYSTEMS = {
     "refunds": lambda: get_refund_manager,
     "wishlist": lambda: get_wishlist_manager,
     "idempotency": lambda: get_idempotency_store,
+    # Probed rather than name-checked: 2FA is imported through the older shared
+    # try/except block (so it never reaches _SUBSYSTEM_ERRORS), and its usual
+    # failure is a missing COCOA_2FA_SECRET at construction time, which no
+    # import-level check can see.
+    "two_factor": lambda: True if _two_factor_available() else None,
 }
 
 
@@ -1014,6 +1060,7 @@ async def get_avatar(avatar_id: str, current_user: dict = Depends(get_current_us
 @app.post("/api/2fa/setup")
 async def setup_two_factor_auth(username: str, current_user: dict = Depends(get_current_user)):
     """2FAセットアップ"""
+    _require_two_factor_configured()
     try:
         if setup_2fa:
             user_id = current_user.get("user_id", 1)
@@ -1058,6 +1105,7 @@ async def enable_two_factor_auth(username: str, token: str, current_user: dict =
     実際には何も有効化されていなかった。TwoFactorAuthService.enable_user_2fa()
     は既存の秘密鍵に対して検証し、成功時のみ enabled=True を永続化する。
     """
+    _require_two_factor_configured()
     try:
         if get_two_factor_service:
             user_id = current_user.get("user_id", 1)
@@ -1088,6 +1136,7 @@ async def enable_two_factor_auth(username: str, token: str, current_user: dict =
 @app.post("/api/2fa/verify")
 async def verify_two_factor_token(username: str, token: str, current_user: dict = Depends(get_current_user)):
     """2FAトークンを検証"""
+    _require_two_factor_configured()
     try:
         if verify_2fa_token:
             user_id = current_user.get("user_id", 1)
@@ -1118,6 +1167,7 @@ async def verify_two_factor_backup_code(username: str, backup_code: str, current
     （username/backup_code/current_user の3引数 vs 呼び出し側の2引数）で
     必ず例外になっていた。関数名を変更してインポートとの衝突を解消。
     """
+    _require_two_factor_configured()
     try:
         if verify_backup_code:
             user_id = current_user.get("user_id", 1)
@@ -1138,6 +1188,7 @@ async def verify_two_factor_backup_code(username: str, backup_code: str, current
 @app.post("/api/2fa/disable")
 async def disable_two_factor_auth(password: str, current_user: dict = Depends(get_current_user)):
     """2FAを無効化"""
+    _require_two_factor_configured()
     try:
         if disable_2fa:
             user_id = current_user.get("user_id", 1)
@@ -1159,20 +1210,32 @@ async def disable_two_factor_auth(password: str, current_user: dict = Depends(ge
 
 @app.get("/api/2fa/status")
 async def get_two_factor_status(current_user: dict = Depends(get_current_user)):
-    """2FAステータスを取得"""
-    try:
-        if get_2fa_status:
-            user_id = current_user.get("user_id", 1)
-            result = get_2fa_status(user_id)
+    """2FAステータスを取得。
 
-            return {
-                "status": result,
-                "message": "2FAステータス情報"
-            }
-        raise HTTPException(status_code=404, detail="2FA機能が利用できません")
+    2FA が構成されていないデプロイでも 200 を返す: 「自分の2FAは有効か」への
+    正しい答えは「無効、かつここでは提供されていない」であって、エラーではない。
+    以前はこの経路が 500 を返しており、ユーザーがセキュリティ画面を開くたびに
+    サーバー障害として記録されていた（かつ UI 上は 2FA が「利用可能だが無効」と
+    誤表示されていた）。
+    """
+    if not _two_factor_available():
+        return {
+            "available": False,
+            "status": {"is_enabled": False},
+            "message": _TWO_FACTOR_UNCONFIGURED_DETAIL,
+        }
+    try:
+        user_id = current_user.get("user_id", 1)
+        result = get_2fa_status(user_id)
+        return {
+            "available": True,
+            "status": result,
+            "message": "2FAステータス情報",
+        }
     except HTTPException:
         raise
     except Exception as e:
+        # A genuine fault now that "unconfigured" is handled above.
         logger.error(f"2FAステータス取得エラー: {e}")
         raise HTTPException(status_code=500, detail="ステータス取得に失敗しました") from e
 # ===========================================================================

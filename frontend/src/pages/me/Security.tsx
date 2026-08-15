@@ -89,7 +89,12 @@ export function Security() {
     <div>
       <h1>セキュリティ</h1>
       <EmailVerificationSection userId={user!.user_id} />
-      <TwoFactorSection enabled={!!status?.is_enabled} username={user!.username} onChanged={() => queryClient.invalidateQueries({ queryKey: ["2fa-status"] })} />
+      <TwoFactorSection
+        enabled={!!status?.is_enabled}
+        available={status?.available !== false}
+        username={user!.username}
+        onChanged={() => queryClient.invalidateQueries({ queryKey: ["2fa-status"] })}
+      />
       <ChangePasswordSection />
       <ApiKeysSection />
       <DangerZoneSection
@@ -103,7 +108,17 @@ export function Security() {
   );
 }
 
-function TwoFactorSection({ enabled, username, onChanged }: { enabled: boolean; username: string; onChanged: () => void }) {
+function TwoFactorSection({
+  enabled,
+  available,
+  username,
+  onChanged,
+}: {
+  enabled: boolean;
+  available: boolean;
+  username: string;
+  onChanged: () => void;
+}) {
   const { show } = useToast();
   const [setupData, setSetupData] = useState<TwoFactorSetupData | null>(null);
   const [token, setToken] = useState("");
@@ -162,10 +177,22 @@ function TwoFactorSection({ enabled, username, onChanged }: { enabled: boolean; 
             ログイン時にパスワードに加えて認証アプリのコードを要求します。
           </p>
         </div>
-        <span className={enabled ? "badge badge-success" : "badge"}>{enabled ? "有効" : "無効"}</span>
+        <span className={enabled ? "badge badge-success" : "badge"}>
+          {!available ? "利用不可" : enabled ? "有効" : "無効"}
+        </span>
       </div>
 
-      {enabled && !setupData && (
+      {/* An unconfigured deployment (no COCOA_2FA_SECRET) reports available:false.
+          Saying so beats offering a setup button that can only fail: before the
+          server distinguished this state, 2FA simply looked "off" and setup
+          errored only after the user committed to it. */}
+      {!available && (
+        <p id="two-factor-unavailable" style={{ marginTop: 16, fontSize: 13, color: "var(--muted)" }}>
+          このデプロイでは2要素認証を利用できません。サーバー側の設定が必要です。
+        </p>
+      )}
+
+      {available && enabled && !setupData && (
         <form onSubmit={handleDisable} style={{ marginTop: 16, maxWidth: 320 }}>
           <div className="field">
             <label htmlFor="disable-password">無効化するにはパスワードを入力してください</label>
@@ -177,13 +204,13 @@ function TwoFactorSection({ enabled, username, onChanged }: { enabled: boolean; 
         </form>
       )}
 
-      {!enabled && !setupData && (
+      {available && !enabled && !setupData && (
         <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={handleStartSetup} disabled={busy}>
           2要素認証を設定する
         </button>
       )}
 
-      {!enabled && setupData && (
+      {available && !enabled && setupData && (
         <div style={{ marginTop: 16 }}>
           <p>認証アプリ（Google Authenticator など）でQRコードを読み取ってください。</p>
           {setupData.qr_code_image && (

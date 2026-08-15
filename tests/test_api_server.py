@@ -1858,6 +1858,106 @@ class TestSubsystemImportIsolation(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestTwoFactorUnconfiguredIsNotAServerError(unittest.TestCase):
+    """An unconfigured optional feature is not a server fault.
+
+    TwoFactorAuthService raises by design when COCOA_2FA_SECRET is unset (it
+    refuses to encrypt TOTP seeds under a shared default key). Every /api/2fa/*
+    handler caught that RuntimeError and returned 500, so simply opening the
+    security page emitted server errors -- polluting the 5xx metrics the
+    Prometheus instrumentation records and hiding real faults. 500 means "the
+    server hit an unexpected condition"; "this deployment has no 2FA" is a
+    known configuration state, which is what 501 is for.
+    """
+
+    def setUp(self):
+        self._env = patch.dict(os.environ, {}, clear=False)
+        self._env.start()
+        os.environ.pop("COCOA_2FA_SECRET", None)
+        # Reset the singleton so the missing secret is re-evaluated.
+        import two_factor_auth as tfa
+        self._tfa = tfa
+        self._saved = tfa._two_factor_service
+        tfa._two_factor_service = None
+
+    def tearDown(self):
+        self._tfa._two_factor_service = self._saved
+        self._env.stop()
+
+    def test_availability_probe_reports_false(self):
+        self.assertFalse(api_server._two_factor_available())
+
+    def test_status_answers_200_with_available_false(self):
+        """The honest answer to "is my 2FA on?" is "no, and it isn't offered
+        here" -- an answer, not an error."""
+        result = asyncio.run(api_server.get_two_factor_status({"user_id": "u1"}))
+        self.assertIs(result["available"], False)
+        self.assertIs(result["status"]["is_enabled"], False)
+
+    def test_status_does_not_raise(self):
+        # This is the call the security page makes on every load.
+        try:
+            asyncio.run(api_server.get_two_factor_status({"user_id": "u1"}))
+        except HTTPException as exc:  # pragma: no cover - failure path
+            self.fail(f"status raised {exc.status_code} for an unconfigured deployment")
+
+    def test_mutating_endpoints_return_501_not_500(self):
+        user = {"user_id": "u1"}
+        calls = {
+            "setup": lambda: api_server.setup_two_factor_auth("alice", user),
+            "enable": lambda: api_server.enable_two_factor_auth("alice", "123456", user),
+            "verify": lambda: api_server.verify_two_factor_token("123456", user),
+            "verify-backup": lambda: api_server.verify_two_factor_backup_code("code", user),
+            "disable": lambda: api_server.disable_two_factor_auth("pw", user),
+        }
+        for name, call in calls.items():
+            with self.subTest(endpoint=name):
+                with self.assertRaises(HTTPException) as ctx:
+                    asyncio.run(call())
+                self.assertEqual(ctx.exception.status_code, 501)
+                self.assertIn("2要素認証", ctx.exception.detail)
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestTwoFactorConfiguredStillWorks(unittest.TestCase):
+    """The 501 guard must not shadow a properly configured deployment."""
+
+    def setUp(self):
+        self._env = patch.dict(os.environ, {"COCOA_2FA_SECRET": "a-test-secret-value"})
+        self._env.start()
+        import two_factor_auth as tfa
+        self._tfa = tfa
+        self._saved = tfa._two_factor_service
+        tfa._two_factor_service = None
+        # Same harness artifact TestLegacyTwoFactorEndpoints documents: this
+        # file bare-imports api_server, so its relative 2FA imports fell back
+        # to None. Patch in the real callables to exercise a genuinely
+        # configured deployment.
+        for name in ("get_two_factor_service", "get_2fa_status", "setup_2fa"):
+            patcher = patch.object(api_server, name, getattr(tfa, name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        self._tfa._two_factor_service = self._saved
+        self._env.stop()
+
+    def test_availability_probe_reports_true(self):
+        self.assertTrue(api_server._two_factor_available())
+
+    def test_status_reports_available_and_real_state(self):
+        result = asyncio.run(api_server.get_two_factor_status({"user_id": "u_2fa_cfg"}))
+        self.assertIs(result["available"], True)
+        # A brand-new user has 2FA off, but the answer comes from the service.
+        self.assertIn("status", result)
+
+    def test_setup_is_not_blocked(self):
+        result = asyncio.run(api_server.setup_two_factor_auth("alice2fa", {"user_id": "u_2fa_cfg2"}))
+        self.assertEqual(result["status"], "success")
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestReadinessProbe(unittest.TestCase):
     """/ready must distinguish 'critical dependency down' (503) from
     'a feature is missing but the site serves' (200 + degraded)."""
@@ -1868,9 +1968,26 @@ class TestReadinessProbe(unittest.TestCase):
         return res.status_code, json.loads(res.body.decode())
 
     def test_reports_ready_when_all_present(self):
-        code, body = self._run()
+        # 2FA counts as an optional subsystem and is probed for real (a missing
+        # COCOA_2FA_SECRET is a construction failure no import check can see),
+        # so "all present" only holds when 2FA is genuinely usable. In this
+        # harness the 2FA import itself falls back to None, so stand in a
+        # working service the way TestLegacyTwoFactorEndpoints does.
+        with patch.object(api_server, "get_two_factor_service", lambda: object()):
+            code, body = self._run()
         self.assertEqual(code, 200)
         self.assertEqual(body["status"], "ready")
+        self.assertEqual(body["missing_critical"], [])
+
+    def test_unconfigured_two_factor_is_degraded_not_down(self):
+        """An unconfigured optional feature must not take the app out of
+        rotation, but an operator should still see it without reading logs."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("COCOA_2FA_SECRET", None)
+            code, body = self._run()
+        self.assertEqual(code, 200)
+        self.assertEqual(body["status"], "degraded")
+        self.assertIn("two_factor", body["missing_optional"])
         self.assertEqual(body["missing_critical"], [])
 
     def test_missing_critical_subsystem_fails_readiness(self):
