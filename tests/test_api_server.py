@@ -1859,6 +1859,99 @@ class TestSubsystemImportIsolation(unittest.TestCase):
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestOperationalEndpointsRequireAdmin(unittest.TestCase):
+    """Operational endpoints must not be readable by ordinary users.
+
+    /metrics (JSON), /backups and /security/report expose system-level
+    information -- performance, backup inventory, threat posture -- and were
+    gated only by get_current_user, so any logged-in account could read them
+    (OWASP API5:2023 Broken Function Level Authorization). They now require the
+    admin/moderator role. (The Prometheus scrape target is the separate,
+    intentionally unauthenticated GET /metrics/prometheus, so gating the JSON
+    endpoint does not affect monitoring.)
+    """
+
+    OPERATIONAL_PATHS = ("/metrics", "/backups", "/security/report")
+
+    @staticmethod
+    def _dependency_calls(route):
+        """Every callable in a route's resolved dependency tree."""
+        seen = []
+
+        def walk(dependant):
+            for dep in dependant.dependencies:
+                if dep.call is not None:
+                    seen.append(dep.call)
+                walk(dep)
+
+        walk(route.dependant)
+        return seen
+
+    def _route(self, path):
+        for route in api_server.app.routes:
+            if getattr(route, "path", None) == path:
+                return route
+        self.fail(f"route {path} not found")
+
+    def test_admin_dependency_is_wired_on_each_endpoint(self):
+        for path in self.OPERATIONAL_PATHS:
+            with self.subTest(path=path):
+                calls = self._dependency_calls(self._route(path))
+                self.assertIn(
+                    api_server.get_current_admin, calls,
+                    f"{path} must depend on get_current_admin",
+                )
+
+    def test_a_public_endpoint_is_not_admin_gated(self):
+        # Guards against the introspection above trivially passing everywhere:
+        # /live is a liveness probe and must stay open.
+        calls = self._dependency_calls(self._route("/live"))
+        self.assertNotIn(api_server.get_current_admin, calls)
+
+    def test_admin_gate_rejects_a_normal_user(self):
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(api_server.get_current_admin({"user_id": "u1", "role": "user"}))
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_admin_gate_admits_admin_and_moderator(self):
+        for role in ("admin", "moderator"):
+            with self.subTest(role=role):
+                out = asyncio.run(api_server.get_current_admin({"user_id": "u1", "role": role}))
+                self.assertEqual(out["role"], role)
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestOperationalEndpointsReportUnavailability(unittest.TestCase):
+    """When the backing subsystem is absent, these endpoints must say so (503)
+    rather than manufacture a reassuring stub.
+
+    A "threat_level: low" security report or an empty "status: ok" metrics
+    report tells an operator everything is fine when monitoring is not even
+    running -- the same silent-degradation trap as #47/#53.
+    """
+
+    ADMIN = {"user_id": "admin1", "role": "admin"}
+
+    def test_backups_503_when_recovery_subsystem_absent(self):
+        with patch.object(api_server, "get_recovery_manager", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.list_backups(self.ADMIN))
+        self.assertEqual(ctx.exception.status_code, 503)
+
+    def test_security_report_503_instead_of_false_all_clear(self):
+        with patch.object(api_server, "get_security_manager", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.get_security_report(self.ADMIN))
+        self.assertEqual(ctx.exception.status_code, 503)
+
+    def test_metrics_503_instead_of_empty_ok(self):
+        with patch.object(api_server, "PerformanceMonitor", None):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.get_metrics(self.ADMIN))
+        self.assertEqual(ctx.exception.status_code, 503)
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestTwoFactorUnconfiguredIsNotAServerError(unittest.TestCase):
     """An unconfigured optional feature is not a server fault.
 
