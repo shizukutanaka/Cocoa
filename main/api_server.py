@@ -803,8 +803,13 @@ async def readiness_probe():
 
 # システムメトリクスエンドポイント
 @app.get("/metrics", response_model=PerformanceReport)
-async def get_metrics(current_user: dict = Depends(get_current_user)):
-    """システムメトリクス取得"""
+async def get_metrics(admin: dict = Depends(get_current_admin)):
+    """システムメトリクス取得（管理者専用）。
+
+    Prometheus のスクレイプ先は認証不要の GET /metrics/prometheus であって
+    ここではない（docker/prometheus.yml 参照）。この JSON 版はシステム性能の
+    運用情報であり、一般ユーザーに開示するものではない（OWASP API5:2023
+    Broken Function Level Authorization）。"""
     try:
         if PerformanceMonitor:
             monitor = PerformanceMonitor()
@@ -830,12 +835,13 @@ async def get_metrics(current_user: dict = Depends(get_current_user)):
                 metrics=history,
                 alerts=report.get("alerts", [])
             )
-        # モックデータ（開発環境用）
-        return PerformanceReport(
-            summary={"status": "ok"},
-            metrics=[],
-            alerts=[]
-        )
+        # The monitor isn't available. Returning an empty "status: ok" report
+        # would tell an operator everything is fine when metrics simply aren't
+        # being collected -- report the unavailability honestly instead (503),
+        # the same way an absent subsystem is handled elsewhere (see #47/#53).
+        raise HTTPException(status_code=503, detail="メトリクス収集が利用できません")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"メトリクス取得エラー: {e}")
         raise HTTPException(status_code=500, detail="メトリクス取得に失敗しました") from e
@@ -865,8 +871,11 @@ async def get_prometheus_metrics():
 
 # バックアップ管理エンドポイント
 @app.get("/backups", response_model=List[BackupInfo])
-async def list_backups(current_user: dict = Depends(get_current_user)):
-    """バックアップ一覧取得"""
+async def list_backups(admin: dict = Depends(get_current_admin)):
+    """バックアップ一覧取得（管理者専用）。
+
+    バックアップの ID・サイズ・時刻は運用者向けの情報であり、一般ユーザーに
+    開示しない（OWASP API5:2023 Broken Function Level Authorization）。"""
     try:
         if get_recovery_manager:
             recovery_manager = get_recovery_manager()
@@ -882,15 +891,23 @@ async def list_backups(current_user: dict = Depends(get_current_user)):
                 )
                 for backup in backups
             ]
-        return []
+        # "no recovery subsystem" is not the same as "no backups": returning an
+        # empty list would let an operator believe backups exist but there
+        # simply aren't any, when in fact nothing is tracking them (see #47).
+        raise HTTPException(status_code=503, detail="バックアップ管理が利用できません")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"バックアップ一覧取得エラー: {e}")
         raise HTTPException(status_code=500, detail="バックアップ一覧取得に失敗しました") from e
 
 # セキュリティレポートエンドポイント
 @app.get("/security/report", response_model=SecurityReport)
-async def get_security_report(current_user: dict = Depends(get_current_user)):
-    """セキュリティレポート取得"""
+async def get_security_report(admin: dict = Depends(get_current_admin)):
+    """セキュリティレポート取得（管理者専用）。
+
+    脅威レベル・ロックアウト数・不審行動の統計は運用者向けであり、一般ユーザー
+    には開示しない（OWASP API5:2023 Broken Function Level Authorization）。"""
     try:
         if get_security_manager:
             security_manager = get_security_manager()
@@ -904,13 +921,12 @@ async def get_security_report(current_user: dict = Depends(get_current_user)):
                 suspicious_activities=report.get("statistics", {}).get("suspicious_activities", 0),
                 last_scan=report.get("last_scan", datetime.now(timezone.utc).isoformat())
             )
-        return SecurityReport(
-            threat_level="low",
-            total_events_24h=0,
-            active_lockouts=0,
-            suspicious_activities=0,
-            last_scan=datetime.now(timezone.utc).isoformat()
-        )
+        # A stub "threat_level: low" would be a false all-clear: it asserts the
+        # system is safe when the security monitor isn't even running. Report
+        # the unavailability instead of manufacturing reassurance (see #47).
+        raise HTTPException(status_code=503, detail="セキュリティ監視が利用できません")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"セキュリティレポート取得エラー: {e}")
         raise HTTPException(status_code=500, detail="セキュリティレポート取得に失敗しました") from e
