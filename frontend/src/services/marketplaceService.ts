@@ -3,9 +3,11 @@ import type {
   AvatarData,
   CreatorAnalytics,
   EarningsSummary,
+  LeaderboardEntry,
   Listing,
   ListingVersion,
   Paginated,
+  TrendingTag,
   PriceHistoryEntry,
   PromoCode,
   PromoLookup,
@@ -237,6 +239,21 @@ export async function downloadAvatar(listingId: string, promoCode = ""): Promise
     { params: promoCode ? { promo_code: promoCode } : {} },
   );
   return data.avatar_data;
+}
+
+// Top creators ranked by downloads / rating / listing count. Public endpoint.
+export async function getLeaderboard(
+  by: "downloads" | "rating" | "listings" = "downloads",
+  limit = 5,
+): Promise<LeaderboardEntry[]> {
+  const { data } = await client.get("/api/marketplace/leaderboard", { params: { by, limit } });
+  return data.items ?? [];
+}
+
+// Popular tags weighted by downloads. Public endpoint.
+export async function getTrendingTags(limit = 12): Promise<TrendingTag[]> {
+  const { data } = await client.get("/api/marketplace/trending-tags", { params: { limit } });
+  return data.tags ?? [];
 }
 
 export async function getRatingDistribution(listingId: string): Promise<RatingDistribution> {

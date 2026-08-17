@@ -4,8 +4,10 @@ import { Link, useSearchParams } from "react-router-dom";
 import {
   browseMarketplace,
   getCategories,
+  getLeaderboard,
   getSuggestions,
   getTrending,
+  getTrendingTags,
 } from "../services/marketplaceService";
 import { createSavedSearch } from "../services/savedSearchService";
 import { CenterSpinner } from "../components/Spinner";
@@ -116,6 +118,19 @@ export function Marketplace() {
     enabled: !hasFilters && offset === 0,
   });
 
+  // Discovery widgets on the unfiltered landing: top creators and popular tags.
+  const showDiscovery = !hasFilters && offset === 0;
+  const { data: topCreators } = useQuery({
+    queryKey: ["leaderboard", "downloads"],
+    queryFn: () => getLeaderboard("downloads", 5),
+    enabled: showDiscovery,
+  });
+  const { data: popularTags } = useQuery({
+    queryKey: ["trending-tags"],
+    queryFn: () => getTrendingTags(12),
+    enabled: showDiscovery,
+  });
+
   return (
     <div>
       <h1>マーケットプレイス</h1>
@@ -211,6 +226,45 @@ export function Marketplace() {
             ))}
           </div>
         </section>
+      )}
+
+      {showDiscovery && ((topCreators && topCreators.length > 0) || (popularTags && popularTags.length > 0)) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 28 }}>
+          {topCreators && topCreators.length > 0 && (
+            <section className="card card-pad">
+              <h2 style={{ fontSize: 15, marginTop: 0 }}>🏆 トップクリエイター</h2>
+              <div className="row-list">
+                {topCreators.map((c, i) => (
+                  <Link key={c.owner_id} to={`/users/${c.owner_id}`} className="row-item" style={{ gap: 12 }}>
+                    <span style={{ color: "var(--faint)", width: 18, textAlign: "right" }}>{i + 1}</span>
+                    <span style={{ flex: 1, minWidth: 0, fontWeight: 600 }}>{c.owner_username}</span>
+                    <span style={{ fontSize: 13, color: "var(--muted)" }}>
+                      {c.total_downloads.toLocaleString()} DL
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+          {popularTags && popularTags.length > 0 && (
+            <section className="card card-pad">
+              <h2 style={{ fontSize: 15, marginTop: 0 }}># 人気のタグ</h2>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {popularTags.map((t) => (
+                  <Link
+                    key={t.tag}
+                    to={`/?tags=${encodeURIComponent(t.tag)}`}
+                    className="badge"
+                    style={{ textDecoration: "none" }}
+                    title={`${t.listing_count} 件 · ${t.download_count.toLocaleString()} DL`}
+                  >
+                    {t.tag}
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
       )}
 
       {isLoading && <CenterSpinner />}
