@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import * as marketplaceService from "../services/marketplaceService";
 import { getListing, getRelated } from "../services/marketplaceService";
@@ -12,6 +12,7 @@ import type { AvatarData } from "../types/api";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
 import { usePageTitle } from "../hooks/usePageTitle";
+import { recordRecentlyViewed } from "../hooks/useRecentlyViewed";
 import { apiErrorMessage } from "../services/apiClient";
 
 export function ListingDetail() {
@@ -63,6 +64,11 @@ export function ListingDetail() {
   });
 
   usePageTitle(listing?.name);
+
+  // Record this listing as recently viewed once it has loaded.
+  useEffect(() => {
+    if (listing?.listing_id) recordRecentlyViewed(listing.listing_id);
+  }, [listing?.listing_id]);
 
   async function handleAddToCart() {
     if (!listing) return;

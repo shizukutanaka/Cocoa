@@ -142,7 +142,7 @@ git fetch origin master && git checkout -B claude/deepresearch-ultrathink-improv
 ~~4. Creator ページのフォロワー/フォロー中一覧~~ → **#43 で完了**
 
 残っている候補:
-1. **お気に入り機能の未露出(P3)**: `addFavorite`/`removeFavorite`/`listFavorites` が未使用。バックエンドはあるが UI が無い。
+~~1. お気に入り機能の未露出~~ → **実装しない判断（#57 で確認）**: `favorite` エンドポイントは `auth_manager` の bookmark を読み書きしており（`/api/auth/bookmarks/*` と同一ストア）、既に UI 露出済みの wishlist と機能が重複する。露出すると「保存」概念が2つになりUXを損なうため露出しない。過剰（§4系）として扱う。
 ~~2. リーダーボード / トレンドタグ ウィジェット~~ → **#56 で完了**
 3. **残りの admin エンドポイント(P3)**: ユーザー一覧・クレジット付与・モデレーションキュー・会員ティア調整・監査エクスポート。
 4. **構成状態を500で報告している残り2件(P2)**: `GET /backups` と `GET /security/report`(`FEATURE_AUDIT.md` §3-6)。
