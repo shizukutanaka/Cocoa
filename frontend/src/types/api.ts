@@ -529,6 +529,15 @@ export interface ReviewReportRecord {
   resolved_at: string | null;
 }
 
+// Mirrors main/auth_manager.py get_banned_users() items: public_profile()
+// plus the ban fields.
+export interface BannedUser extends PublicProfile {
+  is_banned: boolean;
+  ban_reason: string;
+  banned_at: string | null;
+  banned_by: string;
+}
+
 // Mirrors main/avatar_marketplace.py get_report_stats()
 export interface ReportStats {
   total: number;

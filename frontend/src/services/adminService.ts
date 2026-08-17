@@ -1,5 +1,6 @@
 import client from "./apiClient";
 import type {
+  BannedUser,
   CreatorApplication,
   ListingReport,
   Paginated,
@@ -91,9 +92,9 @@ export async function unbanUser(userId: string) {
   return data;
 }
 
-export async function listBannedUsers(limit = 50, offset = 0) {
+export async function listBannedUsers(limit = 50, offset = 0): Promise<Paginated<BannedUser>> {
   const { data } = await client.get("/api/admin/users/banned", { params: { limit, offset } });
-  return data as { total: number; items: Array<Record<string, unknown>> };
+  return data;
 }
 
 // --- Creator verification applications ---

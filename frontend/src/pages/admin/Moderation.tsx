@@ -12,7 +12,7 @@ import { CenterSpinner } from "../../components/Spinner";
 import { apiErrorMessage } from "../../services/apiClient";
 import type { ListingReport, ReviewReportRecord } from "../../types/api";
 
-type Tab = "reports" | "review-reports" | "refunds" | "creator-applications";
+type Tab = "reports" | "review-reports" | "refunds" | "creator-applications" | "banned";
 
 const REASON_LABEL: Record<string, string> = {
   inappropriate: "不適切なコンテンツ",
@@ -29,6 +29,9 @@ export function AdminModeration() {
   usePageTitle("モデレーション");
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>("reports");
+  // Ban management requires the admin role specifically (auth_manager
+  // require_role("admin")); moderators would 403, so only admins see the tab.
+  const isAdmin = user?.role === "admin";
 
   // The server enforces this on every endpoint; this check only avoids showing
   // a console that would 403 on every call.
@@ -77,12 +80,23 @@ export function AdminModeration() {
         >
           クリエイター認定申請
         </button>
+        {isAdmin && (
+          <button
+            className={tab === "banned" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+            role="tab"
+            aria-selected={tab === "banned"}
+            onClick={() => setTab("banned")}
+          >
+            停止中ユーザー
+          </button>
+        )}
       </div>
 
       {tab === "reports" && <ListingReportsTab />}
       {tab === "review-reports" && <ReviewReportsTab />}
       {tab === "refunds" && <RefundsTab />}
       {tab === "creator-applications" && <CreatorApplicationsTab />}
+      {tab === "banned" && isAdmin && <BannedUsersTab />}
     </div>
   );
 }
@@ -530,6 +544,85 @@ function CreatorApplicationsTab() {
                     却下
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Banned users, with the reason and who banned them, and a one-click unban.
+ * #50 added the ban action but no way to see or reverse a ban -- completing the
+ * enforcement loop the same way takedowns became reversible (#45): an
+ * enforcement action a moderator can't undo is a trap for mistakes.
+ */
+function BannedUsersTab() {
+  const { show } = useToast();
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-banned-users"],
+    queryFn: () => adminService.listBannedUsers(),
+  });
+
+  const items = data?.items ?? [];
+
+  async function handleUnban(userId: string, username: string) {
+    if (!confirm(`「${username}」の停止を解除します。よろしいですか？`)) return;
+    setBusy(userId);
+    try {
+      await adminService.unbanUser(userId);
+      show(`${username} の停止を解除しました`);
+      queryClient.invalidateQueries({ queryKey: ["admin-banned-users"] });
+    } catch (err) {
+      show(apiErrorMessage(err, "停止解除に失敗しました"), "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (isLoading) return <CenterSpinner />;
+
+  return (
+    <>
+      <div className="stat-row" style={{ marginBottom: 16 }}>
+        <div className="stat-tile">
+          <div className="stat-value">{data?.total ?? 0}</div>
+          <div className="stat-label">停止中</div>
+        </div>
+      </div>
+      {items.length === 0 ? (
+        <div className="empty-state">停止中のユーザーはいません。</div>
+      ) : (
+        <div className="card card-pad">
+          <div className="row-list">
+            {items.map((u) => (
+              <div key={u.user_id} className="row-item">
+                <div>
+                  <Link to={`/users/${u.user_id}`} style={{ fontWeight: 600 }}>
+                    {u.display_name || u.username}
+                  </Link>
+                  <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                    @{u.username}
+                    {u.banned_at && ` · ${new Date(u.banned_at).toLocaleString("ja-JP")}`}
+                  </div>
+                  {u.ban_reason && (
+                    <div style={{ fontSize: 13, marginTop: 4, whiteSpace: "pre-wrap" }}>
+                      理由: {u.ban_reason}
+                    </div>
+                  )}
+                </div>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handleUnban(u.user_id, u.username)}
+                  disabled={busy === u.user_id}
+                >
+                  停止を解除
+                </button>
               </div>
             ))}
           </div>

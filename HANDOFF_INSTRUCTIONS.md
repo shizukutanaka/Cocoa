@@ -144,7 +144,7 @@ git fetch origin master && git checkout -B claude/deepresearch-ultrathink-improv
 残っている候補:
 ~~1. お気に入り機能の未露出~~ → **実装しない判断（#57 で確認）**: `favorite` エンドポイントは `auth_manager` の bookmark を読み書きしており（`/api/auth/bookmarks/*` と同一ストア）、既に UI 露出済みの wishlist と機能が重複する。露出すると「保存」概念が2つになりUXを損なうため露出しない。過剰（§4系）として扱う。
 ~~2. リーダーボード / トレンドタグ ウィジェット~~ → **#56 で完了**
-3. **残りの admin エンドポイント(P3)**: ユーザー一覧・クレジット付与・モデレーションキュー・会員ティア調整・監査エクスポート。
+3. **残りの admin エンドポイント(P3)**: ユーザー一覧・クレジット付与・モデレーションキュー・会員ティア調整・監査エクスポート。（BAN一覧/解除は #58 で配線済み）
 4. **構成状態を500で報告している残り2件(P2)**: `GET /backups` と `GET /security/report`(`FEATURE_AUDIT.md` §3-6)。
 5. **`useMutation` リファクタ / `api_server.py` の APIRouter 分割(P3)**: 動作は変えず整理。
 
