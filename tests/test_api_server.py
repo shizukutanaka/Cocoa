@@ -1859,6 +1859,76 @@ class TestSubsystemImportIsolation(unittest.TestCase):
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestCrossUserObjectIsolation(unittest.TestCase):
+    """One user must not read or mutate another user's objects by id (BOLA /
+    OWASP API1:2023). A systematic sweep of the id-taking endpoints found the
+    codebase enforces this uniformly -- handlers pass current_user['user_id']
+    into the manager, which scopes the query or raises. These tests lock that
+    invariant on a representative endpoint per manager so it can't regress.
+    """
+
+    def test_saved_search_delete_is_scoped_to_owner(self):
+        from saved_searches import SavedSearchStore
+        store = SavedSearchStore()
+        a = store.create("userA", "alice's search", "cats")
+
+        with patch.object(api_server, "get_saved_search_store", lambda: store):
+            # userB tries to delete userA's saved search by its id.
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.delete_saved_search(a.search_id, {"user_id": "userB"}))
+            self.assertEqual(ctx.exception.status_code, 404)
+        # It still belongs to A, provable by A being able to delete it.
+        self.assertTrue(store.delete("userA", a.search_id))
+
+    def test_notification_mark_read_is_scoped_to_owner(self):
+        from user_notifications import NotificationQueue
+        q = NotificationQueue()
+        n = q.push("userA", "system", "t", "b")
+
+        with patch.object(api_server, "get_notification_queue", lambda: q):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.mark_notification_read(n.notification_id, {"user_id": "userB"}))
+            self.assertEqual(ctx.exception.status_code, 404)
+        # Still A's and still unread: A can mark it read.
+        self.assertTrue(q.mark_read("userA", n.notification_id))
+
+    def test_get_order_passes_the_callers_id_to_the_store(self):
+        # A store scoped by user_id can only return the caller's own order iff
+        # the handler forwards the caller's id -- assert it does.
+        mock_cm = MagicMock()
+        mock_cm.get_order.return_value = None
+        with patch.object(api_server, "get_cart_manager", lambda: mock_cm):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.get_order("order-owned-by-A", {"user_id": "userB"}))
+            self.assertEqual(ctx.exception.status_code, 404)
+        mock_cm.get_order.assert_called_once_with("userB", "order-owned-by-A")
+
+    def test_get_commission_rejects_a_non_party(self):
+        req = MagicMock()
+        req.requester_id = "userA"
+        req.creator_id = "creatorC"
+        mock_store = MagicMock()
+        mock_store.get.return_value = req
+        with patch.object(api_server, "get_commission_store", lambda: mock_store):
+            # A third user who is neither the requester nor the creator.
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.get_commission("req1", {"user_id": "userD"}))
+            self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_get_commission_allows_both_parties(self):
+        req = MagicMock()
+        req.requester_id = "userA"
+        req.creator_id = "creatorC"
+        req.to_dict.return_value = {"request_id": "req1"}
+        mock_store = MagicMock()
+        mock_store.get.return_value = req
+        with patch.object(api_server, "get_commission_store", lambda: mock_store):
+            for party in ("userA", "creatorC"):
+                out = asyncio.run(api_server.get_commission("req1", {"user_id": party}))
+                self.assertEqual(out["request_id"], "req1")
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestOperationalEndpointsRequireAdmin(unittest.TestCase):
     """Operational endpoints must not be readable by ordinary users.
 
