@@ -473,6 +473,25 @@ export interface RefundRequestRecord {
   resolved_at: string | null;
 }
 
+// Mirrors main/avatar_marketplace.py get_leaderboard() items (total_rating_sum
+// is stripped server-side).
+export interface LeaderboardEntry {
+  owner_id: string;
+  owner_username: string;
+  total_downloads: number;
+  total_rating_count: number;
+  listing_count: number;
+  average_rating: number;
+}
+
+// Mirrors main/avatar_marketplace.py get_trending_tags() items.
+export interface TrendingTag {
+  tag: string;
+  listing_count: number;
+  download_count: number;
+  score: number;
+}
+
 // Mirrors main/avatar_marketplace.py ListingReport.to_dict(), plus the fields
 // get_reports() adds server-side: the reported listing's owner and that
 // owner's standing record. These are absent when the listing no longer exists.
