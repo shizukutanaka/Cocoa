@@ -143,7 +143,7 @@ git fetch origin master && git checkout -B claude/deepresearch-ultrathink-improv
 
 残っている候補:
 1. **お気に入り機能の未露出(P3)**: `addFavorite`/`removeFavorite`/`listFavorites` が未使用。バックエンドはあるが UI が無い。
-2. **リーダーボード / トレンドタグ ウィジェット(P3)**: `GET /api/marketplace/leaderboard`・`.../trending-tags` が未接続。`Marketplace.tsx` に配置。
+~~2. リーダーボード / トレンドタグ ウィジェット~~ → **#56 で完了**
 3. **残りの admin エンドポイント(P3)**: ユーザー一覧・クレジット付与・モデレーションキュー・会員ティア調整・監査エクスポート。
 4. **構成状態を500で報告している残り2件(P2)**: `GET /backups` と `GET /security/report`(`FEATURE_AUDIT.md` §3-6)。
 5. **`useMutation` リファクタ / `api_server.py` の APIRouter 分割(P3)**: 動作は変えず整理。
