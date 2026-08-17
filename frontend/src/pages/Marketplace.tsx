@@ -1,14 +1,16 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   browseMarketplace,
   getCategories,
   getLeaderboard,
+  getListing,
   getSuggestions,
   getTrending,
   getTrendingTags,
 } from "../services/marketplaceService";
+import { getRecentlyViewed } from "../hooks/useRecentlyViewed";
 import { createSavedSearch } from "../services/savedSearchService";
 import { CenterSpinner } from "../components/Spinner";
 import { useAuth } from "../hooks/useAuth";
@@ -131,6 +133,18 @@ export function Marketplace() {
     enabled: showDiscovery,
   });
 
+  // Recently viewed (client-side, from localStorage). Fetch each id via the
+  // shared ["listing", id] cache; a delisted listing 404s and is filtered out.
+  const [recentIds] = useState(() => getRecentlyViewed());
+  const recentQueries = useQueries({
+    queries: recentIds.map((id) => ({
+      queryKey: ["listing", id],
+      queryFn: () => getListing(id),
+      enabled: showDiscovery,
+    })),
+  });
+  const recentlyViewed = recentQueries.map((q) => q.data).filter((l): l is NonNullable<typeof l> => !!l);
+
   return (
     <div>
       <h1>マーケットプレイス</h1>
@@ -209,6 +223,30 @@ export function Marketplace() {
           <h2 style={{ fontSize: 17 }}>🔥 トレンド</h2>
           <div className="related-grid">
             {trending.map((listing) => (
+              <Link key={listing.listing_id} to={`/listings/${listing.listing_id}`} className="card listing-card">
+                <div className="listing-thumb">
+                  {listing.thumbnail_url ? <img src={listing.thumbnail_url} alt="" loading="lazy" /> : "No Image"}
+                </div>
+                <div className="listing-body">
+                  <div className="listing-name">{listing.name}</div>
+                  <div className="listing-meta">
+                    <span>{listing.download_count.toLocaleString()} DL</span>
+                    <span className={listing.is_free ? "listing-price is-free" : "listing-price"}>
+                      {listing.is_free ? "無料" : `${listing.price_credits.toLocaleString()} cr`}
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {showDiscovery && recentlyViewed.length > 0 && (
+        <section style={{ marginBottom: 28 }}>
+          <h2 style={{ fontSize: 17 }}>🕑 最近見た作品</h2>
+          <div className="related-grid">
+            {recentlyViewed.slice(0, 6).map((listing) => (
               <Link key={listing.listing_id} to={`/listings/${listing.listing_id}`} className="card listing-card">
                 <div className="listing-thumb">
                   {listing.thumbnail_url ? <img src={listing.thumbnail_url} alt="" loading="lazy" /> : "No Image"}
