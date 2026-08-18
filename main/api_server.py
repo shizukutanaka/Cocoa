@@ -1767,8 +1767,11 @@ async def creator_feed(
     current_user: dict = Depends(get_current_user),
 ):
     """フォロー中クリエイターの最新公開アバター一覧"""
+    # An outage must not read as "the creators you follow published nothing"
+    # (#47). The genuinely-empty case below -- following nobody -- still
+    # returns an empty list, which is a true answer.
     if not get_auth_manager or not get_marketplace:
-        return {"total": 0, "items": []}
+        raise HTTPException(status_code=503, detail="フィードが一時的に利用できません")
     try:
         following_ids = {p["user_id"] for p in get_auth_manager().get_following(current_user["user_id"])}
     except AuthError:
@@ -1922,9 +1925,9 @@ async def get_tag_feed(
     current_user: dict = Depends(get_current_user),
 ):
     """フォロー中のタグに一致するリスティングのフィードを取得"""
+    # See creator_feed: an unavailable subsystem is not an empty feed (#47).
     if not get_auth_manager or not get_marketplace:
-        return {"total": 0, "offset": offset, "limit": limit,
-                "has_more": False, "next_offset": None, "items": []}
+        raise HTTPException(status_code=503, detail="フィードが一時的に利用できません")
     tags = get_auth_manager().get_followed_tags(current_user["user_id"])
     return get_marketplace().get_tag_feed(tags, limit=limit, offset=offset, sort_by=sort_by)
 
@@ -2480,8 +2483,9 @@ async def list_categories():
 @app.get("/api/marketplace/favorites", tags=["marketplace"])
 async def list_favorites(current_user: dict = Depends(get_current_user)):
     """お気に入りリスト（ブックマーク済みのリスティング）"""
+    # See creator_feed: an unavailable subsystem is not an empty list (#47).
     if not get_auth_manager or not get_marketplace:
-        return {"items": [], "total": 0}
+        raise HTTPException(status_code=503, detail="お気に入りが一時的に利用できません")
     bookmarks = get_auth_manager().get_bookmarks(current_user["user_id"])
     mp = get_marketplace()
     items = []
