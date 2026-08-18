@@ -10,9 +10,9 @@ import { useToast } from "../../hooks/useToast";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
 import { apiErrorMessage } from "../../services/apiClient";
-import type { ListingReport, ReviewReportRecord } from "../../types/api";
+import type { AdminUser, ListingReport, ReviewReportRecord } from "../../types/api";
 
-type Tab = "reports" | "review-reports" | "refunds" | "creator-applications" | "banned";
+type Tab = "reports" | "review-reports" | "refunds" | "creator-applications" | "users" | "banned";
 
 const REASON_LABEL: Record<string, string> = {
   inappropriate: "不適切なコンテンツ",
@@ -80,6 +80,14 @@ export function AdminModeration() {
         >
           クリエイター認定申請
         </button>
+        <button
+          className={tab === "users" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+          role="tab"
+          aria-selected={tab === "users"}
+          onClick={() => setTab("users")}
+        >
+          ユーザー
+        </button>
         {isAdmin && (
           <button
             className={tab === "banned" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
@@ -96,6 +104,7 @@ export function AdminModeration() {
       {tab === "review-reports" && <ReviewReportsTab />}
       {tab === "refunds" && <RefundsTab />}
       {tab === "creator-applications" && <CreatorApplicationsTab />}
+      {tab === "users" && <UsersTab />}
       {tab === "banned" && isAdmin && <BannedUsersTab />}
     </div>
   );
@@ -559,6 +568,159 @@ function CreatorApplicationsTab() {
  * enforcement loop the same way takedowns became reversible (#45): an
  * enforcement action a moderator can't undo is a trap for mistakes.
  */
+const ROLE_LABEL: Record<string, string> = {
+  admin: "管理者",
+  moderator: "モデレーター",
+  creator: "クリエイター",
+  user: "一般",
+};
+
+/**
+ * User roster with search and the credit-grant support action.
+ *
+ * The whole roster comes back in one call (no server-side paging), so search
+ * is client-side over username / email / id / role. Credit grant moves the
+ * same in-app ledger that refunds use -- a support/comp tool, not real money;
+ * the server caps the amount and records it to the ledger.
+ */
+function UsersTab() {
+  const { show } = useToast();
+  const [q, setQ] = useState("");
+  const [grantFor, setGrantFor] = useState<string | null>(null);
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-users"],
+    queryFn: () => adminService.listUsers(),
+  });
+
+  const users = useMemo(() => {
+    const all = data?.users ?? [];
+    const needle = q.trim().toLowerCase();
+    if (!needle) return all;
+    return all.filter(
+      (u) =>
+        u.username.toLowerCase().includes(needle) ||
+        u.email.toLowerCase().includes(needle) ||
+        u.user_id.toLowerCase().includes(needle) ||
+        u.role.toLowerCase().includes(needle),
+    );
+  }, [data, q]);
+
+  function openGrant(userId: string) {
+    setGrantFor(userId);
+    setAmount("");
+  }
+
+  async function submitGrant(u: AdminUser) {
+    const value = Number(amount);
+    if (!Number.isInteger(value) || value < 1) {
+      show("付与額は1以上の整数で指定してください", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await adminService.grantCredits(u.user_id, value);
+      show(`${u.username} に ${res.granted.toLocaleString()} クレジット付与しました（残高 ${res.new_balance.toLocaleString()}）`);
+      setGrantFor(null);
+      setAmount("");
+    } catch (err) {
+      show(apiErrorMessage(err, "クレジット付与に失敗しました"), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (isLoading) return <CenterSpinner />;
+
+  return (
+    <>
+      <div className="stat-row" style={{ marginBottom: 16 }}>
+        <div className="stat-tile">
+          <div className="stat-value">{data?.total ?? 0}</div>
+          <div className="stat-label">登録ユーザー</div>
+        </div>
+      </div>
+
+      <div className="filters-bar" style={{ marginBottom: 16 }}>
+        <input
+          className="input"
+          type="search"
+          placeholder="ユーザー名・メール・ID・ロールで検索"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          aria-label="ユーザー検索"
+          style={{ maxWidth: 360 }}
+        />
+      </div>
+
+      {users.length === 0 ? (
+        <div className="empty-state">該当するユーザーはいません。</div>
+      ) : (
+        <div className="card card-pad">
+          <div className="row-list">
+            {users.map((u) => (
+              <div key={u.user_id} className="row-item" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                  <div>
+                    <Link to={`/users/${u.user_id}`} style={{ fontWeight: 600 }}>
+                      @{u.username}
+                    </Link>
+                    <span className="badge" style={{ marginLeft: 8 }}>{ROLE_LABEL[u.role] ?? u.role}</span>
+                    {!u.is_active && <span className="badge badge-warning" style={{ marginLeft: 6 }}>停止中</span>}
+                    {u.locked && <span className="badge badge-warning" style={{ marginLeft: 6 }}>ロック中</span>}
+                    <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>{u.email}</div>
+                    <div style={{ fontSize: 12, color: "var(--faint)", marginTop: 2 }}>
+                      登録 {new Date(u.created_at).toLocaleDateString("ja-JP")}
+                      {u.last_login && ` · 最終ログイン ${new Date(u.last_login).toLocaleDateString("ja-JP")}`}
+                      {u.failed_attempts > 0 && ` · 失敗 ${u.failed_attempts} 回`}
+                    </div>
+                  </div>
+                  {grantFor !== u.user_id && (
+                    <button className="btn btn-secondary btn-sm" onClick={() => openGrant(u.user_id)}>
+                      クレジット付与
+                    </button>
+                  )}
+                </div>
+                {grantFor === u.user_id && (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      step={1}
+                      placeholder="付与するクレジット数"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      aria-label={`${u.username} への付与クレジット数`}
+                      style={{ maxWidth: 220 }}
+                    />
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => submitGrant(u)}
+                      disabled={busy}
+                    >
+                      付与する
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => { setGrantFor(null); setAmount(""); }}
+                      disabled={busy}
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function BannedUsersTab() {
   const { show } = useToast();
   const queryClient = useQueryClient();
