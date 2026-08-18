@@ -1929,6 +1929,54 @@ class TestCrossUserObjectIsolation(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestAvatarEndpointsReportMissingDatabaseHonestly(unittest.TestCase):
+    """A deployment without SQLAlchemy must say so, not lie in three directions.
+
+    database_manager imports cleanly without SQLAlchemy but every session call
+    then dies on `NameError: sessionmaker`. That produced three different
+    dishonest answers on the /api/avatars family:
+      GET  /api/avatars/{id} -> 500 (a config state reported as a server bug)
+      GET  /api/avatars      -> 200 {"avatars": [], "status": "success"}
+                                (outage indistinguishable from an empty list --
+                                 the anti-pattern #47 removed from 52 endpoints)
+      POST /api/avatars      -> 200 {"status": "created_mock"} with a fresh uuid
+                                (a WRITE reporting success for data never saved)
+    All three must be 503, per the convention #47 established.
+    """
+
+    CALLS = (
+        ("get_avatars", lambda: api_server.get_avatars({"user_id": "u1"})),
+        ("get_avatar", lambda: api_server.get_avatar("any-id", {"user_id": "u1"})),
+        ("create_avatar", lambda: api_server.create_avatar({"name": "X"}, {"user_id": "u1"})),
+    )
+
+    def test_all_avatar_endpoints_503_when_sqlalchemy_is_absent(self):
+        with patch.object(api_server, "SQLALCHEMY_AVAILABLE", False):
+            for name, call in self.CALLS:
+                with self.subTest(endpoint=name):
+                    with self.assertRaises(HTTPException) as ctx:
+                        asyncio.run(call())
+                    self.assertEqual(ctx.exception.status_code, 503)
+                    self.assertIn("データベース", ctx.exception.detail)
+
+    def test_listing_avatars_never_reports_an_empty_success(self):
+        # The specific regression: a broken database must not look like "you
+        # simply have no avatars", and must never claim status=success.
+        with patch.object(api_server, "SQLALCHEMY_AVAILABLE", False):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.get_avatars({"user_id": "u1"}))
+        self.assertNotEqual(ctx.exception.status_code, 200)
+
+    def test_create_avatar_never_fabricates_a_created_id(self):
+        # A write that cannot be durable must fail rather than hand back an id
+        # that resolves to nothing.
+        with patch.object(api_server, "SQLALCHEMY_AVAILABLE", False):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.create_avatar({"name": "X"}, {"user_id": "u1"}))
+        self.assertEqual(ctx.exception.status_code, 503)
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestAdminPayloadShapeIsNotCrossed(unittest.TestCase):
     """Two admin payload shapes coexist and must not be confused.
 
