@@ -65,6 +65,21 @@ cd /home/user/Cocoa && python -m unittest tests.test_api_server tests.test_avata
 フル回帰は `python -m unittest discover tests`(約 2,090 件)。#59/#60 の死コード削除後、失敗集合は **0 失敗 / 3 エラーのみ**で、残る3件は `pytest`/`_cffi_backend` 未導入の**環境要因**(実コードのバグではない)。
 変更前後で失敗集合が増えていないかを比較すること。
 
+### 3.1b API スモークスイープ（全ルートに 500 が無いことの実測）
+
+```
+# 端末1
+cd /home/user/Cocoa && COCOA_ADMIN_PASSWORD='AdminTest123!' uvicorn main.api_server:app --port 8250
+# 端末2
+cd /home/user/Cocoa && python3 scripts/smoke_api.py --base http://127.0.0.1:8250 --admin-password 'AdminTest123!'
+```
+
+宣言済み **227 ルート全部**に実リクエストを投げ、**予期しない 5xx があれば exit 1**。
+`503`(サブシステム不在の正直な報告 = #47 の規約)は許容し、`500` は常に失敗として扱う。
+実在オブジェクト(出品・ライセンス)を先に作ってからパスパラメータを埋めるので、not-found 分岐だけでなく**実処理の経路**に届く。
+
+**このスイープが監査 #64・#65 の2件の実バグを発見した**(どちらもフロント・テストのどちらからも呼ばれていないエンドポイントで、単体テストはモックのため素通りしていた)。バックエンドを変更したら実行すること。
+
 ### 3.2 フロントエンド
 ```
 cd /home/user/Cocoa/frontend && npm run build && npm run lint && npm test
