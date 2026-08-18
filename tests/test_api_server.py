@@ -1929,6 +1929,94 @@ class TestCrossUserObjectIsolation(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestAdminPayloadShapeIsNotCrossed(unittest.TestCase):
+    """Two admin payload shapes coexist and must not be confused.
+
+    get_current_user/get_current_admin return the NORMALIZED dict
+    ({"user_id", "username", "role"}) while _verify_token returns the RAW JWT
+    ({"sub", ...}). Reading "sub" off a normalized payload raised KeyError ->
+    HTTP 500 on POST /api/admin/licenses/{key_id}/revoke, making admin
+    revocation unreachable (a key's holder gets 403 from the owner-only route,
+    so the admin path was the only one). FEATURE_AUDIT.md #49 was the same
+    mismatch in auth_manager; this pins both the fix and the whole class.
+    """
+
+    def test_admin_license_revoke_passes_the_admins_id(self):
+        mock_lm = MagicMock()
+        mock_lm.revoke_key.return_value = {"key_id": "k1", "is_revoked": True}
+        body = api_server.RevokeLicenseRequest(reason="規約違反")
+        with patch.object(api_server, "get_license_manager", lambda: mock_lm):
+            out = asyncio.run(
+                api_server.admin_revoke_license(
+                    "k1", body, {"user_id": "admin-1", "username": "adm", "role": "admin"}
+                )
+            )
+        self.assertTrue(out["is_revoked"])
+        # The revoker id must be the admin's real id, not "" and not a KeyError.
+        mock_lm.revoke_key.assert_called_once_with("k1", "admin-1", "規約違反", is_admin=True)
+
+    def test_no_endpoint_reads_sub_off_a_normalized_payload(self):
+        """Class-level guard: statically reject the mismatch anywhere in the app.
+
+        Any handler parameter defaulted to Depends(get_current_user/admin) holds
+        the normalized dict, so `param["sub"]` / `param.get("sub")` inside that
+        handler is always wrong. Endpoints that legitimately need the raw JWT
+        call _verify_token() and bind it to a local, which this does not flag.
+        """
+        import ast
+        from pathlib import Path
+
+        source_path = Path(api_server.__file__)
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        dep_funcs = {"get_current_user", "get_current_admin"}
+
+        def dependency_of(default):
+            if isinstance(default, ast.Call) and getattr(default.func, "id", None) == "Depends":
+                if default.args:
+                    name = getattr(default.args[0], "id", None)
+                    if name in dep_funcs:
+                        return name
+            return None
+
+        offenders = []
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            spec = node.args
+            normalized = {}
+            if spec.defaults:
+                for arg, default in zip(spec.args[len(spec.args) - len(spec.defaults):], spec.defaults):
+                    dep = dependency_of(default)
+                    if dep:
+                        normalized[arg.arg] = dep
+            for arg, default in zip(spec.kwonlyargs, spec.kw_defaults):
+                if default is None:
+                    continue
+                dep = dependency_of(default)
+                if dep:
+                    normalized[arg.arg] = dep
+            if not normalized:
+                continue
+            for inner in ast.walk(node):
+                base = key = None
+                if isinstance(inner, ast.Subscript):
+                    base = getattr(inner.value, "id", None)
+                    key = getattr(inner.slice, "value", None)
+                elif isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute) \
+                        and inner.func.attr == "get" and inner.args:
+                    base = getattr(inner.func.value, "id", None)
+                    key = getattr(inner.args[0], "value", None)
+                if base in normalized and key == "sub":
+                    offenders.append(f"{node.name}() at line {inner.lineno}")
+
+        self.assertEqual(
+            offenders, [],
+            "These handlers read 'sub' from a normalized payload (use 'user_id'): "
+            + ", ".join(offenders),
+        )
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestReporterOutcomeNotification(unittest.TestCase):
     """Resolving a report must close the loop with the reporter.
 
