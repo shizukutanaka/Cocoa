@@ -33,54 +33,8 @@ os.environ['ENVIRONMENT'] = 'test'
 os.environ['LOG_LEVEL'] = 'DEBUG'
 
 
-def _load_main_attr(module_name: str, attr: str):
-    """main/<module_name>.py から attr を安全に取得する。
-
-    多くのテストが main/ を sys.path 先頭に挿入するため、通常の
-    ``import main.xxx`` は main/main.py に横取りされて失敗する。
-    ファイルパス指定でロードしてこの衝突を回避する。
-    """
-    import importlib.util
-
-    cached = sys.modules.get(f"_cocoa_conftest_{module_name}")
-    if cached is None:
-        path = project_root / "main" / f"{module_name}.py"
-        if not path.exists():
-            return None
-        spec = importlib.util.spec_from_file_location(
-            f"_cocoa_conftest_{module_name}", path
-        )
-        if spec is None or spec.loader is None:
-            return None
-        cached = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = cached
-        try:
-            spec.loader.exec_module(cached)
-        except Exception:
-            sys.modules.pop(spec.name, None)
-            return None
-    return getattr(cached, attr, None)
-
-
-# ==================== Session Fixtures ====================
-# テストセッション全体で実行（最初と最後）
-
-@pytest.fixture(scope="session")
-def test_config():
-    """テスト用の設定オブジェクト"""
-    from main.config import Config
-
-    return Config(env="test")
-
-
 # ==================== Function Fixtures ====================
 # 各テスト関数ごとに実行
-
-@pytest.fixture
-def mock_config(test_config):
-    """モック化した設定オブジェクト"""
-    return MagicMock(spec=test_config.__class__)
-
 
 @pytest.fixture
 def mock_logger():
@@ -211,30 +165,13 @@ def pytest_configure(config):
 def reset_globals():
     """グローバル状態をリセット"""
     yield
-    # テスト後のリセット処理
+    # テスト後のリセット処理。
     #
-    # 多くのテストが main/ ディレクトリを sys.path の先頭に挿入するため、
-    # そのままだと `main` が main/main.py として解決され
-    # "No module named 'main.dependency_injection'; 'main' is not a package"
-    # になる。プロジェクトルートを一時的に最優先にして解決する。
-    root = str(project_root)
-    shadow = sys.modules.get("main")
-    if shadow is not None and not hasattr(shadow, "__path__"):
-        # main/main.py が sys.path 経由で `main` を占有している場合は退避
-        del sys.modules["main"]
-    sys.path.insert(0, root)
-    try:
-        init_container = _load_main_attr("dependency_injection", "init_container")
-        set_correlation_id = _load_main_attr("logging_config", "set_correlation_id")
-        if init_container is not None:
-            init_container()
-        if set_correlation_id is not None:
-            set_correlation_id(None)
-    finally:
-        try:
-            sys.path.remove(root)
-        except ValueError:
-            pass
+    # 以前はここで dependency_injection / logging_config のグローバル状態を
+    # 巻き戻していたが、いずれも到達不能な死コードとして削除済み(監査 #60)。
+    # 併せて main/main.py も削除したため、`main` が main/main.py に横取りされて
+    # "'main' is not a package" になる問題自体が消えている。
+
 
 
 def pytest_collection_modifyitems(config, items):

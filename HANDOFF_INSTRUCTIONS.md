@@ -19,13 +19,14 @@
 ## 1. アーキテクチャと正典 (Canonical facts)
 
 ### 1.1 バックエンド
-- 本体: `main/api_server.py`(FastAPI モノリス、227 エンドポイント宣言)。
+- 本体: `main/api_server.py`(FastAPI モノリス、233 ルート)。
 - ストア: すべて **プロセス内メモリのシングルトン**(`main/*_manager.py`, `main/avatar_marketplace.py` 等)。永続化なし = 再起動でデータ消失。
+- **`main/` は 33 モジュールちょうど**で、全て `main.api_server` の import 閉包内(死コードは #59/#60 で削除完了)。新規モジュールを足すときは api_server から辿れるよう配線すること。
 - **正典の起動形態は `main` パッケージ文脈**:
   ```
   cd /home/user/Cocoa && uvicorn main.api_server:app --port <PORT>
   ```
-  この文脈では **フラットな sibling import(`from vrchat_parameter_budget import ...`)は失敗する**。必ず相対 import(`from .vrchat_parameter_budget import ...`)を先に試すこと。これを怠って本番 503 を 2 回出している(監査 #39)。リポジトリルートには旧世代のフラット版ファイルが残っているが、それは正典ではない(`PRODUCT_ASSESSMENT.md` §2.7 / `FEATURE_AUDIT.md` §4)。
+  この文脈では **フラットな sibling import(`from vrchat_parameter_budget import ...`)は失敗する**。必ず相対 import(`from .vrchat_parameter_budget import ...`)を先に試すこと。これを怠って本番 503 を 2 回出している(監査 #39)。旧世代のフラット版モジュールは #59/#60 で削除済み。
 
 ### 1.2 フロントエンド (`frontend/`)
 - Vite + React 18 + TypeScript + react-router v6 + TanStack Query v5 + axios。
@@ -61,7 +62,7 @@
 cd /home/user/Cocoa && python -m unittest tests.test_api_server tests.test_avatar_marketplace
 ```
 主要4モジュール(`tests.test_api_server tests.test_avatar_marketplace tests.test_auth_manager tests.test_email_sender`)で約 700 件。
-フル回帰は `python -m unittest discover tests`(約 3,100 件)。ただし**到達不能な R&D モジュール由来の失敗が数十件あり、これは既存**(§4 参照)。
+フル回帰は `python -m unittest discover tests`(約 2,090 件)。#59/#60 の死コード削除後、失敗集合は **0 失敗 / 3 エラーのみ**で、残る3件は `pytest`/`_cffi_backend` 未導入の**環境要因**(実コードのバグではない)。
 変更前後で失敗集合が増えていないかを比較すること。
 
 ### 3.2 フロントエンド
