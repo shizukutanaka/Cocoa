@@ -551,6 +551,24 @@ export interface AdminUser {
   locked: boolean;
 }
 
+// Mirrors main/moderation_queue.py ModerationItem.to_dict()
+export interface ModerationItem {
+  item_id: string;
+  kind: string; // listing_report | review_report | creator_application | user_report | commission_dispute
+  source_id: string;
+  subject_id: string;
+  reporter_id: string;
+  reason: string;
+  details: string;
+  priority: string; // low | medium | high
+  status: string; // pending | in_review | resolved | dismissed
+  assigned_to: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+}
+
 // Mirrors main/api_server.py GET /api/admin/stats (admin_stats). Each section
 // is present only when its subsystem loaded, so all are optional.
 export interface AdminStats {
