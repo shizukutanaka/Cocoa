@@ -89,6 +89,7 @@ except ImportError:
 # カスタムモジュールインポート
 try:
     from .database_manager import (
+        SQLALCHEMY_AVAILABLE,
         create_avatar_preset,
         get_database_manager,
         get_database_service,
@@ -129,6 +130,7 @@ except ImportError:
     get_2fa_status = None
     get_prometheus_monitor = None
     PROMETHEUS_AVAILABLE = False
+    SQLALCHEMY_AVAILABLE = False
 
 # Email delivery (pure stdlib -- import cannot fail for missing deps, but keep
 # the packaged/flat duality that the canonical `uvicorn main.api_server:app`
@@ -980,6 +982,15 @@ async def websocket_monitoring(websocket: WebSocket, token: str = Query("")):
 @app.get("/api/avatars")
 async def get_avatars(current_user: dict = Depends(get_current_user)):
     """アバター一覧取得（データベース統合版）"""
+    # get_user_avatars() swallows every exception and returns [], so without a
+    # database this answered 200 {"avatars": [], "status": "success"} -- the
+    # "broken dependency looks like a genuinely empty result" anti-pattern #47
+    # removed from 52 other endpoints. Fail loudly instead.
+    if not SQLALCHEMY_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="データベースが構成されていません（SQLAlchemy 未導入）",
+        )
     try:
         if get_user_avatars:
             avatars = get_user_avatars(current_user.get("user_id", 1))
@@ -1011,6 +1022,15 @@ async def get_avatars(current_user: dict = Depends(get_current_user)):
 @app.post("/api/avatars")
 async def create_avatar(avatar_data: Dict[str, Any], current_user: dict = Depends(get_current_user)):
     """アバター作成（データベース統合版）"""
+    # Without a database this used to answer 200 {"status": "created_mock"}
+    # with a freshly minted uuid -- reporting a successful WRITE for data that
+    # was never persisted, so the client stores an id that resolves to nothing.
+    # A write that cannot be durable must fail, not fake success.
+    if not SQLALCHEMY_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="データベースが構成されていません（SQLAlchemy 未導入）",
+        )
     try:
         if create_avatar_preset:
             name = avatar_data.get("name", "Untitled Avatar")
@@ -1040,6 +1060,16 @@ async def create_avatar(avatar_data: Dict[str, Any], current_user: dict = Depend
 @app.get("/api/avatars/{avatar_id}")
 async def get_avatar(avatar_id: str, current_user: dict = Depends(get_current_user)):
     """特定のアバターを取得"""
+    # The module imports fine without SQLAlchemy, but every session call then
+    # dies on `NameError: sessionmaker` -- which surfaced as a 500 ("server
+    # bug") for what is really a known capability state. Report it as 503, the
+    # same convention #47 established for absent subsystems, so a deployment
+    # without a database driver doesn't pollute the 5xx error budget.
+    if not SQLALCHEMY_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="データベースが構成されていません（SQLAlchemy 未導入）",
+        )
     try:
         if get_database_service:
             db_service = get_database_service()
