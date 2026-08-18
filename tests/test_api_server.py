@@ -1929,6 +1929,108 @@ class TestCrossUserObjectIsolation(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestReporterOutcomeNotification(unittest.TestCase):
+    """Resolving a report must close the loop with the reporter.
+
+    A filed report deserves an outcome acknowledgement (moderation guidance:
+    builds reporter trust, cuts repeat reports). The notification must expose
+    only the outcome category -- never the internal resolution_note, and never
+    what enforcement hit the reported party -- and must not fire when the
+    reporter resolved their own report.
+    """
+
+    def _make_marketplace(self, reporter_id="reporterX", note="内部メモ: 明白な規約違反"):
+        from unittest.mock import MagicMock
+        mkt = MagicMock()
+        report = MagicMock()
+        report.reporter_id = reporter_id
+        report.report_id = "rep1"
+        report.listing_id = "L1"
+        report.reason = "malware"
+        report.resolution_note = note
+        report.to_dict.return_value = {"report_id": "rep1"}
+        mkt.resolve_report.return_value = report
+        listing = MagicMock()
+        listing.name = "悪意ある服"
+        mkt.get_listing.return_value = listing
+        return mkt
+
+    def _resolve(self, action, reporter_id="reporterX", moderator="modA", note="内部メモ: 明白な規約違反"):
+        from user_notifications import NotificationQueue
+        q = NotificationQueue()
+        mkt = self._make_marketplace(reporter_id=reporter_id, note=note)
+        body = api_server.ResolveReportRequest(action=action, note=note, takedown=False)
+        with patch.object(api_server, "get_marketplace", lambda: mkt), \
+             patch.object(api_server, "get_notification_queue", lambda: q), \
+             patch.object(api_server, "get_moderation_queue", None), \
+             patch.object(api_server, "get_search_index", None):
+            asyncio.run(api_server.resolve_report("rep1", body, {"user_id": moderator}))
+        return q.get_notifications(reporter_id)["items"]
+
+    def test_resolved_notifies_reporter_action_taken(self):
+        items = self._resolve("resolved")
+        self.assertEqual(len(items), 1)
+        n = items[0]
+        self.assertEqual(n["kind"], "report_reviewed")
+        self.assertIn("対応しました", n["title"] + n["body"])
+        self.assertIn("悪意ある服", n["body"])  # subject name surfaced
+        self.assertEqual(n["payload"]["outcome"], "resolved")
+
+    def test_dismissed_notifies_reporter_no_violation(self):
+        items = self._resolve("dismissed")
+        self.assertEqual(len(items), 1)
+        self.assertIn("違反は確認されませんでした", items[0]["body"])
+
+    def test_internal_note_is_never_leaked_to_reporter(self):
+        # The resolution_note is an internal handoff record (#46); it must not
+        # reach the person who filed the report.
+        for action in ("resolved", "dismissed"):
+            items = self._resolve(action, note="内部メモ: 通報者には見せない")
+            blob = items[0]["title"] + items[0]["body"] + json.dumps(items[0]["payload"], ensure_ascii=False)
+            self.assertNotIn("内部メモ", blob)
+            self.assertNotIn("見せない", blob)
+
+    def test_self_report_does_not_notify(self):
+        # Reporter and moderator are the same account -> no self-notification.
+        items = self._resolve("resolved", reporter_id="modA", moderator="modA")
+        self.assertEqual(items, [])
+
+    def test_muting_report_reviewed_suppresses_the_notice(self):
+        from user_notifications import NotificationQueue
+        q = NotificationQueue()
+        q.mute_kind("reporterX", "report_reviewed")
+        mkt = self._make_marketplace()
+        body = api_server.ResolveReportRequest(action="resolved", note="x", takedown=False)
+        with patch.object(api_server, "get_marketplace", lambda: mkt), \
+             patch.object(api_server, "get_notification_queue", lambda: q), \
+             patch.object(api_server, "get_moderation_queue", None), \
+             patch.object(api_server, "get_search_index", None):
+            asyncio.run(api_server.resolve_report("rep1", body, {"user_id": "modA"}))
+        self.assertEqual(q.get_notifications("reporterX")["items"], [])
+
+    def test_review_report_resolution_notifies_with_review_fallback(self):
+        from user_notifications import NotificationQueue
+        from unittest.mock import MagicMock
+        q = NotificationQueue()
+        mkt = MagicMock()
+        report = MagicMock()
+        report.reporter_id = "reviewReporter"
+        report.report_id = "rr1"
+        report.to_dict.return_value = {"report_id": "rr1"}
+        mkt.resolve_review_report.return_value = report
+        body = api_server.ResolveReviewReportRequest(action="resolved", note="内部メモ", hide=False)
+        with patch.object(api_server, "get_marketplace", lambda: mkt), \
+             patch.object(api_server, "get_notification_queue", lambda: q), \
+             patch.object(api_server, "get_moderation_queue", None):
+            asyncio.run(api_server.resolve_review_report("rr1", body, {"user_id": "modB"}))
+        items = q.get_notifications("reviewReporter")["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["kind"], "report_reviewed")
+        self.assertIn("レビュー", items[0]["body"])  # review fallback label
+        self.assertNotIn("内部メモ", items[0]["body"])
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestOperationalEndpointsRequireAdmin(unittest.TestCase):
     """Operational endpoints must not be readable by ordinary users.
 
