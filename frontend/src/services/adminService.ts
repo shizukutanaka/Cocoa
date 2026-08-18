@@ -1,5 +1,6 @@
 import client from "./apiClient";
 import type {
+  AdminUser,
   BannedUser,
   CreatorApplication,
   ListingReport,
@@ -94,6 +95,29 @@ export async function unbanUser(userId: string) {
 
 export async function listBannedUsers(limit = 50, offset = 0): Promise<Paginated<BannedUser>> {
   const { data } = await client.get("/api/admin/users/banned", { params: { limit, offset } });
+  return data;
+}
+
+// --- User administration ---
+
+// GET /api/admin/users returns the whole roster (no server-side paging); the
+// tab filters client-side. Admin/moderator only (server-enforced).
+export async function listUsers(): Promise<{ users: AdminUser[]; total: number }> {
+  const { data } = await client.get("/api/admin/users");
+  return data;
+}
+
+// Grant in-app credits (a support/comp action -- the same credit ledger that
+// refunds move, NOT real money). The server caps the per-grant amount and
+// records it to the ledger. Returns the recipient's new balance.
+export async function grantCredits(
+  userId: string,
+  amount: number,
+): Promise<{ user_id: string; granted: number; new_balance: number }> {
+  const { data } = await client.post("/api/admin/credits/grant", {
+    user_id: userId,
+    amount,
+  });
   return data;
 }
 

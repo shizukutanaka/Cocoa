@@ -538,6 +538,19 @@ export interface BannedUser extends PublicProfile {
   banned_by: string;
 }
 
+// Mirrors main/api_server.py GET /api/admin/users (list_users)
+export interface AdminUser {
+  user_id: string;
+  username: string;
+  email: string;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+  last_login: string | null;
+  failed_attempts: number;
+  locked: boolean;
+}
+
 // Mirrors main/avatar_marketplace.py get_report_stats()
 export interface ReportStats {
   total: number;
