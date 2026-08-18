@@ -3,6 +3,7 @@ import type {
   AdminStats,
   AdminUser,
   BannedUser,
+  ModerationItem,
   CreatorApplication,
   ListingReport,
   Paginated,
@@ -126,6 +127,52 @@ export async function grantCredits(
   const { data } = await client.post("/api/admin/credits/grant", {
     user_id: userId,
     amount,
+  });
+  return data;
+}
+
+// --- Moderation queue ---
+
+/**
+ * The unified queue mirrors listing reports, review reports and creator
+ * applications -- all of which already have their own tab -- but
+ * `commission_dispute` items are enqueued ONLY here (api_server
+ * report_commission_problem). Without this call a dispute over paid
+ * commission work sits in the queue forever with no way to adjudicate it,
+ * the same dead end #46 fixed for listing reports.
+ */
+export async function listModerationItems(
+  kind?: string,
+  status?: string,
+  limit = 50,
+  offset = 0,
+): Promise<Paginated<ModerationItem>> {
+  const { data } = await client.get("/api/admin/moderation", {
+    params: { kind, status, limit, offset, sort_by: "priority" },
+  });
+  return data;
+}
+
+export async function updateModerationStatus(
+  itemId: string,
+  status: "in_review" | "resolved" | "dismissed",
+  notes = "",
+) {
+  const { data } = await client.put(`/api/admin/moderation/${itemId}/status`, {
+    status,
+    notes,
+  });
+  return data;
+}
+
+export async function setModerationPriority(itemId: string, priority: "low" | "medium" | "high") {
+  const { data } = await client.put(`/api/admin/moderation/${itemId}/priority`, { priority });
+  return data;
+}
+
+export async function assignModerationItem(itemId: string, adminId: string) {
+  const { data } = await client.put(`/api/admin/moderation/${itemId}/assign`, {
+    admin_id: adminId,
   });
   return data;
 }

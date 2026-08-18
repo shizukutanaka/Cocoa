@@ -12,7 +12,15 @@ import { CenterSpinner } from "../../components/Spinner";
 import { apiErrorMessage } from "../../services/apiClient";
 import type { AdminUser, ListingReport, ReviewReportRecord } from "../../types/api";
 
-type Tab = "overview" | "reports" | "review-reports" | "refunds" | "creator-applications" | "users" | "banned";
+type Tab =
+  | "overview"
+  | "reports"
+  | "review-reports"
+  | "commission-disputes"
+  | "refunds"
+  | "creator-applications"
+  | "users"
+  | "banned";
 
 const REASON_LABEL: Record<string, string> = {
   inappropriate: "不適切なコンテンツ",
@@ -73,6 +81,14 @@ export function AdminModeration() {
           レビューの通報
         </button>
         <button
+          className={tab === "commission-disputes" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+          role="tab"
+          aria-selected={tab === "commission-disputes"}
+          onClick={() => setTab("commission-disputes")}
+        >
+          コミッション紛争
+        </button>
+        <button
           className={tab === "refunds" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
           role="tab"
           aria-selected={tab === "refunds"}
@@ -111,11 +127,222 @@ export function AdminModeration() {
       {tab === "overview" && <OverviewTab />}
       {tab === "reports" && <ListingReportsTab />}
       {tab === "review-reports" && <ReviewReportsTab />}
+      {tab === "commission-disputes" && <CommissionDisputesTab />}
       {tab === "refunds" && <RefundsTab />}
       {tab === "creator-applications" && <CreatorApplicationsTab />}
       {tab === "users" && <UsersTab />}
       {tab === "banned" && isAdmin && <BannedUsersTab />}
     </div>
+  );
+}
+
+const PRIORITY_LABEL: Record<string, string> = { high: "高", medium: "中", low: "低" };
+const MOD_STATUS_LABEL: Record<string, string> = {
+  pending: "未処理",
+  in_review: "確認中",
+  resolved: "解決済み",
+  dismissed: "却下",
+};
+
+/**
+ * Commission disputes -- the one moderation-queue kind with no other home.
+ *
+ * The queue also mirrors listing reports, review reports and creator
+ * applications, but each of those already has a dedicated tab; rendering the
+ * whole queue would show every item twice. `commission_dispute` is enqueued
+ * only by the commission "report a problem" flow (#31), so before this tab a
+ * dispute over paid work sat in the queue with no way to adjudicate it -- the
+ * same dead end #46 fixed for listing reports.
+ */
+function CommissionDisputesTab() {
+  const { show } = useToast();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-commission-disputes"],
+    queryFn: () => adminService.listModerationItems("commission_dispute"),
+  });
+
+  const items = data?.items ?? [];
+  const pending = items.filter((i) => i.status === "pending" || i.status === "in_review");
+
+  function refresh() {
+    queryClient.invalidateQueries({ queryKey: ["admin-commission-disputes"] });
+  }
+
+  async function act(itemId: string, fn: () => Promise<unknown>, okMessage: string) {
+    setBusy(itemId);
+    try {
+      await fn();
+      show(okMessage);
+      refresh();
+    } catch (err) {
+      show(apiErrorMessage(err, "操作に失敗しました"), "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resolve(itemId: string, status: "resolved" | "dismissed") {
+    const note = (notes[itemId] ?? "").trim();
+    // Same rule as the report queue (#46): a decision without a recorded
+    // reason leaves the next moderator reconstructing it from nothing.
+    if (!note) {
+      show("判断の理由を入力してください", "error");
+      return;
+    }
+    await act(
+      itemId,
+      () => adminService.updateModerationStatus(itemId, status, note),
+      status === "resolved" ? "解決済みにしました" : "却下しました",
+    );
+    setNotes((prev) => ({ ...prev, [itemId]: "" }));
+  }
+
+  if (isLoading) return <CenterSpinner />;
+
+  return (
+    <>
+      <QueueHealth
+        pending={pending.length}
+        oldest={pending.length ? pending[pending.length - 1].created_at : undefined}
+      />
+      <p className="subhead" style={{ marginTop: -8 }}>
+        受注制作の当事者が申し立てた紛争です。実際の作業内容・納品物の確認が必要なため、
+        判断の理由を必ず記録してください。
+      </p>
+
+      {items.length === 0 ? (
+        <div className="empty-state">コミッション紛争はありません。</div>
+      ) : (
+        <div className="card card-pad">
+          <div className="row-list">
+            {items.map((item) => (
+              <div
+                key={item.item_id}
+                className="row-item"
+                style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>
+                      {item.reason}
+                      <span
+                        className={item.priority === "high" ? "badge badge-warning" : "badge"}
+                        style={{ marginLeft: 8 }}
+                      >
+                        優先度: {PRIORITY_LABEL[item.priority] ?? item.priority}
+                      </span>
+                      <span className="badge" style={{ marginLeft: 6 }}>
+                        {MOD_STATUS_LABEL[item.status] ?? item.status}
+                      </span>
+                    </div>
+                    {item.details && (
+                      <div style={{ fontSize: 13, marginTop: 4, whiteSpace: "pre-wrap" }}>
+                        {item.details}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 12, color: "var(--faint)", marginTop: 4 }}>
+                      申立日 {new Date(item.created_at).toLocaleString("ja-JP")}
+                      {item.assigned_to && ` · 担当 ${item.assigned_to.slice(0, 8)}`}
+                    </div>
+                    <div style={{ fontSize: 12, marginTop: 2 }}>
+                      <Link to={`/me/commissions`}>対象コミッション {item.subject_id.slice(0, 8)}</Link>
+                    </div>
+                    {item.notes && (
+                      <div style={{ fontSize: 13, marginTop: 4, color: "var(--muted)" }}>
+                        記録: {item.notes}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {item.status !== "resolved" && item.status !== "dismissed" && (
+                  <>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {item.priority !== "high" && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          disabled={busy === item.item_id}
+                          onClick={() =>
+                            act(
+                              item.item_id,
+                              () => adminService.setModerationPriority(item.item_id, "high"),
+                              "優先度を高にしました",
+                            )
+                          }
+                        >
+                          優先度を上げる
+                        </button>
+                      )}
+                      {user && item.assigned_to !== user.user_id && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          disabled={busy === item.item_id}
+                          onClick={() =>
+                            act(
+                              item.item_id,
+                              () => adminService.assignModerationItem(item.item_id, user.user_id),
+                              "自分に割り当てました",
+                            )
+                          }
+                        >
+                          自分が担当する
+                        </button>
+                      )}
+                      {item.status === "pending" && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          disabled={busy === item.item_id}
+                          onClick={() =>
+                            act(
+                              item.item_id,
+                              () => adminService.updateModerationStatus(item.item_id, "in_review"),
+                              "確認中にしました",
+                            )
+                          }
+                        >
+                          確認中にする
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <input
+                        className="input"
+                        placeholder="判断の理由（必須・記録されます）"
+                        value={notes[item.item_id] ?? ""}
+                        onChange={(e) =>
+                          setNotes((prev) => ({ ...prev, [item.item_id]: e.target.value }))
+                        }
+                        aria-label="判断の理由"
+                        style={{ flex: 1, minWidth: 220 }}
+                      />
+                      <button
+                        className="btn btn-primary btn-sm"
+                        disabled={busy === item.item_id}
+                        onClick={() => resolve(item.item_id, "resolved")}
+                      >
+                        解決済みにする
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        disabled={busy === item.item_id}
+                        onClick={() => resolve(item.item_id, "dismissed")}
+                      >
+                        却下する
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
