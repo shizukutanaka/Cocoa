@@ -1929,6 +1929,45 @@ class TestCrossUserObjectIsolation(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestFeedEndpointsDoNotFakeAnEmptyResult(unittest.TestCase):
+    """Stragglers from #47: an outage must not look like "nothing to show".
+
+    #47 converted 52 endpoints from an empty 200 to a 503, but three kept the
+    old shape -- and one of them, /api/auth/feed, is what the Feed page calls.
+    With auth or marketplace down, a user was told the creators they follow had
+    published nothing, which is indistinguishable from the truth.
+
+    The genuinely-empty answers must survive: following nobody really is an
+    empty feed, and that still returns 200.
+    """
+
+    ENDPOINTS = (
+        ("creator_feed", lambda: api_server.creator_feed(20, 0, {"user_id": "u1"})),
+        ("get_tag_feed", lambda: api_server.get_tag_feed(20, 0, "newest", {"user_id": "u1"})),
+        ("list_favorites", lambda: api_server.list_favorites({"user_id": "u1"})),
+    )
+
+    def test_503_when_a_required_subsystem_is_missing(self):
+        for name, call in self.ENDPOINTS:
+            for missing in ("get_auth_manager", "get_marketplace"):
+                with self.subTest(endpoint=name, missing=missing):
+                    with patch.object(api_server, missing, None):
+                        with self.assertRaises(HTTPException) as ctx:
+                            asyncio.run(call())
+                    self.assertEqual(ctx.exception.status_code, 503)
+
+    def test_following_nobody_is_still_an_honest_empty_feed(self):
+        # The real empty case must NOT have been turned into an error.
+        auth = MagicMock()
+        auth.get_following.return_value = []
+        with patch.object(api_server, "get_auth_manager", lambda: auth), \
+             patch.object(api_server, "get_marketplace", lambda: MagicMock()):
+            out = asyncio.run(api_server.creator_feed(20, 0, {"user_id": "u1"}))
+        self.assertEqual(out["total"], 0)
+        self.assertEqual(out["items"], [])
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestAvatarEndpointsReportMissingDatabaseHonestly(unittest.TestCase):
     """A deployment without SQLAlchemy must say so, not lie in three directions.
 
