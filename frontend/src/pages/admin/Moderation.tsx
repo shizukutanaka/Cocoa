@@ -12,7 +12,7 @@ import { CenterSpinner } from "../../components/Spinner";
 import { apiErrorMessage } from "../../services/apiClient";
 import type { AdminUser, ListingReport, ReviewReportRecord } from "../../types/api";
 
-type Tab = "reports" | "review-reports" | "refunds" | "creator-applications" | "users" | "banned";
+type Tab = "overview" | "reports" | "review-reports" | "refunds" | "creator-applications" | "users" | "banned";
 
 const REASON_LABEL: Record<string, string> = {
   inappropriate: "不適切なコンテンツ",
@@ -28,7 +28,7 @@ const REASON_LABEL: Record<string, string> = {
 export function AdminModeration() {
   usePageTitle("モデレーション");
   const { user } = useAuth();
-  const [tab, setTab] = useState<Tab>("reports");
+  const [tab, setTab] = useState<Tab>("overview");
   // Ban management requires the admin role specifically (auth_manager
   // require_role("admin")); moderators would 403, so only admins see the tab.
   const isAdmin = user?.role === "admin";
@@ -48,6 +48,14 @@ export function AdminModeration() {
       </p>
 
       <div className="filters-bar" role="tablist" aria-label="モデレーションの表示切り替え" style={{ marginBottom: 16 }}>
+        <button
+          className={tab === "overview" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+          role="tab"
+          aria-selected={tab === "overview"}
+          onClick={() => setTab("overview")}
+        >
+          概要
+        </button>
         <button
           className={tab === "reports" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
           role="tab"
@@ -100,6 +108,7 @@ export function AdminModeration() {
         )}
       </div>
 
+      {tab === "overview" && <OverviewTab />}
       {tab === "reports" && <ListingReportsTab />}
       {tab === "review-reports" && <ReviewReportsTab />}
       {tab === "refunds" && <RefundsTab />}
@@ -107,6 +116,85 @@ export function AdminModeration() {
       {tab === "users" && <UsersTab />}
       {tab === "banned" && isAdmin && <BannedUsersTab />}
     </div>
+  );
+}
+
+const ROLE_STAT_LABEL: Record<string, string> = {
+  admin: "管理者",
+  moderator: "モデレーター",
+  user: "一般",
+};
+
+/** Console landing: at-a-glance platform health from GET /api/admin/stats. */
+function OverviewTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-stats"],
+    queryFn: () => adminService.getAdminStats(),
+  });
+
+  if (isLoading) return <CenterSpinner />;
+
+  const u = data?.users;
+  const m = data?.marketplace;
+
+  return (
+    <>
+      <section style={{ marginBottom: 24 }}>
+        <h2 style={{ fontSize: 16, marginBottom: 8 }}>ユーザー</h2>
+        {u ? (
+          <div className="stat-row">
+            <div className="stat-tile">
+              <div className="stat-value">{u.total.toLocaleString()}</div>
+              <div className="stat-label">登録ユーザー</div>
+            </div>
+            <div className="stat-tile">
+              <div className="stat-value">{u.active.toLocaleString()}</div>
+              <div className="stat-label">有効</div>
+            </div>
+            <div className="stat-tile">
+              <div className="stat-value">{u.locked.toLocaleString()}</div>
+              <div className="stat-label">ロック中</div>
+            </div>
+            {Object.entries(u.by_role)
+              .filter(([, n]) => n > 0)
+              .map(([role, n]) => (
+                <div className="stat-tile" key={role}>
+                  <div className="stat-value">{n.toLocaleString()}</div>
+                  <div className="stat-label">{ROLE_STAT_LABEL[role] ?? role}</div>
+                </div>
+              ))}
+          </div>
+        ) : (
+          <div className="empty-state">ユーザー統計は利用できません。</div>
+        )}
+      </section>
+
+      <section>
+        <h2 style={{ fontSize: 16, marginBottom: 8 }}>マーケットプレイス</h2>
+        {m ? (
+          <div className="stat-row">
+            <div className="stat-tile">
+              <div className="stat-value">{m.total_listings.toLocaleString()}</div>
+              <div className="stat-label">公開中の出品</div>
+            </div>
+            <div className="stat-tile">
+              <div className="stat-value">{m.total_downloads.toLocaleString()}</div>
+              <div className="stat-label">総ダウンロード</div>
+            </div>
+            <div className="stat-tile">
+              <div className="stat-value">{m.total_ratings.toLocaleString()}</div>
+              <div className="stat-label">総評価数</div>
+            </div>
+            <div className="stat-tile">
+              <div className="stat-value">{m.categories.length.toLocaleString()}</div>
+              <div className="stat-label">カテゴリ数</div>
+            </div>
+          </div>
+        ) : (
+          <div className="empty-state">マーケットプレイス統計は利用できません。</div>
+        )}
+      </section>
+    </>
   );
 }
 

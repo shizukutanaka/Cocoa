@@ -1,5 +1,6 @@
 import client from "./apiClient";
 import type {
+  AdminStats,
   AdminUser,
   BannedUser,
   CreatorApplication,
@@ -95,6 +96,14 @@ export async function unbanUser(userId: string) {
 
 export async function listBannedUsers(limit = 50, offset = 0): Promise<Paginated<BannedUser>> {
   const { data } = await client.get("/api/admin/users/banned", { params: { limit, offset } });
+  return data;
+}
+
+// --- Overview ---
+
+// Platform stats for the console landing. Admin/moderator only (server-enforced).
+export async function getAdminStats(): Promise<AdminStats> {
+  const { data } = await client.get("/api/admin/stats");
   return data;
 }
 
