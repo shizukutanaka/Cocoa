@@ -19,6 +19,7 @@ const MUTABLE_KINDS: Array<{ kind: string; label: string }> = [
   { kind: "price_drop", label: "ウィッシュリストの値下がり" },
   { kind: "back_in_stock", label: "ウィッシュリストの再入荷" },
   { kind: "saved_search_match", label: "保存した検索に一致する新着" },
+  { kind: "report_reviewed", label: "通報の処理結果" },
 ];
 
 export function Notifications() {

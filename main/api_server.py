@@ -3842,9 +3842,44 @@ async def resolve_report(report_id: str, body: ResolveReportRequest, admin: dict
                 get_moderation_queue().resolve_by_source(report.report_id, body.action, body.note)
             except Exception:
                 pass
+        _notify_reporter_of_outcome(
+            report.reporter_id, admin["user_id"], body.action, report.report_id,
+            subject=(get_marketplace().get_listing(report.listing_id) or None),
+            fallback="ご報告いただいた出品",
+        )
         return {"status": "resolved", "report": report.to_dict()}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+def _notify_reporter_of_outcome(reporter_id, moderator_id, action, report_id, *, subject, fallback):
+    """Close the moderation loop with the person who filed the report.
+
+    Moderation guidance is consistent that a report deserves an outcome
+    acknowledgement -- it builds reporter trust and cuts repeat/duplicate
+    reports. We deliberately expose only the outcome *category* (acted vs. no
+    violation found): never the internal ``resolution_note`` (an internal
+    handoff record, see #46) and never what enforcement, if any, hit the
+    reported party (that user's privacy, and it avoids retaliation). Skip when
+    the reporter resolved their own report, and never let a notification
+    failure affect the moderation response.
+    """
+    if not get_notification_queue or not reporter_id or reporter_id == moderator_id:
+        return
+    label = f"「{subject.name}」" if subject is not None and getattr(subject, "name", None) else fallback
+    if action == "resolved":
+        title = "ご報告に対応しました"
+        body = f"{label}を確認し、対応しました。ご報告ありがとうございました。"
+    else:
+        title = "ご報告を確認しました"
+        body = f"{label}を確認しましたが、ガイドライン違反は確認されませんでした。ご報告ありがとうございました。"
+    try:
+        get_notification_queue().push(
+            reporter_id, "report_reviewed", title, body,
+            {"report_id": report_id, "outcome": action},
+        )
+    except Exception:
+        pass
 
 
 class ReportReviewRequest(BaseModel):
@@ -3919,6 +3954,10 @@ async def resolve_review_report(
                 get_moderation_queue().resolve_by_source(report.report_id, body.action, body.note)
             except Exception:
                 pass
+        _notify_reporter_of_outcome(
+            report.reporter_id, admin["user_id"], body.action, report.report_id,
+            subject=None, fallback="ご報告いただいたレビュー",
+        )
         return {"status": "resolved", "report": report.to_dict()}
     except ValueError as e:
         status = 404 if "見つかりません" in str(e) else 400
