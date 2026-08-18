@@ -5204,8 +5204,13 @@ async def admin_revoke_license(
     if not get_license_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     try:
+        # get_current_admin yields the NORMALIZED payload ({"user_id", ...}),
+        # not the raw JWT ({"sub", ...}). Reading "sub" here raised KeyError on
+        # every call -- a 500 that made admin revocation unreachable (the only
+        # other route, owner self-revoke, 403s for a key's holder). Same shape
+        # mismatch as FEATURE_AUDIT.md #49.
         return get_license_manager().revoke_key(
-            key_id, admin["sub"], body.reason, is_admin=True
+            key_id, admin["user_id"], body.reason, is_admin=True
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
