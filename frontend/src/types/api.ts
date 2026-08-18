@@ -551,6 +551,23 @@ export interface AdminUser {
   locked: boolean;
 }
 
+// Mirrors main/api_server.py GET /api/admin/stats (admin_stats). Each section
+// is present only when its subsystem loaded, so all are optional.
+export interface AdminStats {
+  users?: {
+    total: number;
+    by_role: Record<string, number>;
+    active: number;
+    locked: number;
+  };
+  marketplace?: {
+    total_listings: number;
+    total_downloads: number;
+    total_ratings: number;
+    categories: string[];
+  };
+}
+
 // Mirrors main/avatar_marketplace.py get_report_stats()
 export interface ReportStats {
   total: number;

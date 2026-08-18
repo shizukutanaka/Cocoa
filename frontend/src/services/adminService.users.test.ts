@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import client from "./apiClient";
-import { listUsers, grantCredits } from "./adminService";
+import { listUsers, grantCredits, getAdminStats } from "./adminService";
 
 // The admin Users tab depends on these two request shapes exactly: the roster
 // GET and the credit-grant POST payload. If either drifts from what
@@ -39,5 +39,16 @@ describe("grantCredits", () => {
       amount: 50,
     });
     expect(out.new_balance).toBe(150);
+  });
+});
+
+describe("getAdminStats", () => {
+  it("GETs the admin stats endpoint and returns the payload", async () => {
+    mockClient.get.mockResolvedValue({
+      data: { users: { total: 3, by_role: { admin: 1 }, active: 3, locked: 0 } },
+    });
+    const out = await getAdminStats();
+    expect(mockClient.get).toHaveBeenCalledWith("/api/admin/stats");
+    expect(out.users?.total).toBe(3);
   });
 });
