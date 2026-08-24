@@ -41,6 +41,13 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-cocoa_password}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Durability (#71): accounts + credit balances/ledger survive container
+      # recreation via the cocoa_state volume. Without this, every
+      # `docker compose up` after an image rebuild would wipe who people are
+      # and what they own.
+      - COCOA_STATE_DIR=/app/state
+    volumes:
+      - cocoa_state:/app/state
     depends_on:
       - db
       - redis
@@ -146,6 +153,7 @@ services:
       - prometheus
 
 volumes:
+  cocoa_state:
   postgres_data:
   redis_data:
   prometheus_data:
