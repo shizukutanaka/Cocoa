@@ -14,6 +14,7 @@ import importlib
 import io
 import logging
 import os
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -411,6 +412,125 @@ if FASTAPI_AVAILABLE:
 else:
     app = _NullApp()
     security = None
+
+
+# ---------------------------------------------------------------------------
+# Opt-in durability for the minimal coherent unit: money + accounts
+# (FEATURE_AUDIT.md #71)
+#
+# Every store is in-process memory, so a restart wipes everything (§3-4). The
+# full migration stays deferred as a business decision, but MarketplaceStore
+# already carried a complete, integrity-verified, atomically-written credit
+# persistence API (export/import/save/load_credit_state) that no caller ever
+# wired in. Credits alone are incoherent, though -- balances are keyed by
+# user_id, so restoring them without the accounts leaves orphaned money nobody
+# can log in to claim -- so UserStore gained the mirror-image API and both are
+# wired here together:
+#
+#   COCOA_STATE_DIR unset (default)  -> exactly the current behavior
+#   COCOA_STATE_DIR=/some/dir        -> accounts and credit balances/ledger
+#                                       survive a restart via
+#                                       <dir>/user_state.json and
+#                                       <dir>/credit_state.json
+#
+# Single-process only, like the stores themselves. @app.on_event is used
+# (rather than lifespan=) because the FastAPI-unavailable stub classes already
+# provide a no-op on_event, so this cannot break the fallback path.
+# ---------------------------------------------------------------------------
+
+_STATE_AUTOSAVE_INTERVAL_SECONDS = 30
+_state_autosave_stop = threading.Event()
+_state_autosave_thread: Optional[threading.Thread] = None
+
+
+def _state_paths() -> Optional[Dict[str, str]]:
+    state_dir = os.environ.get("COCOA_STATE_DIR", "").strip()
+    if not state_dir:
+        return None
+    return {
+        "credits": os.path.join(state_dir, "credit_state.json"),
+        "users": os.path.join(state_dir, "user_state.json"),
+    }
+
+
+def _save_state_best_effort(paths: Dict[str, str]) -> bool:
+    """Persist accounts + money; never let a save failure break the caller."""
+    ok = True
+    if get_auth_manager:
+        try:
+            get_auth_manager().store.save_user_state(paths["users"])
+        except Exception as e:  # pragma: no cover - disk-full etc.
+            logger.error("User-state save to %s failed: %s", paths["users"], e)
+            ok = False
+    if get_marketplace:
+        try:
+            get_marketplace().save_credit_state(paths["credits"])
+        except Exception as e:  # pragma: no cover
+            logger.error("Credit-state save to %s failed: %s", paths["credits"], e)
+            ok = False
+    return ok
+
+
+def _state_autosave_loop(paths: Dict[str, str]) -> None:
+    # Crash protection: SIGKILL / power loss never runs the shutdown hook, so
+    # bound the loss window to the interval. Both writers are atomic
+    # (tempfile + os.replace), so a crash mid-save leaves the previous
+    # snapshot intact rather than a corrupt file.
+    while not _state_autosave_stop.wait(_STATE_AUTOSAVE_INTERVAL_SECONDS):
+        _save_state_best_effort(paths)
+
+
+@app.on_event("startup")
+async def _load_persisted_state() -> None:
+    global _state_autosave_thread
+    paths = _state_paths()
+    if not paths:
+        return
+    # Fail closed on a corrupt snapshot. Serving with silently-zeroed
+    # balances or an empty user table is the money version of the #47
+    # anti-pattern (an outage disguised as an empty result); refuse to start
+    # so the operator sees the problem. An absent file is the normal first
+    # run and loads as empty.
+    try:
+        if get_auth_manager:
+            result = get_auth_manager().store.load_user_state(paths["users"])
+            if result.get("loaded"):
+                logger.info(
+                    "Account state restored from %s (%d users)",
+                    paths["users"], result.get("users_loaded", 0),
+                )
+        if get_marketplace:
+            result = get_marketplace().load_credit_state(paths["credits"])
+            if result.get("loaded"):
+                logger.info(
+                    "Credit state restored from %s (%d users)",
+                    paths["credits"], result.get("users_loaded", 0),
+                )
+    except Exception:
+        logger.critical(
+            "Persisted state under %s is unreadable or failed its integrity "
+            "check; refusing to start with empty accounts/balances. Restore "
+            "the file from a backup or remove it to start fresh.",
+            os.environ.get("COCOA_STATE_DIR"),
+        )
+        raise
+    _state_autosave_stop.clear()
+    _state_autosave_thread = threading.Thread(
+        target=_state_autosave_loop, args=(paths,), name="state-autosave", daemon=True
+    )
+    _state_autosave_thread.start()
+
+
+@app.on_event("shutdown")
+async def _save_persisted_state() -> None:
+    paths = _state_paths()
+    _state_autosave_stop.set()
+    if _state_autosave_thread is not None:
+        _state_autosave_thread.join(timeout=5)
+    if not paths:
+        return
+    if _save_state_best_effort(paths):
+        logger.info("Account + credit state saved under %s", os.environ.get("COCOA_STATE_DIR"))
 
 
 def _request_endpoint_label(request) -> str:

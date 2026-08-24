@@ -1929,6 +1929,121 @@ class TestCrossUserObjectIsolation(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestOptInStatePersistence(unittest.TestCase):
+    """Wiring for COCOA_STATE_DIR (audit #71).
+
+    MarketplaceStore has carried a complete, integrity-verified credit-state
+    persistence API with zero callers; UserStore gained the mirror-image API
+    because money alone is incoherent (balances are keyed by user_id, so
+    restoring them without accounts leaves orphaned money nobody can claim).
+    These tests pin the server wiring: off by default, load at startup, save at
+    shutdown, and fail-closed on a corrupt snapshot -- silently starting with
+    zeroed balances or an empty user table would be the money version of the
+    #47 anti-pattern.
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.state_dir = self._tmp.name
+        self.addCleanup(self._tmp.cleanup)
+        # The autosave thread from a previous test must not leak.
+        self.addCleanup(api_server._state_autosave_stop.set)
+
+    def _fresh_marketplace(self):
+        from avatar_marketplace import MarketplaceStore
+        return MarketplaceStore()
+
+    def _fresh_auth(self):
+        from auth_manager import AuthManager, UserStore
+        return AuthManager(store=UserStore())
+
+    def _run_startup(self, auth, mkt):
+        with patch.dict(os.environ, {"COCOA_STATE_DIR": self.state_dir}), \
+             patch.object(api_server, "get_auth_manager", lambda: auth), \
+             patch.object(api_server, "get_marketplace", lambda: mkt):
+            asyncio.run(api_server._load_persisted_state())
+
+    def _run_shutdown(self, auth, mkt):
+        with patch.dict(os.environ, {"COCOA_STATE_DIR": self.state_dir}), \
+             patch.object(api_server, "get_auth_manager", lambda: auth), \
+             patch.object(api_server, "get_marketplace", lambda: mkt):
+            asyncio.run(api_server._save_persisted_state())
+
+    def test_unset_env_is_a_no_op(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("COCOA_STATE_DIR", None)
+            mkt = MagicMock()
+            auth = MagicMock()
+            with patch.object(api_server, "get_marketplace", lambda: mkt), \
+                 patch.object(api_server, "get_auth_manager", lambda: auth):
+                asyncio.run(api_server._load_persisted_state())
+                asyncio.run(api_server._save_persisted_state())
+        mkt.load_credit_state.assert_not_called()
+        mkt.save_credit_state.assert_not_called()
+        auth.store.load_user_state.assert_not_called()
+        auth.store.save_user_state.assert_not_called()
+
+    def test_accounts_and_money_survive_a_simulated_restart(self):
+        auth = self._fresh_auth()
+        mkt = self._fresh_marketplace()
+        user = auth.register("alice", "alice@example.com", "Sup3rSecret!")
+        mkt.add_credits(user.user_id, 250)
+        self._run_shutdown(auth, mkt)
+
+        # Brand-new stores = a restarted process.
+        auth2 = self._fresh_auth()
+        mkt2 = self._fresh_marketplace()
+        self._run_startup(auth2, mkt2)
+        # The same person can still LOG IN (identity survived) ...
+        tokens = auth2.login("alice", "Sup3rSecret!")
+        self.assertTrue(tokens.access_token)
+        # ... and their money is still theirs.
+        self.assertEqual(mkt2.get_balance(user.user_id), 250)
+
+    def test_missing_snapshot_starts_fresh(self):
+        auth = self._fresh_auth()
+        mkt = self._fresh_marketplace()
+        self._run_startup(auth, mkt)  # must not raise
+        self.assertEqual(mkt.get_balance("nobody"), 0)
+
+    def test_corrupt_credit_snapshot_refuses_to_start(self):
+        path = os.path.join(self.state_dir, "credit_state.json")
+        # Balances that do not match their ledger -> integrity check fails.
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"version": 3, "credits": {"alice": 999}, "ledger": {}}, f)
+        mkt = self._fresh_marketplace()
+        with self.assertRaises(ValueError):
+            self._run_startup(self._fresh_auth(), mkt)
+        # And the poisoned balance was never committed.
+        self.assertEqual(mkt.get_balance("alice"), 0)
+
+    def test_corrupt_user_snapshot_refuses_to_start(self):
+        path = os.path.join(self.state_dir, "user_state.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "users": [{"username": "no-required-fields"}]}, f)
+        with self.assertRaises(ValueError):
+            self._run_startup(self._fresh_auth(), self._fresh_marketplace())
+
+    def test_password_hashes_never_leave_the_snapshot_worldreadable(self):
+        auth = self._fresh_auth()
+        auth.register("bob", "bob@example.com", "Sup3rSecret!")
+        self._run_shutdown(auth, self._fresh_marketplace())
+        mode = os.stat(os.path.join(self.state_dir, "user_state.json")).st_mode & 0o777
+        self.assertEqual(mode & 0o077, 0, f"snapshot mode {oct(mode)} is group/world accessible")
+
+    def test_startup_arms_the_autosave_thread(self):
+        auth = self._fresh_auth()
+        mkt = self._fresh_marketplace()
+        self._run_startup(auth, mkt)
+        thread = api_server._state_autosave_thread
+        self.assertIsNotNone(thread)
+        self.assertTrue(thread.is_alive())
+        self._run_shutdown(auth, mkt)
+        self.assertFalse(thread.is_alive())
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestFeedEndpointsDoNotFakeAnEmptyResult(unittest.TestCase):
     """Stragglers from #47: an outage must not look like "nothing to show".
 
