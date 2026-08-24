@@ -59,8 +59,13 @@ RUN pip install --upgrade pip && pip install -r requirements-ci.txt
 COPY main/ ./main/
 COPY --from=frontend-builder /frontend/dist ./frontend/dist
 
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash cocoa && chown -R cocoa:cocoa /app
+# Create non-root user. /app/state is the durability mount point
+# (COCOA_STATE_DIR, audit #71): it must exist and be owned by the runtime
+# user BEFORE the named volume is created, because Docker initializes a fresh
+# named volume from the image's content and ownership at the mount path -- a
+# volume mounted over a nonexistent path would be root-owned and the non-root
+# server could never write its snapshots.
+RUN mkdir -p /app/state && useradd --create-home --shell /bin/bash cocoa && chown -R cocoa:cocoa /app
 USER cocoa
 
 # Health check
