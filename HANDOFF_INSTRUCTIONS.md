@@ -105,6 +105,7 @@ cd /home/user/Cocoa && COCOA_EXPOSE_RESET_TOKEN=true uvicorn main.api_server:app
 - `COCOA_EXPOSE_RESET_TOKEN=true` / `COCOA_EXPOSE_VERIFY_TOKEN=true` はリセット/メール確認トークンを API 応答で返す**開発用**フラグ(既定 OFF。本番はメール配送のみ = 監査 #51)。
 - `COCOA_2FA_SECRET` 未設定だと 2FA は「利用不可」として degrade する(500 にはならない = 監査 #53)。2FA を実際に試すなら設定する。
 - メールは既定で `ConsoleEmailSender` がサーバーログに全文出力する。E2E はそのログで配送を検証できる。
+- `COCOA_STATE_DIR=<dir>` を設定すると**アカウント＋クレジット残高/台帳**が再起動を生き延びる(#71。既定は未設定=完全インメモリ)。破損スナップショットでは起動を拒否する(fail-closed)ので、テストで壊れた状態ディレクトリを再利用しないこと。
 - フロントは `frontend` を build 済みなら uvicorn が配信する(SPA フォールバックあり)。
 
 ### 3.4 Playwright(実ブラウザ)
