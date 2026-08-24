@@ -22,7 +22,7 @@ import threading
 import unicodedata
 import time
 from urllib.parse import urlparse
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dataclass_fields
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -630,6 +630,102 @@ class UserStore:
                 "type": "api_key",
                 "key_id": entry["key_id"],
             }
+
+    # --- Durability (opt-in snapshot; mirrors MarketplaceStore credit state) ---
+    #
+    # Persisting money alone is incoherent: credit balances are keyed by
+    # user_id, so restoring them into a process whose accounts evaporated
+    # leaves orphaned balances nobody can log in to claim. Accounts are the
+    # other half of the minimal durable unit.
+    #
+    # Deliberately NOT persisted (transient or separately-revocable state):
+    #   _revoked_jtis     -- revocations die with the process; access tokens
+    #                        expire on their own within the hour
+    #   _reset_tokens / _verify_tokens -- minutes-lived, one-shot
+    #   _api_keys         -- long-lived credentials; including them is a
+    #                        separate decision recorded in FEATURE_AUDIT §3-4
+    #   _applications     -- moderation queue data, not identity
+
+    _DATETIME_FIELDS = ("created_at", "last_login", "locked_until", "banned_at")
+
+    def export_user_state(self) -> Dict[str, Any]:
+        """Serialize every account to a JSON-safe dict. Pair with import_user_state."""
+        users = []
+        with self._lock:
+            records = list(self._by_id.values())
+        for u in records:
+            row: Dict[str, Any] = {}
+            for f in dataclass_fields(u):
+                value = getattr(u, f.name)
+                if isinstance(value, datetime):
+                    value = value.isoformat()
+                elif isinstance(value, dict):
+                    value = dict(value)
+                elif isinstance(value, list):
+                    value = list(value)
+                row[f.name] = value
+            users.append(row)
+        return {"version": 1, "users": users}
+
+    def import_user_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Restore accounts from an export_user_state snapshot.
+
+        Validates shape before committing, rebuilds the username/email lookup
+        indexes from the records (they are derived state), and ignores unknown
+        keys so a snapshot from a newer field set still loads.
+        """
+        if not isinstance(state, dict) or not isinstance(state.get("users"), list):
+            raise ValueError("invalid snapshot: missing 'users'")
+        known = {f.name for f in dataclass_fields(UserRecord)}
+        required = {"user_id", "username", "email", "password_hash"}
+        records: List[UserRecord] = []
+        for row in state["users"]:
+            if not isinstance(row, dict) or not required <= set(row):
+                raise ValueError("invalid snapshot: malformed user row")
+            data = {k: v for k, v in row.items() if k in known}
+            for name in self._DATETIME_FIELDS:
+                if isinstance(data.get(name), str):
+                    data[name] = datetime.fromisoformat(data[name])
+            records.append(UserRecord(**data))
+        with self._lock:
+            self._by_id = {u.user_id: u for u in records}
+            self._by_username = {self._uname_key(u.username): u.user_id for u in records}
+            self._by_email = {self._email_key(u.email): u.user_id for u in records}
+        return {"users_loaded": len(records)}
+
+    def save_user_state(self, path: str) -> None:
+        """Atomically persist accounts to a JSON file (0600 via mkstemp)."""
+        import tempfile
+
+        state = self.export_user_state()
+        directory = os.path.dirname(os.path.abspath(path))
+        os.makedirs(directory, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(state, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)  # atomic on POSIX; keeps mkstemp's 0600 mode
+        except Exception:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
+
+    def load_user_state(self, path: str) -> Dict[str, Any]:
+        """Load accounts saved by save_user_state.
+
+        Returns {"loaded": False, "users_loaded": 0} when the file does not
+        exist (first run) so callers can blindly load at startup; a malformed
+        snapshot raises instead of silently starting with no accounts.
+        """
+        if not os.path.exists(path):
+            return {"loaded": False, "users_loaded": 0}
+        with open(path, encoding="utf-8") as f:
+            state = json.load(f)
+        result = self.import_user_state(state)
+        result["loaded"] = True
+        return result
 
 
 # ---------------------------------------------------------------------------
