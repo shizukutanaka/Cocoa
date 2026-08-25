@@ -647,13 +647,12 @@ class UserStore:
     # leaves orphaned balances nobody can log in to claim. Accounts are the
     # other half of the minimal durable unit.
     #
-    # Deliberately NOT persisted (transient or separately-revocable state):
-    #   _revoked_jtis     -- revocations die with the process; access tokens
-    #                        expire on their own within the hour
-    #   _reset_tokens / _verify_tokens -- minutes-lived, one-shot
-    #   _api_keys         -- long-lived credentials; including them is a
-    #                        separate decision recorded in FEATURE_AUDIT §3-4
-    #   _applications     -- moderation queue data, not identity
+    # NOTE: these two methods are the #71-era snapshot format, kept only so a
+    # directory written by that build still loads (see api_server
+    # _load_legacy_snapshots). Current saves go through state_snapshot, which
+    # captures the WHOLE store -- including the revoked-token list, whose
+    # omission here was a security regression once accounts started persisting
+    # (a logged-out token became valid again after a restart, #75).
 
     _DATETIME_FIELDS = ("created_at", "last_login", "locked_until", "banned_at")
 

@@ -46,8 +46,20 @@ SNAPSHOT_FILENAME = "state.json"
 # Attributes that are configuration or injected behaviour rather than data.
 # Restoring them would overwrite the live process's settings with whatever the
 # snapshot happened to be written with.
+# Only CONFIGURATION is excluded -- values a deployment reads from its
+# environment at boot. Restoring those would let a stale snapshot silently
+# override the live settings.
+#
+# Nothing security-relevant is excluded, and that is deliberate. An earlier
+# revision skipped the auth store's revoked-token list, reset tokens and API
+# keys as "transient". Persisting accounts while dropping revocations turned
+# out to be a security regression: with a stable COCOA_JWT_SECRET a token
+# issued before a restart is still cryptographically valid afterwards, so a
+# token that had been explicitly revoked by logout came back to life. Before
+# durability existed a restart wiped every account, so no token could resolve
+# to anyone -- persistence is what made it exploitable (the same way it turned
+# the #73 admin demotion into a permanent lockout).
 _SKIP_BY_STORE: Dict[str, tuple] = {
-    "users": ("_revoked_jtis", "_reset_tokens", "_verify_tokens"),
     "notifications": ("_max",),
     "saved_searches": ("_max_per_user",),
 }
