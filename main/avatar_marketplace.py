@@ -11,6 +11,7 @@ Features:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import secrets
@@ -44,6 +45,34 @@ _MAX_GRANT_CREDITS = int(os.getenv("MAX_GRANT_CREDITS", "100_000_000"))  # 100M 
 # ANALYTICS -- unique-downloader counts, trending windows, per-listing
 # breakdowns and the oldest rows of a user's download history.
 _MAX_DOWNLOAD_LOG = int(os.getenv("MAX_DOWNLOAD_LOG", "100000"))
+
+# Cap on retained versions per listing (oldest discarded). Versions are
+# informational history -- no purchase or download resolves through them, they
+# carry no ownership -- so ageing the oldest out costs a changelog entry, not a
+# customer's goods.
+_MAX_VERSIONS_PER_LISTING = int(os.getenv("MAX_VERSIONS_PER_LISTING", "50"))
+
+_MAX_PARAM_KEYS = 500
+_MAX_PARAM_BYTES = 65536
+
+
+def _validate_parameters(parameters: Dict[str, Any]) -> None:
+    """Bound a user-supplied parameter payload. Raises ValueError if too large.
+
+    This lives in one place because it did not: publish enforced these limits
+    and publish_version did not, so the identical payload publish rejected
+    could be stored through the versions endpoint. A normal account could push
+    55MB into a single listing in about a second that way, and with snapshots
+    every byte is re-encoded under the store lock every 30 seconds.
+    """
+    if len(parameters) > _MAX_PARAM_KEYS:
+        raise ValueError(f"parametersのキー数は{_MAX_PARAM_KEYS}以下にしてください")
+    try:
+        encoded = json.dumps(parameters, ensure_ascii=False)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"parametersをJSONにシリアライズできません: {e}") from e
+    if len(encoded) > _MAX_PARAM_BYTES:
+        raise ValueError(f"parametersのサイズは{_MAX_PARAM_BYTES // 1024}KB以下にしてください")
 
 
 # ---------------------------------------------------------------------------
@@ -843,14 +872,7 @@ class MarketplaceStore:
         # nothing and the seller earned nothing. is_free is a property of the
         # price, so derive it rather than trusting a contradictory flag.
         is_free = price_credits <= 0
-        if len(parameters) > 500:
-            raise ValueError("parametersのキー数は500以下にしてください")
-        try:
-            _param_json = _json.dumps(parameters, ensure_ascii=False)
-        except (TypeError, ValueError) as _e:
-            raise ValueError(f"parametersをJSONにシリアライズできません: {_e}") from _e
-        if len(_param_json) > 65536:
-            raise ValueError("parametersのサイズは64KB以下にしてください")
+        _validate_parameters(parameters)
 
         with self._lock:
             # Enforce creator quota
@@ -1748,6 +1770,11 @@ class MarketplaceStore:
         changelog = changelog.strip()[:1000]
         if not changelog:
             raise ValueError("変更履歴を入力してください")
+        # Same bounds publish() applies. Without this the endpoint accepted a
+        # payload publish rejects, stored it in version history AND wrote it
+        # straight onto the live listing below.
+        if parameters is not None:
+            _validate_parameters(parameters)
         with self._lock:
             listing = self._listings.get(listing_id)
             if not listing or not listing.is_active:
@@ -1773,7 +1800,12 @@ class MarketplaceStore:
                 changelog=changelog,
                 created_by=requester_id,
             )
-            self._versions.setdefault(listing_id, []).append(version)
+            versions = self._versions.setdefault(listing_id, [])
+            versions.append(version)
+            # Version history is unbounded otherwise, and each entry carries a
+            # full parameter payload -- the largest per-item blob in the system.
+            if len(versions) > _MAX_VERSIONS_PER_LISTING:
+                del versions[: len(versions) - _MAX_VERSIONS_PER_LISTING]
         logger.info("Version %d published for listing %s", listing.current_version, listing_id)
         return version
 

@@ -417,3 +417,83 @@ class TestModerationHistoryIsBounded(unittest.TestCase):
                           reporter_id="u2", reason="spam")
         self.assertIn(again.item_id, q._items)
         self.assertIn(again.status, ("pending", "in_review"))
+
+
+class TestVersionPayloadsAreBounded(unittest.TestCase):
+    """publish_version bypassed the limits publish enforces (audit #84).
+
+    publish caps parameters at 500 keys / 64KB. publish_version applied neither,
+    and it writes the payload onto the LIVE listing as well as into history, so
+    the identical payload publish rejected could be stored twice over through
+    the versions endpoint. Measured against a live server: a normal account
+    pushed ~55MB into one listing in 1.1 seconds, and with snapshots every byte
+    is re-encoded under the store lock every 30 seconds.
+
+    Root cause was duplicated validation that drifted, so the bounds now live in
+    one helper both paths call.
+    """
+
+    def _store(self, max_versions=None):
+        import importlib
+        import os
+        import avatar_marketplace
+        env = {"MAX_VERSIONS_PER_LISTING": str(max_versions)} if max_versions else {}
+        with unittest.mock.patch.dict(os.environ, env):
+            module = importlib.reload(avatar_marketplace)
+        self.addCleanup(lambda: importlib.reload(module))
+        return module
+
+    def _listing(self, module, store):
+        return store.publish(
+            avatar_id="a", owner_id="o", owner_username="o", name="n",
+            description="d", tags=[], category="other", parameters={"p": 1},
+        )
+
+    def test_publish_version_rejects_what_publish_rejects(self):
+        module = self._store()
+        store = module.MarketplaceStore()
+        listing = self._listing(module, store)
+        oversized = {f"k{i}": "x" * 500 for i in range(4000)}
+        with self.assertRaises(ValueError):
+            store.publish(
+                avatar_id="b", owner_id="o", owner_username="o", name="n2",
+                description="d", tags=[], category="other", parameters=oversized,
+            )
+        with self.assertRaises(ValueError):
+            store.publish_version(listing.listing_id, "o", changelog="big",
+                                  parameters=oversized)
+
+    def test_a_rejected_version_does_not_touch_the_live_listing(self):
+        # publish_version writes onto the listing too, so a bypass poisoned the
+        # live record and not just history.
+        module = self._store()
+        store = module.MarketplaceStore()
+        listing = self._listing(module, store)
+        with self.assertRaises(ValueError):
+            store.publish_version(listing.listing_id, "o", changelog="big",
+                                  parameters={f"k{i}": "x" * 500 for i in range(4000)})
+        current = store.get_listing(listing.listing_id)
+        self.assertEqual(current.parameters, {"p": 1})
+        self.assertEqual(current.current_version, 1)
+
+    def test_version_history_is_capped_keeping_the_newest(self):
+        module = self._store(max_versions=10)
+        store = module.MarketplaceStore()
+        listing = self._listing(module, store)
+        for i in range(40):
+            store.publish_version(listing.listing_id, "o", changelog=f"v{i}",
+                                  parameters={"p": i})
+        kept = store._versions[listing.listing_id]
+        self.assertEqual(len(kept), 10)
+        self.assertEqual(kept[-1].changelog, "v39")
+        # Trimming history must not rewind the listing's version counter.
+        self.assertEqual(store.get_listing(listing.listing_id).current_version, 41)
+
+    def test_ordinary_versions_still_work(self):
+        module = self._store()
+        store = module.MarketplaceStore()
+        listing = self._listing(module, store)
+        version = store.publish_version(listing.listing_id, "o", changelog="tweak",
+                                        parameters={"Hair": 0.5})
+        self.assertEqual(version.changelog, "tweak")
+        self.assertEqual(store.get_listing(listing.listing_id).parameters, {"Hair": 0.5})
