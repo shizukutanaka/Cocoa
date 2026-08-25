@@ -40,11 +40,6 @@ export async function getListing(listingId: string): Promise<Listing> {
   return data;
 }
 
-export async function getFeatured(limit = 12): Promise<{ items: Listing[]; total: number }> {
-  const { data } = await client.get("/api/marketplace/featured", { params: { limit } });
-  return data;
-}
-
 export async function addFavorite(listingId: string) {
   await client.post(`/api/marketplace/${listingId}/favorite`);
 }

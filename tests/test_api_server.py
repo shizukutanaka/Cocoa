@@ -1929,6 +1929,80 @@ class TestCrossUserObjectIsolation(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestRoleChangeHandlerStatusCodes(unittest.TestCase):
+    """The role endpoint must not report "forbidden" as "bad request".
+
+    get_current_admin admits admin AND moderator, so a moderator reaches the
+    handler and is stopped by change_role's own require_role("admin"). The
+    handler used to collapse AuthError and ValueError into a single 400, so
+    that refusal looked like a malformed request. verify_creator, which has the
+    identical double gate, already mapped it to 403 -- this aligns them.
+    """
+
+    def _auth(self):
+        from auth_manager import AuthManager, UserStore
+        return AuthManager(store=UserStore())
+
+    def _payload(self, auth, username, password="Sup3rSecret!"):
+        return auth.verify_access_token(auth.login(username, password).access_token)
+
+    def _call(self, auth, actor, target_id, new_role):
+        body = api_server.RoleChangeRequest(new_role=new_role)
+        with patch.object(api_server, "get_auth_manager", lambda: auth):
+            return asyncio.run(api_server.change_user_role(target_id, body, actor))
+
+    def test_moderator_gets_403_not_400(self):
+        auth = self._auth()
+        auth.register("boss", "boss@x.com", "Sup3rSecret!", role="admin")
+        mod = auth.register("mod", "mod@x.com", "Sup3rSecret!", role="moderator")
+        victim = auth.register("bob", "bob@x.com", "Sup3rSecret!")
+        with self.assertRaises(HTTPException) as ctx:
+            self._call(auth, self._payload(auth, "mod"), victim.user_id, "admin")
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertEqual(auth.store.get_by_id(victim.user_id).role, "user")
+        self.assertEqual(mod.role, "moderator")
+
+    def test_self_demotion_gets_403(self):
+        auth = self._auth()
+        admin = auth.register("boss", "boss@x.com", "Sup3rSecret!", role="admin")
+        with self.assertRaises(HTTPException) as ctx:
+            self._call(auth, self._payload(auth, "boss"), admin.user_id, "user")
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertEqual(auth.store.get_by_id(admin.user_id).role, "admin")
+
+    def test_unknown_user_gets_404(self):
+        auth = self._auth()
+        auth.register("boss", "boss@x.com", "Sup3rSecret!", role="admin")
+        with self.assertRaises(HTTPException) as ctx:
+            self._call(auth, self._payload(auth, "boss"), "no-such-user", "moderator")
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_unknown_role_is_still_400(self):
+        auth = self._auth()
+        auth.register("boss", "boss@x.com", "Sup3rSecret!", role="admin")
+        victim = auth.register("bob", "bob@x.com", "Sup3rSecret!")
+        with self.assertRaises(HTTPException) as ctx:
+            self._call(auth, self._payload(auth, "boss"), victim.user_id, "superuser")
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_promoting_another_account_still_succeeds(self):
+        auth = self._auth()
+        auth.register("boss", "boss@x.com", "Sup3rSecret!", role="admin")
+        victim = auth.register("bob", "bob@x.com", "Sup3rSecret!")
+        out = self._call(auth, self._payload(auth, "boss"), victim.user_id, "moderator")
+        self.assertEqual(out["status"], "updated")
+        self.assertEqual(auth.store.get_by_id(victim.user_id).role, "moderator")
+
+    def test_roster_exposes_creator_badge_state(self):
+        # The console needs this to offer revocation only where a badge exists.
+        auth = self._auth()
+        auth.register("boss", "boss@x.com", "Sup3rSecret!", role="admin")
+        with patch.object(api_server, "get_auth_manager", lambda: auth):
+            out = asyncio.run(api_server.list_users({"user_id": "x", "role": "admin"}))
+        self.assertIn("is_creator_verified", out["users"][0])
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestOptInStatePersistence(unittest.TestCase):
     """Wiring for COCOA_STATE_DIR (audit #71).
 

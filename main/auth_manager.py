@@ -631,6 +631,15 @@ class UserStore:
                 "key_id": entry["key_id"],
             }
 
+    def count_admins(self) -> int:
+        """Number of accounts holding the admin role.
+
+        Used by AuthManager.change_role to refuse demoting the last one, which
+        would leave nobody able to reach any admin function.
+        """
+        with self._lock:
+            return sum(1 for u in self._by_id.values() if u.role == "admin")
+
     # --- Durability (opt-in snapshot; mirrors MarketplaceStore credit state) ---
     #
     # Persisting money alone is incoherent: credit balances are keyed by
@@ -979,12 +988,35 @@ class AuthManager:
             raise AuthError("forbidden", f"このリソースには{'/'.join(roles)}ロールが必要です")
 
     def change_role(self, admin_payload: Dict[str, Any], target_user_id: str, new_role: str) -> None:
+        """Change another account's role. Admin only.
+
+        Two guards keep an administrator from locking every admin out of the
+        product. Demotion is not merely destructive, it is UNRECOVERABLE: a
+        demoted account can no longer call this method, and the startup
+        bootstrap only registers "admin" when that username is free (it
+        swallows the ValueError otherwise), so a restart does not restore the
+        role either -- and since the account snapshot persists (#71), the
+        lockout now survives restarts permanently. The only ways back are
+        hand-editing the snapshot or destroying all data.
+
+        ban_user() already refuses self-bans for the same reason (#49); this is
+        the same lockout by another route.
+        """
         self.require_role(admin_payload, "admin")
         if new_role not in ROLES:
             raise ValueError(f"Unknown role: {new_role}")
         user = self.store.get_by_id(target_user_id)
         if not user:
             raise AuthError("not_found", "ユーザーが見つかりません")
+        if target_user_id == self._actor_id(admin_payload):
+            # Covers self-promotion too: there is no legitimate reason to
+            # change your OWN role, and allowing it is the whole lockout path.
+            raise AuthError("forbidden", "自分自身のロールは変更できません")
+        if user.role == "admin" and new_role != "admin" and self.store.count_admins() <= 1:
+            raise AuthError(
+                "forbidden",
+                "最後の管理者を降格することはできません（管理機能に到達できなくなります）",
+            )
         user.role = new_role
         logger.info("Role changed for %s → %s (by admin %s)", target_user_id, new_role, admin_payload.get("username"))
 

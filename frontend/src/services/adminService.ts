@@ -177,6 +177,23 @@ export async function assignModerationItem(itemId: string, adminId: string) {
   return data;
 }
 
+// Change another account's role. Admin only (server-side: change_role calls
+// require_role("admin"), so a moderator gets 403). The server refuses to change
+// the caller's OWN role or to demote the last remaining admin -- both are
+// unrecoverable lockouts (audit #73).
+export async function changeUserRole(userId: string, newRole: "user" | "moderator" | "admin") {
+  const { data } = await client.put(`/api/admin/users/${userId}/role`, { new_role: newRole });
+  return data;
+}
+
+// Take back a creator badge. The badge is granted through the application
+// review flow, which had no inverse -- the same missing-reversal gap #45 fixed
+// for takedowns and #58 for bans.
+export async function revokeCreatorVerification(userId: string) {
+  const { data } = await client.delete(`/api/admin/users/${userId}/verify-creator`);
+  return data;
+}
+
 // --- Creator verification applications ---
 
 export async function listCreatorApplications(

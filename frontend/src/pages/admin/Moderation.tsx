@@ -886,20 +886,27 @@ function CreatorApplicationsTab() {
 const ROLE_LABEL: Record<string, string> = {
   admin: "管理者",
   moderator: "モデレーター",
-  creator: "クリエイター",
   user: "一般",
 };
 
 /**
- * User roster with search and the credit-grant support action.
+ * User roster with search, credit grants, role changes and badge revocation.
  *
  * The whole roster comes back in one call (no server-side paging), so search
  * is client-side over username / email / id / role. Credit grant moves the
- * same in-app ledger that refunds use -- a support/comp tool, not real money;
- * the server caps the amount and records it to the ledger.
+ * same in-app ledger that refunds use -- a support/comp tool, not real money.
+ *
+ * The tab itself stays open to moderators (roster + credit grant work for
+ * them), but role changes and badge revocation are admin-only server-side, so
+ * those controls are wrapped in isAdmin -- the same mismatch the banned-users
+ * tab already avoids by gating itself. A moderator would otherwise see buttons
+ * that always 403.
  */
 function UsersTab() {
   const { show } = useToast();
+  const { user: me } = useAuth();
+  const isAdmin = me?.role === "admin";
+  const queryClient = useQueryClient();
   const [q, setQ] = useState("");
   const [grantFor, setGrantFor] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
@@ -926,6 +933,41 @@ function UsersTab() {
   function openGrant(userId: string) {
     setGrantFor(userId);
     setAmount("");
+  }
+
+  function refreshRoster() {
+    queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+  }
+
+  async function applyRole(u: AdminUser, newRole: "user" | "moderator" | "admin") {
+    if (newRole === u.role) return;
+    if (!confirm(`「${u.username}」のロールを ${ROLE_LABEL[newRole] ?? newRole} に変更します。よろしいですか？`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await adminService.changeUserRole(u.user_id, newRole);
+      show(`${u.username} を ${ROLE_LABEL[newRole] ?? newRole} にしました`);
+      refreshRoster();
+    } catch (err) {
+      show(apiErrorMessage(err, "ロール変更に失敗しました"), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeBadge(u: AdminUser) {
+    if (!confirm(`「${u.username}」のクリエイター認定を取り消します。よろしいですか？`)) return;
+    setBusy(true);
+    try {
+      await adminService.revokeCreatorVerification(u.user_id);
+      show(`${u.username} の認定を取り消しました`);
+      refreshRoster();
+    } catch (err) {
+      show(apiErrorMessage(err, "認定の取り消しに失敗しました"), "error");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function submitGrant(u: AdminUser) {
@@ -983,6 +1025,7 @@ function UsersTab() {
                       @{u.username}
                     </Link>
                     <span className="badge" style={{ marginLeft: 8 }}>{ROLE_LABEL[u.role] ?? u.role}</span>
+                    {u.is_creator_verified && <span className="badge" style={{ marginLeft: 6 }}>✓ 認定クリエイター</span>}
                     {!u.is_active && <span className="badge badge-warning" style={{ marginLeft: 6 }}>停止中</span>}
                     {u.locked && <span className="badge badge-warning" style={{ marginLeft: 6 }}>ロック中</span>}
                     <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>{u.email}</div>
@@ -992,11 +1035,41 @@ function UsersTab() {
                       {u.failed_attempts > 0 && ` · 失敗 ${u.failed_attempts} 回`}
                     </div>
                   </div>
-                  {grantFor !== u.user_id && (
-                    <button className="btn btn-secondary btn-sm" onClick={() => openGrant(u.user_id)}>
-                      クレジット付与
-                    </button>
-                  )}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    {grantFor !== u.user_id && (
+                      <button className="btn btn-secondary btn-sm" onClick={() => openGrant(u.user_id)}>
+                        クレジット付与
+                      </button>
+                    )}
+                    {/* Role changes are admin-only server-side, and the server
+                        refuses to change the caller's own role (an admin who
+                        demotes themselves can never get back in -- #73), so
+                        the control is hidden on your own row rather than
+                        offering a button that always fails. */}
+                    {isAdmin && u.user_id !== me?.user_id && (
+                      <select
+                        className="input"
+                        value={u.role}
+                        disabled={busy}
+                        aria-label={`${u.username} のロール`}
+                        onChange={(e) => applyRole(u, e.target.value as "user" | "moderator" | "admin")}
+                        style={{ maxWidth: 160 }}
+                      >
+                        <option value="user">一般</option>
+                        <option value="moderator">モデレーター</option>
+                        <option value="admin">管理者</option>
+                      </select>
+                    )}
+                    {isAdmin && u.is_creator_verified && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        disabled={busy}
+                        onClick={() => revokeBadge(u)}
+                      >
+                        認定を取り消す
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {grantFor === u.user_id && (
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
