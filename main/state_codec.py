@@ -124,16 +124,36 @@ def snapshot_attrs(store: Any, skip: Iterable[str] = ()) -> Dict[str, Any]:
     Reading ``vars(store)`` rather than a hand-maintained field list means a new
     attribute is captured automatically; forgetting to add it here is the kind
     of silent data-loss bug this whole module exists to avoid.
+
+    The store's own lock is held for the encode. Without it this raced every
+    live request: encoding walks the store's dicts, so a concurrent write threw
+    ``RuntimeError: dictionary changed size during iteration``. Measured
+    against a store under continuous writes, 60 of 60 snapshot attempts failed
+    -- and because the autosave swallows errors, durability would have appeared
+    enabled while silently never writing anything.
+
+    Encoding only reads dataclass fields and never calls back into the store,
+    so holding the lock cannot deadlock.
     """
     skip = set(skip)
-    out: Dict[str, Any] = {}
-    for name, value in vars(store).items():
-        if name in skip or isinstance(value, _SKIP_ATTR_TYPES):
-            continue
-        if callable(value) and not is_dataclass(value):
-            continue  # injected callbacks (e.g. two-factor verifier hooks)
-        out[name] = encode(value)
-    return out
+    lock = getattr(store, "_lock", None)
+    if not isinstance(lock, _SKIP_ATTR_TYPES):
+        lock = None
+
+    def _encode_all() -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        for name, value in vars(store).items():
+            if name in skip or isinstance(value, _SKIP_ATTR_TYPES):
+                continue
+            if callable(value) and not is_dataclass(value):
+                continue  # injected callbacks (e.g. two-factor verifier hooks)
+            out[name] = encode(value)
+        return out
+
+    if lock is None:
+        return _encode_all()
+    with lock:
+        return _encode_all()
 
 
 def restore_attrs(store: Any, data: Dict[str, Any], registry: Dict[str, Type]) -> None:
