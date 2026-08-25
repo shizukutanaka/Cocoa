@@ -201,7 +201,7 @@ PendingTwoFactor = PendingTwoFactor or type("PendingTwoFactor", (), {})
 (get_collection_store,) = _import_subsystem("avatar_collections", "get_collection_store")
 (get_marketplace,) = _import_subsystem("avatar_marketplace", "get_marketplace")
 (get_bundle_manager,) = _import_subsystem("bundle_manager", "get_bundle_manager")
-(get_cart_manager,) = _import_subsystem("cart_manager", "get_cart_manager")
+(get_cart_manager, OrderItem) = _import_subsystem("cart_manager", "get_cart_manager", "OrderItem")
 (get_commission_store,) = _import_subsystem("commissions", "get_commission_store")
 (get_license_manager,) = _import_subsystem("license_manager", "get_license_manager")
 (get_moderation_queue,) = _import_subsystem("moderation_queue", "get_moderation_queue")
@@ -2761,6 +2761,40 @@ async def download_avatar(
         # list price — so free re-downloads and owner self-downloads don't
         # inflate lifetime spend (tier-farming).
         amount_paid = data.get("amount_paid", 0)
+        # Record an order for a paid direct purchase (FEATURE_AUDIT §3-7).
+        #
+        # The rest of the system treats "a paid purchase has an order" as an
+        # invariant: refunds are keyed by order_id, and so is order history.
+        # This path charged the buyer and credited the seller without ever
+        # creating one, so a purchase made through the API -- rather than the
+        # cart the UI always uses -- was permanently NON-REFUNDABLE.
+        #
+        # This only adds the missing record: the money already moved inside
+        # download() above, so nothing about the charge changes. Refunding the
+        # resulting order goes through the normal flow, whose cross-channel
+        # guard (_refunded_purchases) still prevents a second refund of the
+        # same purchase through the dispute channel.
+        if amount_paid > 0 and get_cart_manager and OrderItem:
+            try:
+                cm = get_cart_manager()
+                cm.store.create_order(
+                    current_user["user_id"],
+                    [OrderItem(
+                        listing_id=listing_id,
+                        name=listing.name,
+                        owner_id=listing.owner_id,
+                        owner_username=listing.owner_username,
+                        unit_price=listing.price_credits,
+                        final_price=amount_paid,
+                        quantity=1,
+                        promo_code=promo_code or "",
+                    )],
+                    amount_paid,
+                )
+            except Exception:
+                # Never fail a completed download over bookkeeping; the money
+                # already moved and the buyer must still receive their product.
+                logger.exception("Could not record an order for direct purchase of %s", listing_id)
         if get_membership_manager:
             try:
                 if amount_paid > 0:

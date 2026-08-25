@@ -1929,6 +1929,89 @@ class TestCrossUserObjectIsolation(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestDirectPurchaseIsRecordedAsAnOrder(unittest.TestCase):
+    """A paid purchase must always have an order (FEATURE_AUDIT §3-7).
+
+    Refunds and order history are both keyed by order_id. The direct-download
+    path charged the buyer and credited the seller without creating one, so a
+    purchase made through the API -- rather than the cart the UI always uses --
+    was permanently non-refundable. Recording the order does not change the
+    charge; the money has already moved by this point.
+    """
+
+    def _listing(self, mkt, price=120):
+        return mkt.publish(
+            avatar_id="a1", owner_id="seller", owner_username="sel", name="n",
+            description="d", tags=[], category="other", parameters={"p": 1},
+            price_credits=price, is_free=False,
+        )
+
+    def _download(self, mkt, cart, listing, buyer="buyer", promo=""):
+        with patch.object(api_server, "get_marketplace", lambda: mkt), \
+             patch.object(api_server, "get_cart_manager", lambda: cart), \
+             patch.object(api_server, "get_license_manager", None), \
+             patch.object(api_server, "get_membership_manager", None), \
+             patch.object(api_server, "get_referral_manager", None), \
+             patch.object(api_server, "get_notification_queue", None), \
+             patch.object(api_server, "get_search_index", None):
+            return asyncio.run(api_server.download_avatar(
+                listing.listing_id, promo, {"user_id": buyer}))
+
+    def test_paid_direct_download_creates_a_completed_order(self):
+        from avatar_marketplace import MarketplaceStore
+        from cart_manager import CartManager
+        mkt, cart = MarketplaceStore(), CartManager()
+        mkt.add_credits("buyer", 500)
+        listing = self._listing(mkt)
+        self._download(mkt, cart, listing)
+
+        orders = cart.store.get_user_orders("buyer")
+        self.assertEqual(orders["total"], 1, "a paid purchase left no order to refund")
+        order = orders["items"][0]
+        self.assertEqual(order["status"], "completed")
+        self.assertEqual(order["total_credits"], 120)
+        item = order["items"][0]
+        # The clawback on refund reads owner_id/final_price off the item.
+        self.assertEqual(item["owner_id"], "seller")
+        self.assertEqual(item["final_price"], 120)
+
+    def test_free_download_creates_no_order(self):
+        from avatar_marketplace import MarketplaceStore
+        from cart_manager import CartManager
+        mkt, cart = MarketplaceStore(), CartManager()
+        listing = mkt.publish(
+            avatar_id="a1", owner_id="seller", owner_username="sel", name="n",
+            description="d", tags=[], category="other", parameters={"p": 1},
+            price_credits=0, is_free=True,
+        )
+        self._download(mkt, cart, listing)
+        self.assertEqual(cart.store.get_user_orders("buyer")["total"], 0)
+
+    def test_free_redownload_does_not_create_a_second_order(self):
+        # Re-downloading something already owned is free, so it must not look
+        # like another purchase.
+        from avatar_marketplace import MarketplaceStore
+        from cart_manager import CartManager
+        mkt, cart = MarketplaceStore(), CartManager()
+        mkt.add_credits("buyer", 500)
+        listing = self._listing(mkt)
+        self._download(mkt, cart, listing)
+        self._download(mkt, cart, listing)
+        self.assertEqual(cart.store.get_user_orders("buyer")["total"], 1)
+
+    def test_bookkeeping_failure_never_costs_the_buyer_their_product(self):
+        # The money has already moved; a failure to record must not 500.
+        from avatar_marketplace import MarketplaceStore
+        mkt = MarketplaceStore()
+        mkt.add_credits("buyer", 500)
+        listing = self._listing(mkt)
+        broken = MagicMock()
+        broken.store.create_order.side_effect = RuntimeError("disk on fire")
+        out = self._download(mkt, broken, listing)
+        self.assertEqual(out["status"], "downloaded")
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestRoleChangeHandlerStatusCodes(unittest.TestCase):
     """The role endpoint must not report "forbidden" as "bad request".
 
