@@ -3592,6 +3592,10 @@ async def list_users(admin: dict = Depends(get_current_admin)):
                 "email": u.email,
                 "role": u.role,
                 "is_active": u.is_active,
+                # Needed by the console to offer badge revocation only where a
+                # badge actually exists (grant happens via the application
+                # review flow).
+                "is_creator_verified": u.is_creator_verified,
                 "created_at": u.created_at.isoformat(),
                 "last_login": u.last_login.isoformat() if u.last_login else None,
                 "failed_attempts": u.failed_attempts,
@@ -3616,8 +3620,17 @@ async def change_user_role(user_id: str, body: RoleChangeRequest, admin: dict = 
         auth = get_auth_manager()
         auth.change_role(admin, user_id, body.new_role)
         return {"user_id": user_id, "new_role": body.new_role, "status": "updated"}
-    except (AuthError, ValueError) as e:
+    except ValueError as e:
+        # Unknown role name -- a malformed request.
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except AuthError as e:
+        # Matches verify_creator above: a refused actor or a refused change is
+        # 403, a missing target is 404. Collapsing both into 400 (as this did)
+        # reported "forbidden" as "bad request", so a moderator hitting the
+        # admin-only guard looked like a client mistake.
+        raise HTTPException(
+            status_code=404 if e.code == "not_found" else 403, detail=e.message
+        ) from e
 
 
 @app.post("/api/admin/users/{user_id}/verify-creator", tags=["admin"])

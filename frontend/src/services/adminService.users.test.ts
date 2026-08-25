@@ -7,6 +7,8 @@ import {
   listModerationItems,
   updateModerationStatus,
   setModerationPriority,
+  changeUserRole,
+  revokeCreatorVerification,
 } from "./adminService";
 
 // The admin Users tab depends on these two request shapes exactly: the roster
@@ -14,7 +16,7 @@ import {
 // main/api_server.py expects (GET /api/admin/users, POST /api/admin/credits/grant
 // with {user_id, amount}), the tab breaks silently, so pin them here.
 vi.mock("./apiClient", () => ({
-  default: { get: vi.fn(), post: vi.fn(), put: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
 
 const mockClient = vi.mocked(client);
@@ -93,5 +95,23 @@ describe("getAdminStats", () => {
     const out = await getAdminStats();
     expect(mockClient.get).toHaveBeenCalledWith("/api/admin/stats");
     expect(out.users?.total).toBe(3);
+  });
+});
+
+describe("account administration", () => {
+  it("PUTs the new role to the role endpoint", async () => {
+    mockClient.put.mockResolvedValue({ data: { user_id: "u1", new_role: "moderator" } });
+    await changeUserRole("u1", "moderator");
+    expect(mockClient.put).toHaveBeenCalledWith("/api/admin/users/u1/role", {
+      new_role: "moderator",
+    });
+  });
+
+  it("DELETEs to revoke a creator badge", async () => {
+    // Granting happens through the application review flow; before this there
+    // was no inverse at all (audit #73).
+    mockClient.delete.mockResolvedValue({ data: { user_id: "u1", status: "revoked" } });
+    await revokeCreatorVerification("u1");
+    expect(mockClient.delete).toHaveBeenCalledWith("/api/admin/users/u1/verify-creator");
   });
 });

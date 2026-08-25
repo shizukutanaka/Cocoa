@@ -419,6 +419,73 @@ class TestAuthManager(unittest.TestCase):
         self.assertEqual(updated.role, "moderator")
 
 
+class TestChangeRoleLockoutGuards(unittest.TestCase):
+    """An admin must not be able to lock every admin out of the product.
+
+    Demotion is unrecoverable, not merely destructive: the demoted account can
+    no longer call change_role, the startup bootstrap only registers "admin"
+    when that username is free, and since #71 the account snapshot persists, so
+    the lockout survives restarts. ban_user() already refuses self-bans for the
+    same reason (#49) -- these guards close the other route to the same state.
+    """
+
+    def setUp(self):
+        from auth_manager import AuthManager, UserStore
+        self.auth = AuthManager(store=UserStore())
+        self.admin = self.auth.register("boss", "boss@x.com", "Sup3rSecret!", role="admin")
+        self.other = self.auth.register("bob", "bob@x.com", "Sup3rSecret!")
+
+    def _payload(self, username="boss", password="Sup3rSecret!"):
+        return self.auth.verify_access_token(self.auth.login(username, password).access_token)
+
+    def test_admin_cannot_demote_themselves(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.change_role(self._payload(), self.admin.user_id, "user")
+        self.assertEqual(ctx.exception.code, "forbidden")
+        self.assertEqual(self.auth.store.get_by_id(self.admin.user_id).role, "admin")
+
+    def test_admin_cannot_change_their_own_role_at_all(self):
+        # Self-promotion is the same code path and has no legitimate use.
+        with self.assertRaises(AuthError):
+            self.auth.change_role(self._payload(), self.admin.user_id, "moderator")
+
+    def test_last_admin_cannot_be_demoted(self):
+        # Even by a different admin: promote bob, let him try to demote boss,
+        # then boss is still the... in fact with two admins this is allowed, so
+        # assert the boundary -- demoting down TO one admin is fine, below is not.
+        self.auth.change_role(self._payload(), self.other.user_id, "admin")
+        self.assertEqual(self.auth.store.count_admins(), 2)
+        # bob demotes boss: two admins -> one. Allowed.
+        self.auth.change_role(self._payload("bob"), self.admin.user_id, "user")
+        self.assertEqual(self.auth.store.count_admins(), 1)
+        # bob is now the last admin and cannot be demoted by anyone, incl. self.
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.change_role(self._payload("bob"), self.other.user_id, "user")
+        self.assertEqual(ctx.exception.code, "forbidden")
+        self.assertEqual(self.auth.store.count_admins(), 1)
+
+    def test_promoting_and_demoting_other_accounts_still_works(self):
+        payload = self._payload()
+        self.auth.change_role(payload, self.other.user_id, "moderator")
+        self.assertEqual(self.auth.store.get_by_id(self.other.user_id).role, "moderator")
+        self.auth.change_role(payload, self.other.user_id, "user")
+        self.assertEqual(self.auth.store.get_by_id(self.other.user_id).role, "user")
+
+    def test_unknown_role_still_rejected_as_a_value_error(self):
+        with self.assertRaises(ValueError):
+            self.auth.change_role(self._payload(), self.other.user_id, "superuser")
+
+    def test_non_admin_is_forbidden(self):
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.change_role(self._payload("bob"), self.admin.user_id, "user")
+        self.assertEqual(ctx.exception.code, "forbidden")
+
+    def test_count_admins_tracks_role_changes(self):
+        self.assertEqual(self.auth.store.count_admins(), 1)
+        self.auth.change_role(self._payload(), self.other.user_id, "admin")
+        self.assertEqual(self.auth.store.count_admins(), 2)
+
+
 class TestTwoFactorPendingToken(unittest.TestCase):
     """create_2fa_pending_token / decode_2fa_pending_token: the JWT "type"
     claim must be distinct from access/refresh so decode_access_token and

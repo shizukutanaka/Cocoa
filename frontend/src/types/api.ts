@@ -545,6 +545,7 @@ export interface AdminUser {
   email: string;
   role: string;
   is_active: boolean;
+  is_creator_verified: boolean;
   created_at: string;
   last_login: string | null;
   failed_attempts: number;
