@@ -142,5 +142,56 @@ class TestWholeStoreDurability(unittest.TestCase):
         self.assertIn("marketplace", result["restored"])
 
 
+class TestSecuritySensitiveStateSurvives(unittest.TestCase):
+    """Persisting accounts while dropping revocations was a security regression.
+
+    With a stable COCOA_JWT_SECRET a token issued before a restart is still
+    cryptographically valid afterwards. Before durability existed a restart
+    wiped every account, so such a token resolved to nobody; once accounts
+    persisted, a token that had been explicitly REVOKED by logout came back to
+    life. Persistence is what made it exploitable -- the same way it turned the
+    #73 admin demotion into a permanent lockout.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.path = str(Path(self._tmp.name) / "state.json")
+
+    def test_a_revoked_token_stays_revoked_across_a_restart(self):
+        auth = AuthManager(store=UserStore())
+        auth.register("alice", "alice@example.com", "Sup3rSecret!")
+        tokens = auth.login("alice", "Sup3rSecret!")
+        auth.logout(tokens.access_token, tokens.refresh_token)
+        snapshot.save(self.path, {"users": auth.store})
+
+        reborn = AuthManager(store=UserStore())
+        snapshot.load(self.path, {"users": reborn.store})
+        with self.assertRaises(Exception):
+            reborn.verify_access_token(tokens.access_token)
+
+    def test_api_keys_survive_a_restart(self):
+        # Everything else now persists, so a key that silently stopped working
+        # after a deploy would be an incoherent surprise.
+        auth = AuthManager(store=UserStore())
+        user = auth.register("bob", "bob@example.com", "Sup3rSecret!")
+        created = auth.create_api_key(user.user_id, "ci")
+        snapshot.save(self.path, {"users": auth.store})
+
+        reborn = AuthManager(store=UserStore())
+        snapshot.load(self.path, {"users": reborn.store})
+        self.assertIsNotNone(reborn.verify_api_key(created["raw_key"]))
+
+    def test_runtime_limits_are_not_restored_over_live_config(self):
+        # Configuration read from the environment must win over a stale
+        # snapshot, so those attributes stay excluded.
+        from user_notifications import NotificationQueue
+        queue = NotificationQueue(max_per_user=5)
+        snapshot.save(self.path, {"notifications": queue})
+        reborn = NotificationQueue(max_per_user=99)
+        snapshot.load(self.path, {"notifications": reborn})
+        self.assertEqual(reborn._max, 99)
+
+
 if __name__ == "__main__":
     unittest.main()
