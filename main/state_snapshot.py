@@ -1,0 +1,122 @@
+"""Whole-store durability: save every in-memory store to one JSON file.
+
+FEATURE_AUDIT §3-4 recorded that all business state lives in process memory, so
+a restart or deploy wipes it. #71 made the minimal coherent unit durable
+(accounts + credit balances) using each store's own hand-written persistence
+API. This module generalises that to every store without hand-writing a
+serializer per class: `state_codec` round-trips the live objects exactly, so a
+store's whole ``vars()`` can be captured and restored.
+
+Design notes
+------------
+* One file, one moment. Splitting stores across files invites restoring a cart
+  from 10:00 against listings from 10:05; a single atomic write cannot tear.
+* The caller supplies the store objects, so this module imports no subsystems
+  and stays trivially testable.
+* Fail closed. A snapshot that cannot be decoded raises rather than letting the
+  server open with silently missing data -- the money version of the #47
+  "empty result vs outage" anti-pattern.
+* Derived state is not saved: the search index rebuilds from listings, and
+  idempotency/rate-limit/cache entries are short-lived by definition.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import sys
+import tempfile
+from typing import Any, Dict, Type
+
+# Relative-first, flat fallback: the canonical runtime imports this as
+# main.state_snapshot, but the test suite puts main/ on sys.path and imports it
+# flat. Getting this wrong is the packaging trap documented in
+# HANDOFF_INSTRUCTIONS §1.1 (it caused two production 503s).
+try:
+    from .state_codec import build_registry, restore_attrs, snapshot_attrs
+except ImportError:  # pragma: no cover - flat layout
+    from state_codec import build_registry, restore_attrs, snapshot_attrs
+
+logger = logging.getLogger(__name__)
+
+SNAPSHOT_VERSION = 1
+SNAPSHOT_FILENAME = "state.json"
+
+# Attributes that are configuration or injected behaviour rather than data.
+# Restoring them would overwrite the live process's settings with whatever the
+# snapshot happened to be written with.
+_SKIP_BY_STORE: Dict[str, tuple] = {
+    "users": ("_revoked_jtis", "_reset_tokens", "_verify_tokens"),
+    "notifications": ("_max",),
+    "saved_searches": ("_max_per_user",),
+}
+
+
+def _registry_for(stores: Dict[str, Any]) -> Dict[str, Type]:
+    """Every dataclass defined in the modules the stores come from."""
+    modules = []
+    for store in stores.values():
+        module = sys.modules.get(type(store).__module__)
+        if module is not None and module not in modules:
+            modules.append(module)
+    return build_registry(*modules)
+
+
+def save(path: str, stores: Dict[str, Any]) -> Dict[str, Any]:
+    """Atomically write every store to `path`. Returns a per-store field count."""
+    payload: Dict[str, Any] = {"version": SNAPSHOT_VERSION, "stores": {}}
+    counts: Dict[str, Any] = {}
+    for key, store in stores.items():
+        data = snapshot_attrs(store, skip=_SKIP_BY_STORE.get(key, ()))
+        payload["stores"][key] = data
+        counts[key] = len(data)
+
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)  # atomic on POSIX; keeps mkstemp's 0600 mode
+    except Exception:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+    return counts
+
+
+def load(path: str, stores: Dict[str, Any]) -> Dict[str, Any]:
+    """Restore stores from `path`.
+
+    Returns ``{"loaded": False}`` when the file is absent (first run) so callers
+    can load blindly at startup. A snapshot that exists but cannot be read is an
+    error, never a silent empty start.
+    """
+    if not os.path.exists(path):
+        return {"loaded": False, "restored": {}}
+    with open(path, encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, dict) or "stores" not in payload:
+        raise ValueError("invalid snapshot: missing 'stores'")
+    version = payload.get("version")
+    if version != SNAPSHOT_VERSION:
+        raise ValueError(
+            f"snapshot version {version!r} is not supported by this build "
+            f"(expected {SNAPSHOT_VERSION})"
+        )
+    registry = _registry_for(stores)
+    restored: Dict[str, int] = {}
+    for key, data in payload["stores"].items():
+        store = stores.get(key)
+        if store is None:
+            # A store present in the snapshot but not in this deployment (a
+            # subsystem that failed to import). Skipping is right -- there is
+            # nothing to restore into -- but it must be visible.
+            logger.warning("Snapshot contains state for absent subsystem %r; skipped", key)
+            continue
+        restore_attrs(store, data, registry)
+        restored[key] = len(data)
+    return {"loaded": True, "restored": restored}

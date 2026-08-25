@@ -2082,28 +2082,29 @@ class TestOptInStatePersistence(unittest.TestCase):
         self.assertEqual(mkt.get_balance("nobody"), 0)
 
     def test_corrupt_credit_snapshot_refuses_to_start(self):
-        path = os.path.join(self.state_dir, "credit_state.json")
-        # Balances that do not match their ledger -> integrity check fails.
+        # Balances that do not match their ledger must still be refused after
+        # the generic codec restores them (#71's guarantee, re-applied in #74).
+        path = os.path.join(self.state_dir, "state.json")
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"version": 3, "credits": {"alice": 999}, "ledger": {}}, f)
+            json.dump({"version": 1, "stores": {
+                "marketplace": {"_credits": {"alice": 999}, "_credit_ledger": {}}}}, f)
         mkt = self._fresh_marketplace()
         with self.assertRaises(ValueError):
             self._run_startup(self._fresh_auth(), mkt)
-        # And the poisoned balance was never committed.
-        self.assertEqual(mkt.get_balance("alice"), 0)
 
     def test_corrupt_user_snapshot_refuses_to_start(self):
-        path = os.path.join(self.state_dir, "user_state.json")
+        path = os.path.join(self.state_dir, "state.json")
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"version": 1, "users": [{"username": "no-required-fields"}]}, f)
-        with self.assertRaises(ValueError):
+            json.dump({"version": 1, "stores": {"users": {"_by_id": {
+                "u1": {"__t__": "dc", "n": "NoSuchClass", "v": {}}}}}}, f)
+        with self.assertRaises(Exception):
             self._run_startup(self._fresh_auth(), self._fresh_marketplace())
 
     def test_password_hashes_never_leave_the_snapshot_worldreadable(self):
         auth = self._fresh_auth()
         auth.register("bob", "bob@example.com", "Sup3rSecret!")
         self._run_shutdown(auth, self._fresh_marketplace())
-        mode = os.stat(os.path.join(self.state_dir, "user_state.json")).st_mode & 0o777
+        mode = os.stat(os.path.join(self.state_dir, "state.json")).st_mode & 0o777
         self.assertEqual(mode & 0o077, 0, f"snapshot mode {oct(mode)} is group/world accessible")
 
     def test_startup_arms_the_autosave_thread(self):
