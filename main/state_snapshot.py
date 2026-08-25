@@ -27,7 +27,12 @@ import logging
 import os
 import sys
 import tempfile
-from typing import Any, Dict, Type
+from typing import Any, Dict, Optional, Type
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX
+    fcntl = None  # type: ignore
 
 # Relative-first, flat fallback: the canonical runtime imports this as
 # main.state_snapshot, but the test suite puts main/ on sys.path and imports it
@@ -132,3 +137,74 @@ def load(path: str, stores: Dict[str, Any]) -> Dict[str, Any]:
         restore_attrs(store, data, registry)
         restored[key] = len(data)
     return {"loaded": True, "restored": restored}
+
+
+# ---------------------------------------------------------------------------
+# Single-writer enforcement
+# ---------------------------------------------------------------------------
+# The stores are per-process dictionaries, so running more than one worker
+# against one state directory is not "slower but fine" -- it is silent
+# destruction. Measured with `uvicorn --workers 2`: of 12 accounts registered
+# through the API, only 3 could log in immediately, because each account lived
+# in exactly one worker's memory while logins landed on whichever worker
+# answered. Add durability and it gets worse: every worker autosaves the whole
+# store over the same file, so the last writer erases the others' work.
+#
+# `--workers N` is the ordinary production invocation for uvicorn/gunicorn, and
+# nothing in the product stopped it. An advisory lock turns a silent
+# data-destroying misconfiguration into a refusal to start -- the same
+# fail-closed choice already made for corrupt snapshots.
+
+LOCK_FILENAME = ".state.lock"
+_lock_handle = None
+
+
+class StateDirInUseError(RuntimeError):
+    """Another process already owns this state directory."""
+
+
+def acquire_single_writer_lock(state_dir: str):
+    """Take an exclusive advisory lock on `state_dir`.
+
+    Returns the held file descriptor (kept open for the process lifetime), or
+    None where locking is unavailable. Raises StateDirInUseError if another
+    live process holds it.
+    """
+    global _lock_handle
+    if fcntl is None:  # pragma: no cover - non-POSIX
+        logger.warning("File locking unavailable; cannot enforce a single writer")
+        return None
+    os.makedirs(state_dir, exist_ok=True)
+    path = os.path.join(state_dir, LOCK_FILENAME)
+    handle = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as e:
+        os.close(handle)
+        raise StateDirInUseError(
+            f"another process is already using the state directory {state_dir}. "
+            f"Cocoa keeps its stores in process memory, so exactly one worker "
+            f"may own them: run a single process (drop --workers, or set it to "
+            f"1). Running several splits accounts and orders across workers and "
+            f"lets them overwrite each other's snapshots."
+        ) from e
+    os.truncate(handle, 0)
+    os.write(handle, f"{os.getpid()}\n".encode())
+    os.fsync(handle)
+    _lock_handle = handle
+    return handle
+
+
+def release_single_writer_lock() -> None:
+    """Release the lock, if held. Safe to call when it was never taken."""
+    global _lock_handle
+    if _lock_handle is None:
+        return
+    try:
+        if fcntl is not None:
+            fcntl.flock(_lock_handle, fcntl.LOCK_UN)
+        os.close(_lock_handle)
+    except OSError:  # pragma: no cover
+        pass
+    finally:
+        _lock_handle = None

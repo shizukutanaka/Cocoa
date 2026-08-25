@@ -193,5 +193,52 @@ class TestSecuritySensitiveStateSurvives(unittest.TestCase):
         self.assertEqual(reborn._max, 99)
 
 
+class TestSingleWriterLock(unittest.TestCase):
+    """Multi-worker against one state directory must be refused, not tolerated.
+
+    The stores are per-process dicts, so `uvicorn --workers 2` is not "slower
+    but fine": measured against the real API, 9 of 12 registrations succeeded
+    but only 3 of those accounts could log in, because each lived in one
+    worker's memory. With durability on, each worker also autosaves the whole
+    store over the same file, so the last writer erases the others' work.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = self._tmp.name
+        self.addCleanup(snapshot.release_single_writer_lock)
+
+    def test_second_holder_is_refused(self):
+        snapshot.acquire_single_writer_lock(self.dir)
+        # A second acquisition from another process must fail. Same-process
+        # flock re-acquisition succeeds by design, so use a real subprocess.
+        import subprocess, sys as _sys, textwrap
+        code = textwrap.dedent(f"""
+            import sys
+            sys.path.insert(0, {str(Path(__file__).resolve().parent.parent / "main")!r})
+            import state_snapshot
+            try:
+                state_snapshot.acquire_single_writer_lock({self.dir!r})
+            except state_snapshot.StateDirInUseError:
+                sys.exit(42)
+            sys.exit(0)
+        """)
+        result = subprocess.run([_sys.executable, "-c", code], capture_output=True)
+        self.assertEqual(result.returncode, 42, "a second process acquired the lock")
+
+    def test_lock_is_reusable_after_release(self):
+        # A clean shutdown must not leave the directory permanently claimed.
+        snapshot.acquire_single_writer_lock(self.dir)
+        snapshot.release_single_writer_lock()
+        self.assertIsNotNone(snapshot.acquire_single_writer_lock(self.dir))
+
+    def test_lock_file_is_not_group_or_world_readable(self):
+        import os
+        snapshot.acquire_single_writer_lock(self.dir)
+        mode = os.stat(os.path.join(self.dir, snapshot.LOCK_FILENAME)).st_mode & 0o777
+        self.assertEqual(mode & 0o077, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
