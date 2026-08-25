@@ -108,7 +108,30 @@ cd /home/user/Cocoa && COCOA_EXPOSE_RESET_TOKEN=true uvicorn main.api_server:app
 - `COCOA_STATE_DIR=<dir>` を設定すると**アカウント＋クレジット残高/台帳**が再起動を生き延びる(#71。既定は未設定=完全インメモリ)。破損スナップショットでは起動を拒否する(fail-closed)ので、テストで壊れた状態ディレクトリを再利用しないこと。
 - フロントは `frontend` を build 済みなら uvicorn が配信する(SPA フォールバックあり)。
 
-### 3.4 Playwright(実ブラウザ)
+### 3.3b 重要ユーザー導線の E2E(コミット済み)
+
+```
+# terminal 1
+RATE_LIMIT_AUTH_PER_MINUTE=100 \
+  COCOA_ADMIN_PASSWORD='AdminTest123!' uvicorn main.api_server:app --port 8250
+
+# terminal 2
+python3 scripts/e2e_critical_flows.py --base http://127.0.0.1:8250 \
+  --admin-password 'AdminTest123!'
+```
+
+実ブラウザで5つの導線を検証する(11チェック): 公開→公開検索に出る／UIログインがリロードを跨ぐ／
+**カート購入で両者の残高が実際に動く**／払い戻し申請→管理者承認→買い手が全額回復／通報が
+モデレーションコンソールに届く。**フロントを build 済みにしておくこと**。
+
+3番目が最重要 — 監査 #44 は「有料出品が 0 クレジットで引き渡され売り手に入金されない」バグで、
+当時の**全単体テストを通過**していた(レスポンス形状だけを見ていたため)。このスイートは
+売り手への入金を潰すミューテーションで**実際に失敗する**ことを確認済み。
+
+`RATE_LIMIT_AUTH_PER_MINUTE` を上げずに連続実行すると認証レート制限(既定10/分)に当たる。
+その場合スクリプトは**「壊れた導線」ではなくスロットルだと明示して exit 3** で終わる。
+
+### 3.4 Playwright(実ブラウザ・アドホック)
 - Chromium 実体: `executable_path="/opt/pw-browsers/chromium-1194/chrome-linux/chrome"`(`launch()` に渡す。`playwright install` はしない)。
 - E2E スクリプトは scratchpad に置く。ひな型はこのセッションの `e2e_test*.py` を踏襲(response リスナーで `/api/` の `status >= 400` を全収集して最後に出力)。
 - **毎回ユニークなユーザー名/メール**を使う(ストアはメモリなので前回の残骸と衝突する)。
