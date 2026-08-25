@@ -333,3 +333,87 @@ class TestDownloadLogIsBounded(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestModerationHistoryIsBounded(unittest.TestCase):
+    """Adjudicated moderation history is capped; open reports never are.
+
+    Items were never removed -- resolving one only flips its status -- so every
+    report ever filed accumulated forever, and unlike the download log these are
+    FREE for any logged-in user to create. With snapshots the whole queue is
+    re-encoded under the store lock every 30s: measured, 100k items cost 1.4s of
+    blocked requests and a 51MB snapshot; 300k cost 8s and 154MB.
+
+    The eviction rule is the load-bearing part: dropping an unadjudicated report
+    would recreate the #46 dead end (a complaint nobody can act on because it
+    silently vanished), so only terminal items are ever discarded.
+    """
+
+    def _queue(self, cap):
+        import importlib
+        import os
+        import moderation_queue
+        with unittest.mock.patch.dict(os.environ, {"MAX_MODERATION_HISTORY": str(cap)}):
+            module = importlib.reload(moderation_queue)
+        self.addCleanup(lambda: importlib.reload(module))
+        return module.ModerationQueue()
+
+    def test_resolved_history_stays_bounded_and_evicts_oldest_first(self):
+        # The guarantee is a high-water mark of cap + slack, not an exact cap:
+        # the scan is amortised (once per slack additions) so it is not paid on
+        # every enqueue. What matters is that history does not grow with input.
+        q = self._queue(20)
+        for i in range(60):
+            item = q.enqueue(kind="listing_report", source_id=f"s{i}", subject_id="l",
+                             reporter_id="u", reason="spam")
+            q.update_status(item.item_id, "resolved")
+        retained = [i for i in q._items.values() if i.status == "resolved"]
+        self.assertLessEqual(len(retained), 22, "history is not bounded")
+
+        # Filing three times as many must not grow it further.
+        for i in range(60, 240):
+            item = q.enqueue(kind="listing_report", source_id=f"s{i}", subject_id="l",
+                             reporter_id="u", reason="spam")
+            q.update_status(item.item_id, "resolved")
+        grown = [i for i in q._items.values() if i.status == "resolved"]
+        self.assertLessEqual(len(grown), 22, "history grew with input")
+
+        sources = {i.source_id for i in grown}
+        self.assertIn("s239", sources)   # newest kept
+        self.assertNotIn("s0", sources)  # oldest evicted
+
+    def test_open_reports_are_never_evicted(self):
+        # The invariant that matters: an unadjudicated complaint must not vanish.
+        q = self._queue(5)
+        for i in range(40):
+            item = q.enqueue(kind="listing_report", source_id=f"done{i}", subject_id="l",
+                             reporter_id="u", reason="spam")
+            q.update_status(item.item_id, "dismissed")
+        for i in range(25):
+            q.enqueue(kind="listing_report", source_id=f"open{i}", subject_id="l",
+                      reporter_id="u", reason="spam")
+        open_items = [i for i in q._items.values() if i.status in ("pending", "in_review")]
+        self.assertEqual(len(open_items), 25, "an unadjudicated report was silently dropped")
+
+    def test_a_queue_of_only_open_items_is_never_trimmed(self):
+        # Exceeding the cap while everything is still open is an operational
+        # emergency; it must stay visible rather than be trimmed away.
+        q = self._queue(3)
+        for i in range(30):
+            q.enqueue(kind="listing_report", source_id=f"s{i}", subject_id="l",
+                      reporter_id="u", reason="spam")
+        self.assertEqual(len(q._items), 30)
+
+    def test_evicting_an_item_does_not_block_a_later_report_for_that_source(self):
+        q = self._queue(1)
+        first = q.enqueue(kind="listing_report", source_id="same", subject_id="l",
+                          reporter_id="u", reason="spam")
+        q.update_status(first.item_id, "resolved")
+        for i in range(5):
+            later = q.enqueue(kind="listing_report", source_id=f"other{i}", subject_id="l",
+                              reporter_id="u", reason="spam")
+            q.update_status(later.item_id, "resolved")
+        # "same" was evicted; a fresh complaint about it must still queue.
+        again = q.enqueue(kind="listing_report", source_id="same", subject_id="l",
+                          reporter_id="u2", reason="spam")
+        self.assertIn(again.item_id, q._items)
+        self.assertIn(again.status, ("pending", "in_review"))
