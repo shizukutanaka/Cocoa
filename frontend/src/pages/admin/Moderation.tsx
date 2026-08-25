@@ -358,6 +358,12 @@ function OverviewTab() {
     queryKey: ["admin-stats"],
     queryFn: () => adminService.getAdminStats(),
   });
+  // The money question an operator actually needs answered: does every
+  // balance still equal the sum of its ledger entries?
+  const { data: integrity } = useQuery({
+    queryKey: ["admin-ledger-integrity"],
+    queryFn: () => adminService.getLedgerIntegrity(),
+  });
 
   if (isLoading) return <CenterSpinner />;
 
@@ -366,6 +372,40 @@ function OverviewTab() {
 
   return (
     <>
+      {integrity && (
+        <section style={{ marginBottom: 24 }}>
+          <h2 style={{ fontSize: 16, marginBottom: 8 }}>クレジット台帳の整合性</h2>
+          <div className="card card-pad">
+            {integrity.consistent ? (
+              <div>
+                <span className="badge">✓ 整合</span>
+                <span style={{ marginLeft: 8, fontSize: 13, color: "var(--muted)" }}>
+                  {integrity.users_checked.toLocaleString()} 人の残高が台帳合計と一致しています。
+                </span>
+              </div>
+            ) : (
+              <div>
+                <span className="badge badge-warning">⚠ 不整合 {integrity.discrepancy_count} 件</span>
+                <div style={{ fontSize: 13, marginTop: 6 }}>
+                  残高が台帳合計と一致しないユーザーがいます。金銭プリミティブを経由しない
+                  変更か、復元された状態の破損が疑われます。
+                </div>
+                <div className="row-list" style={{ marginTop: 8 }}>
+                  {integrity.discrepancies.slice(0, 10).map((d) => (
+                    <div key={d.user_id} className="row-item">
+                      <Link to={`/users/${d.user_id}`}>{d.user_id.slice(0, 12)}</Link>
+                      <span style={{ fontSize: 13 }}>
+                        残高 {d.balance.toLocaleString()} / 台帳 {d.ledger_sum.toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       <section style={{ marginBottom: 24 }}>
         <h2 style={{ fontSize: 16, marginBottom: 8 }}>ユーザー</h2>
         {u ? (
@@ -910,6 +950,8 @@ function UsersTab() {
   const [q, setQ] = useState("");
   const [grantFor, setGrantFor] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
+  const [quotaFor, setQuotaFor] = useState<string | null>(null);
+  const [quotaValue, setQuotaValue] = useState("");
   const [busy, setBusy] = useState(false);
 
   const { data, isLoading } = useQuery({
@@ -951,6 +993,29 @@ function UsersTab() {
       refreshRoster();
     } catch (err) {
       show(apiErrorMessage(err, "ロール変更に失敗しました"), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyQuota(u: AdminUser, unlimited: boolean) {
+    const value = unlimited ? -1 : Number(quotaValue);
+    if (!unlimited && (!Number.isInteger(value) || value < 0)) {
+      show("公開上限は0以上の整数で指定してください", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await adminService.setListingQuota(u.user_id, value);
+      show(
+        res.max_listings === null
+          ? `${u.username} の公開上限を解除しました`
+          : `${u.username} の公開上限を ${res.max_listings} 件にしました（現在 ${res.current_active} 件公開中）`,
+      );
+      setQuotaFor(null);
+      setQuotaValue("");
+    } catch (err) {
+      show(apiErrorMessage(err, "公開上限の設定に失敗しました"), "error");
     } finally {
       setBusy(false);
     }
@@ -1069,8 +1134,47 @@ function UsersTab() {
                         認定を取り消す
                       </button>
                     )}
+                    {isAdmin && quotaFor !== u.user_id && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        disabled={busy}
+                        onClick={() => { setQuotaFor(u.user_id); setQuotaValue(""); }}
+                      >
+                        公開上限
+                      </button>
+                    )}
                   </div>
                 </div>
+                {quotaFor === u.user_id && (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, color: "var(--muted)" }}>
+                      出品を乱発する出品者への段階的な対応。BANより軽く、いつでも解除できます。
+                    </span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      step={1}
+                      placeholder="公開できる最大件数"
+                      value={quotaValue}
+                      onChange={(e) => setQuotaValue(e.target.value)}
+                      aria-label={`${u.username} の公開上限`}
+                      style={{ maxWidth: 200 }}
+                    />
+                    <button className="btn btn-primary btn-sm" disabled={busy}
+                            onClick={() => applyQuota(u, false)}>
+                      上限を設定
+                    </button>
+                    <button className="btn btn-secondary btn-sm" disabled={busy}
+                            onClick={() => applyQuota(u, true)}>
+                      上限を解除
+                    </button>
+                    <button className="btn btn-ghost btn-sm" disabled={busy}
+                            onClick={() => { setQuotaFor(null); setQuotaValue(""); }}>
+                      キャンセル
+                    </button>
+                  </div>
+                )}
                 {grantFor === u.user_id && (
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <input

@@ -9,6 +9,9 @@ import {
   setModerationPriority,
   changeUserRole,
   revokeCreatorVerification,
+  getListingQuota,
+  setListingQuota,
+  getLedgerIntegrity,
 } from "./adminService";
 
 // The admin Users tab depends on these two request shapes exactly: the roster
@@ -113,5 +116,45 @@ describe("account administration", () => {
     mockClient.delete.mockResolvedValue({ data: { user_id: "u1", status: "revoked" } });
     await revokeCreatorVerification("u1");
     expect(mockClient.delete).toHaveBeenCalledWith("/api/admin/users/u1/verify-creator");
+  });
+});
+
+describe("proportionate enforcement and money integrity", () => {
+  it("GETs a user's publish quota", async () => {
+    mockClient.get.mockResolvedValue({
+      data: { user_id: "u1", max_listings: 5, current_active: 2 },
+    });
+    const out = await getListingQuota("u1");
+    expect(mockClient.get).toHaveBeenCalledWith("/api/admin/quotas/u1");
+    expect(out.max_listings).toBe(5);
+  });
+
+  it("POSTs a quota cap with the user_id and limit", async () => {
+    mockClient.post.mockResolvedValue({ data: { user_id: "u1", max_listings: 3 } });
+    await setListingQuota("u1", 3);
+    expect(mockClient.post).toHaveBeenCalledWith("/api/admin/quotas/set", {
+      user_id: "u1",
+      max_listings: 3,
+    });
+  });
+
+  it("sends -1 to lift a cap, which the server maps to unlimited", async () => {
+    // The reversal path matters as much as the cap: enforcement that cannot be
+    // undone is the trap #45 and #58 were about.
+    mockClient.post.mockResolvedValue({ data: { user_id: "u1", max_listings: null } });
+    await setListingQuota("u1", -1);
+    expect(mockClient.post).toHaveBeenCalledWith("/api/admin/quotas/set", {
+      user_id: "u1",
+      max_listings: -1,
+    });
+  });
+
+  it("GETs the credit ledger integrity audit", async () => {
+    mockClient.get.mockResolvedValue({
+      data: { consistent: true, users_checked: 12, discrepancy_count: 0, discrepancies: [] },
+    });
+    const out = await getLedgerIntegrity();
+    expect(mockClient.get).toHaveBeenCalledWith("/api/admin/credits/integrity");
+    expect(out.consistent).toBe(true);
   });
 });

@@ -3,6 +3,8 @@ import type {
   AdminStats,
   AdminUser,
   BannedUser,
+  LedgerIntegrity,
+  ListingQuota,
   ModerationItem,
   CreatorApplication,
   ListingReport,
@@ -128,6 +130,38 @@ export async function grantCredits(
     user_id: userId,
     amount,
   });
+  return data;
+}
+
+// --- Listing quota (proportionate enforcement) ---
+
+/**
+ * A seller who floods the catalogue is not necessarily ban-worthy. Enforcement
+ * previously jumped straight from taking down one listing (#45) to banning the
+ * account (#50); a publish cap is the rung in between, and it is reversible by
+ * setting it back to unlimited.
+ */
+export async function getListingQuota(userId: string): Promise<ListingQuota> {
+  const { data } = await client.get(`/api/admin/quotas/${userId}`);
+  return data;
+}
+
+// Pass -1 to remove the cap entirely (the server maps negatives to unlimited).
+export async function setListingQuota(userId: string, maxListings: number) {
+  const { data } = await client.post("/api/admin/quotas/set", {
+    user_id: userId,
+    max_listings: maxListings,
+  });
+  return data;
+}
+
+// --- Credit ledger integrity ---
+
+// Audit invariant: for every user, the sum of their ledger entries equals their
+// balance. A discrepancy means either something bypassed the money primitives
+// or restored state is corrupt -- the loudest signal a credit system has.
+export async function getLedgerIntegrity(): Promise<LedgerIntegrity> {
+  const { data } = await client.get("/api/admin/credits/integrity");
   return data;
 }
 
