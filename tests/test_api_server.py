@@ -2012,6 +2012,94 @@ class TestDirectPurchaseIsRecordedAsAnOrder(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestProportionateEnforcementAndLedgerAudit(unittest.TestCase):
+    """Publish quotas and the ledger integrity audit (audit #82).
+
+    Enforcement went straight from taking down one listing (#45) to banning the
+    account (#50/#58) with nothing in between, so a seller who floods the
+    catalogue but is not ban-worthy had no proportionate response. A publish cap
+    is that middle rung, and like every other enforcement action here it has to
+    be reversible.
+
+    Neither endpoint had a single test before this.
+    """
+
+    def _marketplace(self):
+        from avatar_marketplace import MarketplaceStore
+        return MarketplaceStore()
+
+    ADMIN = {"user_id": "admin1", "role": "admin"}
+
+    def _publish(self, store, owner, i):
+        return store.publish(
+            avatar_id=f"a{i}", owner_id=owner, owner_username="s", name=f"n{i}",
+            description="d", tags=[], category="other", parameters={"p": i},
+        )
+
+    def test_quota_round_trips_through_the_admin_endpoints(self):
+        store = self._marketplace()
+        self._publish(store, "seller", 0)
+        body = api_server.SetQuotaRequest(user_id="seller", max_listings=5)
+        with patch.object(api_server, "get_marketplace", lambda: store):
+            out = asyncio.run(api_server.set_listing_quota(body, self.ADMIN))
+            self.assertEqual(out["max_listings"], 5)
+            self.assertEqual(out["current_active"], 1)
+            read = asyncio.run(api_server.get_listing_quota("seller", self.ADMIN))
+        self.assertEqual(read["max_listings"], 5)
+        self.assertEqual(read["current_active"], 1)
+
+    def test_the_cap_actually_blocks_publishing(self):
+        # A cap that does not stop anything would be decoration.
+        store = self._marketplace()
+        body = api_server.SetQuotaRequest(user_id="seller", max_listings=2)
+        with patch.object(api_server, "get_marketplace", lambda: store):
+            asyncio.run(api_server.set_listing_quota(body, self.ADMIN))
+        self._publish(store, "seller", 0)
+        self._publish(store, "seller", 1)
+        with self.assertRaises(ValueError):
+            self._publish(store, "seller", 2)
+
+    def test_minus_one_lifts_the_cap_again(self):
+        # Reversibility is the point (#45, #58): enforcement you cannot undo is
+        # a trap for the operator, not a tool.
+        store = self._marketplace()
+        with patch.object(api_server, "get_marketplace", lambda: store):
+            asyncio.run(api_server.set_listing_quota(
+                api_server.SetQuotaRequest(user_id="seller", max_listings=1), self.ADMIN))
+            self._publish(store, "seller", 0)
+            with self.assertRaises(ValueError):
+                self._publish(store, "seller", 1)
+            out = asyncio.run(api_server.set_listing_quota(
+                api_server.SetQuotaRequest(user_id="seller", max_listings=-1), self.ADMIN))
+            self.assertIsNone(out["max_listings"])
+            self.assertEqual(out["status"], "unlimited")
+        self._publish(store, "seller", 1)  # must not raise any more
+        self.assertEqual(len(store.get_user_listings("seller")), 2)
+
+    def test_ledger_audit_reports_a_sound_ledger(self):
+        store = self._marketplace()
+        store.add_credits("alice", 100)
+        with patch.object(api_server, "get_marketplace", lambda: store):
+            out = asyncio.run(api_server.credit_ledger_integrity(self.ADMIN))
+        self.assertTrue(out["consistent"])
+        self.assertEqual(out["discrepancy_count"], 0)
+        self.assertGreaterEqual(out["users_checked"], 1)
+
+    def test_ledger_audit_catches_a_balance_that_bypassed_the_primitives(self):
+        # This is the same invariant a restored snapshot is verified against
+        # (#71) and that the concurrency tests assert (#81); the endpoint is how
+        # an operator sees it live.
+        store = self._marketplace()
+        store.add_credits("alice", 100)
+        store._credits["alice"] = 999  # a write that skipped the ledger
+        with patch.object(api_server, "get_marketplace", lambda: store):
+            out = asyncio.run(api_server.credit_ledger_integrity(self.ADMIN))
+        self.assertFalse(out["consistent"])
+        self.assertEqual(out["discrepancy_count"], 1)
+        self.assertEqual(out["discrepancies"][0]["user_id"], "alice")
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestRoleChangeHandlerStatusCodes(unittest.TestCase):
     """The role endpoint must not report "forbidden" as "bad request".
 

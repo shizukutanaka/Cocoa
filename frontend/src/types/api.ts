@@ -552,6 +552,21 @@ export interface AdminUser {
   locked: boolean;
 }
 
+// Mirrors main/api_server.py GET /api/admin/quotas/{user_id}
+export interface ListingQuota {
+  user_id: string;
+  max_listings: number | null; // null = unlimited
+  current_active: number;
+}
+
+// Mirrors main/avatar_marketplace.py verify_ledger_integrity()
+export interface LedgerIntegrity {
+  consistent: boolean;
+  users_checked: number;
+  discrepancy_count: number;
+  discrepancies: Array<{ user_id: string; balance: number; ledger_sum: number }>;
+}
+
 // Mirrors main/moderation_queue.py ModerationItem.to_dict()
 export interface ModerationItem {
   item_id: string;
