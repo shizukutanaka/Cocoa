@@ -574,6 +574,14 @@ async def _load_persisted_state() -> None:
     state_dir = _state_dir()
     if not state_dir:
         return
+    # Claim the directory before touching it. The stores are per-process, so a
+    # second worker would split accounts across processes and clobber this
+    # one's snapshots; refusing to start is the only safe answer (#76).
+    try:
+        state_snapshot.acquire_single_writer_lock(state_dir)
+    except state_snapshot.StateDirInUseError as e:
+        logger.critical("%s", e)
+        raise
     path = os.path.join(state_dir, state_snapshot.SNAPSHOT_FILENAME)
     # Fail closed on a corrupt snapshot. Serving with silently missing accounts,
     # balances or listings is the money version of the #47 anti-pattern; refuse
@@ -616,6 +624,7 @@ async def _save_persisted_state() -> None:
         return
     if _save_state_best_effort(state_dir):
         logger.info("State saved under %s", state_dir)
+    state_snapshot.release_single_writer_lock()
 
 
 def _request_endpoint_label(request) -> str:
