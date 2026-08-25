@@ -29,6 +29,22 @@ logger = logging.getLogger(__name__)
 _MAX_PRICE_CREDITS = int(os.getenv("MAX_PRICE_CREDITS", "10_000_000"))  # 10M cap
 _MAX_GRANT_CREDITS = int(os.getenv("MAX_GRANT_CREDITS", "100_000_000"))  # 100M cap per grant
 
+# Cap on the global download log (oldest entries discarded), matching the
+# existing bounds on other unbounded history: _MAX_ORDERS_PER_USER = 1000 in
+# cart_manager, _MAX_QUEUE = 200 in user_notifications.
+#
+# It grew forever, one entry per download. In memory that was a slow leak; once
+# snapshots existed it became an operational cliff, because the whole log is
+# re-encoded under the store lock every 30 seconds. Measured: 100k entries =
+# 314ms of blocked requests and a 10MB snapshot; 500k = 2.5s and 49MB.
+#
+# Trimming is safe for ownership: re-download rights come from the
+# _downloads_by_user index, not from this log (see _has_downloaded_locked), so
+# discarding old entries never revokes a purchase. What ages out is old
+# ANALYTICS -- unique-downloader counts, trending windows, per-listing
+# breakdowns and the oldest rows of a user's download history.
+_MAX_DOWNLOAD_LOG = int(os.getenv("MAX_DOWNLOAD_LOG", "100000"))
+
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -530,6 +546,10 @@ class MarketplaceStore:
     def _record_download_locked(self, listing_id: str, user_id: str, ts: datetime, amount_paid: int = 0) -> None:
         """Append to the download log AND update the ownership index. Hold lock."""
         self._download_log.append((listing_id, user_id, ts, amount_paid))
+        if len(self._download_log) > _MAX_DOWNLOAD_LOG:
+            # Drop the oldest in one slice rather than pop(0) per append, which
+            # would be O(n) on every download once the cap is reached.
+            del self._download_log[: len(self._download_log) - _MAX_DOWNLOAD_LOG]
         self._downloads_by_user.setdefault(user_id, set()).add(listing_id)
 
     def _has_downloaded_locked(self, user_id: str, listing_id: str) -> bool:

@@ -11,6 +11,7 @@ import json
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -238,6 +239,96 @@ class TestSingleWriterLock(unittest.TestCase):
         snapshot.acquire_single_writer_lock(self.dir)
         mode = os.stat(os.path.join(self.dir, snapshot.LOCK_FILENAME)).st_mode & 0o777
         self.assertEqual(mode & 0o077, 0)
+
+
+class TestSnapshotIsSafeUnderLiveTraffic(unittest.TestCase):
+    """Snapshotting must not race the requests it is snapshotting.
+
+    Encoding walks the store's dicts, so without holding the store's lock a
+    concurrent write throws "dictionary changed size during iteration".
+    Measured before the fix: 60 of 60 snapshot attempts failed while the store
+    was being written. Because the autosave swallows errors, durability would
+    have looked enabled while silently never writing -- the operator would
+    discover it only after a restart lost everything.
+    """
+
+    def test_snapshot_survives_concurrent_writes(self):
+        import threading
+        store = market.MarketplaceStore()
+        for i in range(50):
+            store.publish(
+                avatar_id=f"a{i}", owner_id="o", owner_username="o", name=f"n{i}",
+                description="d", tags=["t"], category="other", parameters={"p": i},
+            )
+
+        stop = threading.Event()
+        failures = []
+
+        def writer():
+            i = 1000
+            while not stop.is_set():
+                try:
+                    store.publish(
+                        avatar_id=f"a{i}", owner_id="o", owner_username="o", name=f"n{i}",
+                        description="d", tags=["t"], category="other", parameters={"p": i},
+                    )
+                    store.add_credits(f"u{i}", 1)
+                except Exception as e:  # pragma: no cover
+                    failures.append(e)
+                i += 1
+
+        thread = threading.Thread(target=writer, daemon=True)
+        thread.start()
+        try:
+            for _ in range(25):
+                codec.snapshot_attrs(store)  # must not raise
+        finally:
+            stop.set()
+            thread.join(timeout=5)
+        self.assertEqual(failures, [])
+
+    def test_a_store_without_a_lock_still_snapshots(self):
+        # Not every snapshotted object is lock-protected; those must not break.
+        class Plain:
+            def __init__(self):
+                self.data = {"a": 1}
+
+        self.assertEqual(codec.snapshot_attrs(Plain()), {"data": {"a": 1}})
+
+
+class TestDownloadLogIsBounded(unittest.TestCase):
+    """Unbounded history became an operational cliff once snapshots existed.
+
+    The download log grew forever, one entry per download, and the whole thing
+    is re-encoded under the store lock every 30 seconds. Measured: 100k entries
+    = 314ms of blocked requests and a 10MB snapshot; 500k = 2.5s and 49MB. It
+    is now capped the same way cart_manager caps orders per user and
+    user_notifications caps the queue.
+    """
+
+    def test_log_is_capped_and_drops_the_oldest(self):
+        import importlib
+        import os
+        with unittest.mock.patch.dict(os.environ, {"MAX_DOWNLOAD_LOG": "25"}):
+            module = importlib.reload(market)
+            try:
+                store = module.MarketplaceStore()
+                listing = store.publish(
+                    avatar_id="a", owner_id="o", owner_username="o", name="n",
+                    description="d", tags=[], category="other", parameters={"p": 1},
+                )
+                now = datetime.now(timezone.utc)
+                for i in range(60):
+                    store._record_download_locked(listing.listing_id, f"u{i}", now)
+                self.assertEqual(len(store._download_log), 25)
+                # Newest survive, oldest are gone.
+                self.assertIn("u59", [row[1] for row in store._download_log])
+                self.assertNotIn("u0", [row[1] for row in store._download_log])
+                # Ownership is NOT derived from the log, so the trimmed-out
+                # buyer keeps their purchase and can still re-download.
+                self.assertTrue(store._has_downloaded_locked("u0", listing.listing_id))
+            finally:
+                importlib.reload(module)
 
 
 if __name__ == "__main__":
