@@ -21,6 +21,7 @@ stores but provides a unified view and assignment workflow.
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 import threading
 from dataclasses import dataclass, field
@@ -43,6 +44,31 @@ VALID_KINDS = frozenset({
 })
 VALID_PRIORITIES = frozenset({"low", "medium", "high"})
 VALID_STATUSES = frozenset({"pending", "in_review", "resolved", "dismissed"})
+_OPEN_STATUSES = ("pending", "in_review")
+
+# Cap on retained ADJUDICATED history (oldest discarded), matching the bounds
+# already placed on other unbounded history: _MAX_ORDERS_PER_USER in
+# cart_manager, _MAX_QUEUE in user_notifications, MAX_DOWNLOAD_LOG in
+# avatar_marketplace (#78).
+#
+# Items were never removed -- resolving one only flips its status -- so every
+# report, application and dispute ever filed accumulated forever. Unlike the
+# download log, these are FREE for any logged-in user to create, so the growth
+# is user-driven rather than purchase-driven. With snapshots (#74) the whole
+# queue is re-encoded under the store lock every 30 seconds: measured, 100k
+# items cost 1.4s of blocked requests and a 51MB snapshot; 300k cost 8s and
+# 154MB.
+#
+# Only TERMINAL items are ever evicted. An unadjudicated report must never
+# disappear on its own -- that would recreate the #46 dead end, a complaint
+# nobody can act on because it silently vanished -- so open items are kept
+# regardless of the cap, and a queue that exceeds it while still open is an
+# operational emergency that stays visible rather than being trimmed away.
+_MAX_RESOLVED_ITEMS = int(os.getenv("MAX_MODERATION_HISTORY", "20000"))
+# Scan for eviction only once per this many items over the cap, so the trim
+# cost is amortised instead of paid on every single enqueue. Proportional to
+# the cap so a small configured retention still trims promptly.
+_TRIM_SLACK = max(1, min(1000, _MAX_RESOLVED_ITEMS // 10))
 
 
 @dataclass
@@ -130,7 +156,36 @@ class ModerationQueue:
             # Repoint the source index to the newest item; the prior (terminal)
             # item remains in _items for audit history, just no longer "current".
             self._by_source[source_id] = item.item_id
+            self._trim_resolved_history_locked()
             return item
+
+    def _trim_resolved_history_locked(self) -> None:
+        """Drop the oldest adjudicated items once history exceeds the cap.
+
+        Open items (pending / in_review) are never dropped: losing an
+        unadjudicated report silently is exactly the dead end #46 fixed. Caller
+        holds self._lock.
+        """
+        # Cheap guard first. Scanning every item on every enqueue and every
+        # status change would make this O(n) per call and O(n^2) over a queue's
+        # lifetime -- which it was, until a 120k-item run took long enough to
+        # notice. Below the cap there cannot be excess history, so return
+        # immediately; above it, only scan once per _TRIM_SLACK additions and
+        # then cut all the way back to the cap.
+        if len(self._items) <= _MAX_RESOLVED_ITEMS + _TRIM_SLACK:
+            return
+        resolved = [i for i in self._items.values() if i.status not in _OPEN_STATUSES]
+        excess = len(resolved) - _MAX_RESOLVED_ITEMS
+        if excess <= 0:
+            return
+        resolved.sort(key=lambda i: (i.resolved_at or i.updated_at or i.created_at))
+        for item in resolved[:excess]:
+            self._items.pop(item.item_id, None)
+            # Only clear the source index if it still points at this item; a
+            # newer report for the same source must keep its mapping.
+            if self._by_source.get(item.source_id) == item.item_id:
+                self._by_source.pop(item.source_id, None)
+        logger.info("Trimmed %d adjudicated moderation items beyond the retention cap", excess)
 
     def get(self, item_id: str) -> Optional[ModerationItem]:
         with self._lock:
@@ -199,6 +254,11 @@ class ModerationQueue:
             # clear it when reopening, so a pending/in_review item never carries
             # a stale resolution timestamp.
             item.resolved_at = now if status in ("resolved", "dismissed") else None
+            # Trim here too, not only on enqueue: this is where an item BECOMES
+            # terminal, so without it history could sit one item over the cap
+            # until the next report arrived.
+            self._trim_resolved_history_locked()
+
             return item
 
     def list_items(
