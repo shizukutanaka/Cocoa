@@ -497,3 +497,68 @@ class TestVersionPayloadsAreBounded(unittest.TestCase):
                                         parameters={"Hair": 0.5})
         self.assertEqual(version.changelog, "tweak")
         self.assertEqual(store.get_listing(listing.listing_id).parameters, {"Hair": 0.5})
+
+
+class TestRemainingAppendOnlyLogsAreBounded(unittest.TestCase):
+    """Finishing the growth sweep honestly (audit #85).
+
+    #84 claimed none of the four append-only structures in avatar_marketplace
+    had a cap. That was wrong about one of them: _review_replies has always been
+    bounded by _MAX_REPLIES_PER_REVIEW (a class attribute, which is why a grep
+    for module-level _MAX constants missed it). Of the genuinely unbounded
+    remainder:
+
+      _price_history  only records real price changes, but a seller alternating
+                      10 -> 11 -> 10 produces real changes forever, so the only
+                      friction was the request rate limit
+      _tips           every tip costs at least a credit, so this one has real
+                      economic friction the other logs lack -- but it still only
+                      grew, and it is snapshotted like everything else
+
+    Trimming the tip log must never touch the money: balances and the ledger are
+    separate structures, and the ledger is what a restored snapshot is verified
+    against (#71).
+    """
+
+    def _module(self, **env):
+        import importlib
+        import os
+        import avatar_marketplace
+        with unittest.mock.patch.dict(os.environ, {k: str(v) for k, v in env.items()}):
+            module = importlib.reload(avatar_marketplace)
+        self.addCleanup(lambda: importlib.reload(module))
+        return module
+
+    def test_price_history_is_bounded_keeping_recent_movement(self):
+        module = self._module(MAX_PRICE_HISTORY=10)
+        store = module.MarketplaceStore()
+        listing = store.publish(
+            avatar_id="a", owner_id="o", owner_username="o", name="n", description="d",
+            tags=[], category="other", parameters={"p": 1}, price_credits=10, is_free=False,
+        )
+        for i in range(80):
+            store.update_listing(listing.listing_id, "o", price_credits=10 + (i % 2))
+        history = store._price_history[listing.listing_id]
+        self.assertLessEqual(len(history), 10)
+        # Buyers are shown recent movement, so the newest entry must survive.
+        self.assertEqual(history[-1]["price_credits"], 10 + (79 % 2))
+
+    def test_trimming_the_tip_log_never_moves_money(self):
+        module = self._module(MAX_TIPS=5)
+        store = module.MarketplaceStore()
+        store.add_credits("sender", 1000)
+        for i in range(40):
+            store.send_tip("sender", "snd", f"r{i % 3}", 1)
+
+        self.assertLessEqual(len(store._tips), 5, "tip log is not bounded")
+        # The log is a display record; the money lives elsewhere and is intact.
+        self.assertEqual(store.get_balance("sender"), 960)
+        self.assertEqual(sum(store.get_balance(f"r{i}") for i in range(3)), 40)
+        discrepancies, _ = store._ledger_discrepancies(store._credits, store._credit_ledger)
+        self.assertEqual(discrepancies, [], "trimming the tip log corrupted the ledger")
+
+    def test_review_replies_were_already_bounded(self):
+        # Pinning the correction: this cap predates the sweep.
+        module = self._module()
+        self.assertLessEqual(module.MarketplaceStore._MAX_REPLIES_PER_REVIEW, 1000)
+        self.assertGreater(module.MarketplaceStore._MAX_REPLIES_PER_REVIEW, 0)

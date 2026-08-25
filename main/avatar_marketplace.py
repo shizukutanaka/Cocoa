@@ -52,6 +52,19 @@ _MAX_DOWNLOAD_LOG = int(os.getenv("MAX_DOWNLOAD_LOG", "100000"))
 # customer's goods.
 _MAX_VERSIONS_PER_LISTING = int(os.getenv("MAX_VERSIONS_PER_LISTING", "50"))
 
+# Cap on retained price history per listing (oldest discarded). Only genuine
+# price changes are recorded, but a seller alternating 10 -> 11 -> 10 produces
+# genuine changes indefinitely, so the only friction was the request rate
+# limit (~60/min, i.e. ~10MB/day for a single listing). Buyers are shown recent
+# price movement, which the newest entries carry.
+_MAX_PRICE_HISTORY = int(os.getenv("MAX_PRICE_HISTORY", "200"))
+
+# Cap on the global tip log (oldest discarded). Every tip costs at least one
+# credit, so this has real economic friction the other logs lack -- but the
+# list still only grew, and it is snapshotted like everything else. Balances
+# and the credit ledger are unaffected: this is the display log, not the money.
+_MAX_TIPS = int(os.getenv("MAX_TIPS", "50000"))
+
 _MAX_PARAM_KEYS = 500
 _MAX_PARAM_BYTES = 65536
 
@@ -995,11 +1008,14 @@ class MarketplaceStore:
                 listing.is_ai_generated = bool(is_ai_generated)
             listing.updated_at = datetime.now(timezone.utc)
             if price_changed:
-                self._price_history.setdefault(listing.listing_id, []).append({
+                _history = self._price_history.setdefault(listing.listing_id, [])
+                _history.append({
                     "price_credits": listing.price_credits,
                     "is_free": listing.is_free,
                     "changed_at": listing.updated_at.isoformat(),
                 })
+                if len(_history) > _MAX_PRICE_HISTORY:
+                    del _history[: len(_history) - _MAX_PRICE_HISTORY]
             return listing
 
     # --- Unpublish ---
@@ -2679,6 +2695,8 @@ class MarketplaceStore:
             self._debit_locked(sender_id, amount, "tip_sent", ref_id=recipient_id)
             self._credit_locked(recipient_id, amount, "tip_received", ref_id=sender_id)
             self._tips.append(tip)
+            if len(self._tips) > _MAX_TIPS:
+                del self._tips[: len(self._tips) - _MAX_TIPS]
         logger.info("Tip sent: %s → %s (%d credits)", sender_id, recipient_id, amount)
         return tip
 
