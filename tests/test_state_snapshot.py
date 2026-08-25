@@ -562,3 +562,65 @@ class TestRemainingAppendOnlyLogsAreBounded(unittest.TestCase):
         module = self._module()
         self.assertLessEqual(module.MarketplaceStore._MAX_REPLIES_PER_REVIEW, 1000)
         self.assertGreater(module.MarketplaceStore._MAX_REPLIES_PER_REVIEW, 0)
+
+
+class TestEveryParameterEntryPointIsBounded(unittest.TestCase):
+    """One payload, every door (audit #86).
+
+    These bounds have now drifted twice. publish enforced 500 keys and 64KB;
+    publish_version enforced neither (#84); update_listing -- the ordinary edit
+    path, wired to the UI since #48 -- enforced the key count but not the size,
+    so a 38MB payload publish rejects went straight onto the live listing.
+
+    Rather than fix a third copy and hope, this test drives the SAME oversized
+    payload through every entry point that accepts parameters. A fourth path
+    added without validation fails here instead of shipping.
+    """
+
+    OVERSIZED_BY_SIZE = {f"k{i}": "x" * 100_000 for i in range(400)}   # ~38MB, 400 keys
+    OVERSIZED_BY_COUNT = {f"k{i}": "v" for i in range(4000)}           # 4000 keys, small
+
+    def setUp(self):
+        self.store = market.MarketplaceStore()
+        self.listing = self.store.publish(
+            avatar_id="a", owner_id="o", owner_username="o", name="n", description="d",
+            tags=[], category="other", parameters={"p": 1},
+        )
+
+    def _entry_points(self):
+        return {
+            "publish": lambda params: self.store.publish(
+                avatar_id="b", owner_id="o", owner_username="o", name="n2",
+                description="d", tags=[], category="other", parameters=params,
+            ),
+            "update_listing": lambda params: self.store.update_listing(
+                self.listing.listing_id, "o", parameters=params,
+            ),
+            "publish_version": lambda params: self.store.publish_version(
+                self.listing.listing_id, "o", changelog="c", parameters=params,
+            ),
+        }
+
+    def test_every_entry_point_rejects_an_oversized_payload(self):
+        for name, call in self._entry_points().items():
+            for label, payload in (("size", self.OVERSIZED_BY_SIZE),
+                                   ("key count", self.OVERSIZED_BY_COUNT)):
+                with self.subTest(entry_point=name, oversized_by=label):
+                    with self.assertRaises(ValueError):
+                        call(payload)
+
+    def test_a_rejected_payload_never_reaches_the_live_listing(self):
+        for name, call in self._entry_points().items():
+            with self.subTest(entry_point=name):
+                with self.assertRaises(ValueError):
+                    call(self.OVERSIZED_BY_SIZE)
+                current = self.store.get_listing(self.listing.listing_id)
+                self.assertEqual(current.parameters, {"p": 1},
+                                 f"{name} mutated the listing before validating")
+
+    def test_ordinary_payloads_still_pass_every_entry_point(self):
+        # The bound must not be so tight it breaks normal use.
+        ordinary = {f"Param{i}": i / 10 for i in range(50)}
+        for name, call in self._entry_points().items():
+            with self.subTest(entry_point=name):
+                call(ordinary)  # must not raise

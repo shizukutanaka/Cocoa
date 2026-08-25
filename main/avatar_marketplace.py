@@ -975,8 +975,11 @@ class MarketplaceStore:
             if tags is not None:
                 listing.tags = [t.lower().strip() for t in tags[:20]]
             if parameters is not None:
-                if len(parameters) > 500:
-                    raise ValueError("parameters must have ≤ 500 keys")
+                # Third copy of these bounds, and the second to have drifted:
+                # this path checked the key count but not the size, so a
+                # payload publish rejects at 64KB went straight onto the live
+                # listing. All three paths now share _validate_parameters.
+                _validate_parameters(parameters)
                 listing.parameters = parameters
             if thumbnail_url is not None:
                 listing.thumbnail_url = thumbnail_url.strip()[:500]
