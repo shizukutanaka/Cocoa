@@ -216,6 +216,16 @@ PendingTwoFactor = PendingTwoFactor or type("PendingTwoFactor", (), {})
 (get_wishlist_manager,) = _import_subsystem("wishlist_manager", "get_wishlist_manager")
 (get_idempotency_store,) = _import_subsystem("idempotency", "get_idempotency_store")
 
+# Snapshot machinery is pure stdlib and has no optional deps, but keep the
+# server bootable if it is somehow missing rather than failing every import.
+try:
+    from . import state_snapshot
+except ImportError:  # pragma: no cover - flat-layout fallback
+    try:
+        import state_snapshot  # type: ignore
+    except ImportError:
+        state_snapshot = None  # type: ignore
+
 _NEW_MODULES_AVAILABLE = not _SUBSYSTEM_ERRORS
 
 _TWO_FACTOR_UNCONFIGURED_DETAIL = (
@@ -415,23 +425,18 @@ else:
 
 
 # ---------------------------------------------------------------------------
-# Opt-in durability for the minimal coherent unit: money + accounts
-# (FEATURE_AUDIT.md #71)
+# Opt-in durability: every store survives a restart (#71 money+accounts, #74 all)
 #
-# Every store is in-process memory, so a restart wipes everything (§3-4). The
-# full migration stays deferred as a business decision, but MarketplaceStore
-# already carried a complete, integrity-verified, atomically-written credit
-# persistence API (export/import/save/load_credit_state) that no caller ever
-# wired in. Credits alone are incoherent, though -- balances are keyed by
-# user_id, so restoring them without the accounts leaves orphaned money nobody
-# can log in to claim -- so UserStore gained the mirror-image API and both are
-# wired here together:
+# All business state lives in process memory, so a restart or deploy wipes it
+# (FEATURE_AUDIT §3-4). #71 made the minimal coherent unit durable -- accounts
+# and credit balances -- using each store's hand-written persistence API. #74
+# generalises that to every store via state_codec, which round-trips the LIVE
+# objects rather than their lossy to_dict() forms.
 #
-#   COCOA_STATE_DIR unset (default)  -> exactly the current behavior
-#   COCOA_STATE_DIR=/some/dir        -> accounts and credit balances/ledger
-#                                       survive a restart via
-#                                       <dir>/user_state.json and
-#                                       <dir>/credit_state.json
+#   COCOA_STATE_DIR unset (default)  -> exactly the in-memory behavior
+#   COCOA_STATE_DIR=/some/dir        -> <dir>/state.json holds every store,
+#                                       loaded at startup, written atomically
+#                                       every 30s and on clean shutdown
 #
 # Single-process only, like the stores themselves. @app.on_event is used
 # (rather than lifespan=) because the FastAPI-unavailable stub classes already
@@ -443,94 +448,174 @@ _state_autosave_stop = threading.Event()
 _state_autosave_thread: Optional[threading.Thread] = None
 
 
-def _state_paths() -> Optional[Dict[str, str]]:
-    state_dir = os.environ.get("COCOA_STATE_DIR", "").strip()
-    if not state_dir:
-        return None
-    return {
-        "credits": os.path.join(state_dir, "credit_state.json"),
-        "users": os.path.join(state_dir, "user_state.json"),
-    }
+def _state_dir() -> Optional[str]:
+    return os.environ.get("COCOA_STATE_DIR", "").strip() or None
 
 
-def _save_state_best_effort(paths: Dict[str, str]) -> bool:
-    """Persist accounts + money; never let a save failure break the caller."""
-    ok = True
-    if get_auth_manager:
+def _durable_stores() -> Dict[str, Any]:
+    """The stores worth persisting, by snapshot key.
+
+    Only subsystems that actually imported are included, so a degraded
+    deployment (#47) snapshots what it has instead of failing. Deliberately
+    absent: the search index (rebuilt from listings below), and the
+    idempotency/rate-limit/cache stores, whose entries are short-lived by
+    definition and would be stale on restore.
+    """
+    candidates = (
+        ("users", get_auth_manager, "store"),
+        ("marketplace", get_marketplace, None),
+        ("cart", get_cart_manager, "store"),
+        ("wishlist", get_wishlist_manager, "store"),
+        ("collections", get_collection_store, None),
+        ("commissions", get_commission_store, None),
+        ("moderation", get_moderation_queue, None),
+        ("gift_cards", get_gift_card_manager, "store"),
+        ("licenses", get_license_manager, "store"),
+        ("referrals", get_referral_manager, "store"),
+        ("saved_searches", get_saved_search_store, None),
+        ("memberships", get_membership_manager, "store"),
+        ("refunds", get_refund_manager, "store"),
+        ("notifications", get_notification_queue, None),
+        ("bundles", get_bundle_manager, "store"),
+    )
+    stores: Dict[str, Any] = {}
+    for key, getter, attr in candidates:
+        if not getter:
+            continue
         try:
-            get_auth_manager().store.save_user_state(paths["users"])
-        except Exception as e:  # pragma: no cover - disk-full etc.
-            logger.error("User-state save to %s failed: %s", paths["users"], e)
-            ok = False
-    if get_marketplace:
+            obj = getter()
+            stores[key] = getattr(obj, attr) if attr else obj
+        except Exception as e:  # pragma: no cover - a broken subsystem
+            logger.warning("Store %r unavailable for snapshot: %s", key, e)
+    return stores
+
+
+def _rebuild_search_index() -> int:
+    """Re-index restored listings.
+
+    The search index is derived state and is not snapshotted, so without this a
+    restored deployment would serve an empty catalogue while the listings sit
+    right there in the store -- exactly the "looks empty, actually broken"
+    failure #47 set out to eliminate.
+    """
+    if not get_search_index or not get_marketplace:
+        return 0
+    indexed = 0
+    for listing in get_marketplace()._listings.values():
         try:
-            get_marketplace().save_credit_state(paths["credits"])
-        except Exception as e:  # pragma: no cover
-            logger.error("Credit-state save to %s failed: %s", paths["credits"], e)
-            ok = False
-    return ok
+            _reindex_listing(listing)
+            indexed += 1
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to re-index listing %s", listing.listing_id)
+    return indexed
 
 
-def _state_autosave_loop(paths: Dict[str, str]) -> None:
+def _verify_restored_credits() -> None:
+    """Re-run the credit ledger integrity check after a restore.
+
+    #71 refused to start on a credit snapshot whose balances disagreed with
+    their ledger. The generic codec restores balances without that check, so it
+    is applied here explicitly rather than lost in the generalisation.
+    """
+    if not get_marketplace:
+        return
+    mp = get_marketplace()
+    discrepancies, _ = mp._ledger_discrepancies(mp._credits, mp._credit_ledger)
+    if discrepancies:
+        raise ValueError(
+            f"restored credit state failed its integrity check: "
+            f"{len(discrepancies)} balance/ledger discrepancies"
+        )
+
+
+def _save_state_best_effort(state_dir: str) -> bool:
+    """Persist every store; never let a save failure break the caller."""
+    try:
+        state_snapshot.save(os.path.join(state_dir, state_snapshot.SNAPSHOT_FILENAME),
+                            _durable_stores())
+        return True
+    except Exception as e:  # pragma: no cover - disk-full etc.
+        logger.error("State snapshot to %s failed: %s", state_dir, e)
+        return False
+
+
+def _state_autosave_loop(state_dir: str) -> None:
     # Crash protection: SIGKILL / power loss never runs the shutdown hook, so
-    # bound the loss window to the interval. Both writers are atomic
-    # (tempfile + os.replace), so a crash mid-save leaves the previous
-    # snapshot intact rather than a corrupt file.
+    # bound the loss window to the interval. The write is atomic (tempfile +
+    # os.replace), so a crash mid-save leaves the previous snapshot intact.
     while not _state_autosave_stop.wait(_STATE_AUTOSAVE_INTERVAL_SECONDS):
-        _save_state_best_effort(paths)
+        _save_state_best_effort(state_dir)
+
+
+def _load_legacy_snapshots(state_dir: str) -> bool:
+    """Load the two #71-era files when no unified snapshot exists yet.
+
+    A deployment that ran #71 has user_state.json + credit_state.json and no
+    state.json; without this its accounts and money would silently vanish on
+    upgrade. The next save writes the unified file, so this path runs once.
+    """
+    loaded = False
+    users = os.path.join(state_dir, "user_state.json")
+    credits = os.path.join(state_dir, "credit_state.json")
+    if get_auth_manager and os.path.exists(users):
+        result = get_auth_manager().store.load_user_state(users)
+        loaded = loaded or bool(result.get("loaded"))
+    if get_marketplace and os.path.exists(credits):
+        result = get_marketplace().load_credit_state(credits)
+        loaded = loaded or bool(result.get("loaded"))
+    if loaded:
+        logger.info("Migrated #71-era snapshots from %s; next save writes state.json", state_dir)
+    return loaded
 
 
 @app.on_event("startup")
 async def _load_persisted_state() -> None:
     global _state_autosave_thread
-    paths = _state_paths()
-    if not paths:
+    state_dir = _state_dir()
+    if not state_dir:
         return
-    # Fail closed on a corrupt snapshot. Serving with silently-zeroed
-    # balances or an empty user table is the money version of the #47
-    # anti-pattern (an outage disguised as an empty result); refuse to start
-    # so the operator sees the problem. An absent file is the normal first
-    # run and loads as empty.
+    path = os.path.join(state_dir, state_snapshot.SNAPSHOT_FILENAME)
+    # Fail closed on a corrupt snapshot. Serving with silently missing accounts,
+    # balances or listings is the money version of the #47 anti-pattern; refuse
+    # to start so the operator sees it. An absent file is the normal first run.
     try:
-        if get_auth_manager:
-            result = get_auth_manager().store.load_user_state(paths["users"])
-            if result.get("loaded"):
-                logger.info(
-                    "Account state restored from %s (%d users)",
-                    paths["users"], result.get("users_loaded", 0),
-                )
-        if get_marketplace:
-            result = get_marketplace().load_credit_state(paths["credits"])
-            if result.get("loaded"):
-                logger.info(
-                    "Credit state restored from %s (%d users)",
-                    paths["credits"], result.get("users_loaded", 0),
-                )
+        result = state_snapshot.load(path, _durable_stores())
+        if not result.get("loaded"):
+            result = {"loaded": _load_legacy_snapshots(state_dir), "restored": {}}
+        if result.get("loaded"):
+            _verify_restored_credits()
+            indexed = _rebuild_search_index()
+            logger.info(
+                "State restored from %s (%s); re-indexed %d listings",
+                state_dir, result.get("restored") or "legacy snapshots", indexed,
+            )
+        else:
+            logger.info("No state snapshot in %s yet; starting fresh", state_dir)
     except Exception:
         logger.critical(
             "Persisted state under %s is unreadable or failed its integrity "
-            "check; refusing to start with empty accounts/balances. Restore "
-            "the file from a backup or remove it to start fresh.",
-            os.environ.get("COCOA_STATE_DIR"),
+            "check; refusing to start with missing data. Restore the file from "
+            "a backup or remove it to start fresh.",
+            state_dir,
         )
         raise
     _state_autosave_stop.clear()
     _state_autosave_thread = threading.Thread(
-        target=_state_autosave_loop, args=(paths,), name="state-autosave", daemon=True
+        target=_state_autosave_loop, args=(state_dir,), name="state-autosave", daemon=True
     )
     _state_autosave_thread.start()
 
 
 @app.on_event("shutdown")
 async def _save_persisted_state() -> None:
-    paths = _state_paths()
+    state_dir = _state_dir()
     _state_autosave_stop.set()
     if _state_autosave_thread is not None:
         _state_autosave_thread.join(timeout=5)
-    if not paths:
+    if not state_dir:
         return
-    if _save_state_best_effort(paths):
-        logger.info("Account + credit state saved under %s", os.environ.get("COCOA_STATE_DIR"))
+    if _save_state_best_effort(state_dir):
+        logger.info("State saved under %s", state_dir)
 
 
 def _request_endpoint_label(request) -> str:
