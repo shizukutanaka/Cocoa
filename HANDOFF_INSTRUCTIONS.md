@@ -3,7 +3,7 @@
 このドキュメントは、**前提知識ゼロの新しい Claude セッション(Opus / Sonnet いずれも)が、この作業を安全に引き継ぐ**ために書かれている。
 標準指示書ロジックのみで読めるよう、リポジトリ内の事実と実証済みコマンドだけを載せている。推測は書いていない。
 
-まず `PRODUCT_ASSESSMENT.md`(長所・短所・改善案)と `FEATURE_AUDIT.md`(全 53 監査エントリ)を読むこと。この2つがプロダクトの現状の一次資料。
+まず `PRODUCT_ASSESSMENT.md`(長所・短所・改善案)と `FEATURE_AUDIT.md`(全 79 監査エントリ)を読むこと。この2つがプロダクトの現状の一次資料。
 
 ---
 
@@ -20,7 +20,10 @@
 
 ### 1.1 バックエンド
 - 本体: `main/api_server.py`(FastAPI モノリス、233 ルート)。
-- ストア: すべて **プロセス内メモリのシングルトン**(`main/*_manager.py`, `main/avatar_marketplace.py` 等)。永続化なし = 再起動でデータ消失。
+- ストア: すべて **プロセス内メモリのシングルトン**(`main/*_manager.py`, `main/avatar_marketplace.py` 等)。
+  既定では再起動でデータ消失だが、`COCOA_STATE_DIR` を設定すると **15ストア全部**が
+  `state.json` に往復保存される(#74)。**単一プロセス限定**で、複数ワーカーは排他ロックにより
+  起動を拒否する(#76 — 黙って壊れる代わりに)。
 - **`main/` は 33 モジュールちょうど**で、全て `main.api_server` の import 閉包内(死コードは #59/#60 で削除完了)。新規モジュールを足すときは api_server から辿れるよう配線すること。
 - **正典の起動形態は `main` パッケージ文脈**:
   ```
@@ -61,8 +64,8 @@
 ```
 cd /home/user/Cocoa && python -m unittest tests.test_api_server tests.test_avatar_marketplace
 ```
-主要4モジュール(`tests.test_api_server tests.test_avatar_marketplace tests.test_auth_manager tests.test_email_sender`)で約 700 件。
-フル回帰は `python -m unittest discover tests`(約 2,090 件)。#59/#60 の死コード削除後、失敗集合は **0 失敗 / 3 エラーのみ**で、残る3件は `pytest`/`_cffi_backend` 未導入の**環境要因**(実コードのバグではない)。
+主要4モジュール(`tests.test_api_server tests.test_avatar_marketplace tests.test_auth_manager tests.test_email_sender`)で **950 件**。永続化を触ったら `tests.test_state_snapshot` も。
+フル回帰は `python -m unittest discover tests`(約 2,100 件)。#59/#60 の死コード削除後、失敗集合は **0 失敗 / 3 エラーのみ**で、残る3件は `pytest`/`_cffi_backend` 未導入の**環境要因**(実コードのバグではない)。
 変更前後で失敗集合が増えていないかを比較すること。
 
 ### 3.1b API スモークスイープ（全ルートに 500 が無いことの実測）
@@ -105,7 +108,7 @@ cd /home/user/Cocoa && COCOA_EXPOSE_RESET_TOKEN=true uvicorn main.api_server:app
 - `COCOA_EXPOSE_RESET_TOKEN=true` / `COCOA_EXPOSE_VERIFY_TOKEN=true` はリセット/メール確認トークンを API 応答で返す**開発用**フラグ(既定 OFF。本番はメール配送のみ = 監査 #51)。
 - `COCOA_2FA_SECRET` 未設定だと 2FA は「利用不可」として degrade する(500 にはならない = 監査 #53)。2FA を実際に試すなら設定する。
 - メールは既定で `ConsoleEmailSender` がサーバーログに全文出力する。E2E はそのログで配送を検証できる。
-- `COCOA_STATE_DIR=<dir>` を設定すると**アカウント＋クレジット残高/台帳**が再起動を生き延びる(#71。既定は未設定=完全インメモリ)。破損スナップショットでは起動を拒否する(fail-closed)ので、テストで壊れた状態ディレクトリを再利用しないこと。
+- `COCOA_STATE_DIR=<dir>` を設定すると **15ストア全部**(アカウント・残高/台帳・出品・カート・注文ほか)が再起動を生き延びる(#71/#74。既定は未設定=完全インメモリ)。破損スナップショットや台帳不整合では起動を拒否する(fail-closed)ので、テストで壊れた状態ディレクトリを再利用しないこと。**同じディレクトリを2プロセスで使うと排他ロックで2つ目が起動しない**(#76)。
 - フロントは `frontend` を build 済みなら uvicorn が配信する(SPA フォールバックあり)。
 
 ### 3.3b 重要ユーザー導線の E2E(コミット済み)
@@ -168,7 +171,10 @@ git fetch origin master && git checkout -B claude/deepresearch-ultrathink-improv
 
 ### 5.2 トークン権限の制約(重要)
 - **tag を push できない(403)。** リリースタグは**オーナーが手動で**作成する必要がある。GitHub MCP に create-release ツールはない。
-- **`.github/workflows/*` を push できない(403)。** CI の追加はオーナーの手作業。
+- **`.github/workflows/*` を push できない。** 実際に試して GitHub が
+  `refusing to allow a GitHub App to create or update workflow ... without \`workflows\` permission`
+  で拒否することを確認済み。**動作するワークフローは `docs/ci/ci.yml` に用意済み**で、
+  オーナーが `git mv docs/ci/ci.yml .github/workflows/` するだけで有効になる(#79 の前段)。
 - リポジトリに CI チェックは未設定(status total_count 0)。緑を確認する CI はないので、ローカル検証(§3)が唯一の防御線。
 
 ---
