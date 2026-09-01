@@ -31,6 +31,21 @@ except ImportError:  # pragma: no cover - support flat import in tests
 
 logger = logging.getLogger(__name__)
 
+# Whether the platform actually takes a cut of a sale.
+#
+# It does not: avatar_marketplace.download() and bundle_manager both credit the
+# seller the FULL price, and no pricing path anywhere consumes
+# fee_discount_percent. The tier table below still defines a discount rate, and
+# the profile page used to render it as a green "手数料 10% 割引" badge -- a
+# benefit the product advertised and never delivered (audit #92).
+#
+# Setting a fee RATE is a pricing decision and stays with the owner (§3-1).
+# What belongs here is only the truth about today: while this is False the
+# discount is prospective, and the UI says so instead of promising a rebate on
+# a fee nobody is charged. Implementing a fee means flipping this to True, and
+# the tier benefit becomes real and visible again with no other UI change.
+PLATFORM_FEE_ENABLED = False
+
 # Tier definitions: (name, minimum_lifetime_credits, fee_discount_percent, label)
 TIERS: List[Tuple[str, int, int, str]] = [
     ("diamond", 20_000, 15, "Diamond"),
@@ -87,6 +102,9 @@ class MembershipRecord:
             "tier": self.tier,
             "tier_label": self.tier_label,
             "fee_discount_percent": self.fee_discount_percent,
+            # False while no platform fee is charged, so a client cannot
+            # present the rate above as a benefit the user is receiving (#92).
+            "fee_discount_active": PLATFORM_FEE_ENABLED and self.fee_discount_percent > 0,
             "next_tier_threshold": self.next_tier_threshold,
             "credits_to_next_tier": self.credits_to_next_tier,
             "updated_at": self.updated_at.isoformat(),

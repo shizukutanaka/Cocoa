@@ -342,6 +342,9 @@ export interface Membership {
   tier: "bronze" | "silver" | "gold" | "diamond";
   tier_label: string;
   fee_discount_percent: number;
+  // False while no platform fee is charged, so the rate above must not be
+  // shown as a benefit currently received (#92).
+  fee_discount_active?: boolean;
   next_tier_threshold: number | null;
   credits_to_next_tier: number | null;
   updated_at: string;

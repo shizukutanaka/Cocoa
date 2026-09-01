@@ -215,5 +215,78 @@ class TestEarningsNetOutReversals(unittest.TestCase):
         self.assertEqual(summary["total_earned"], 450)
 
 
+class TestAdvertisedBenefitsAreReal(unittest.TestCase):
+    """The product must not advertise a benefit it does not deliver (audit #92).
+
+    Membership tiers define fee_discount_percent (Silver 5, Gold 10, Diamond
+    15) and the profile page rendered it as a green "手数料 10% 割引" badge.
+    But no platform fee is charged: both seller-credit sites pay the full
+    price (avatar_marketplace.download, bundle_manager), and no pricing path
+    anywhere reads fee_discount_percent. A user who spent 5,000 credits was
+    shown a rebate on a fee nobody collects.
+
+    Setting a fee RATE is a pricing decision and stays with the owner (§3-1).
+    Not claiming a benefit that does not exist is not.
+
+    PLATFORM_FEE_ENABLED is the single place that truth lives, so implementing
+    a fee flips one constant and the badge becomes honest again by itself --
+    which is what these tests hold in place.
+    """
+
+    def test_the_discount_is_inactive_while_no_fee_is_charged(self):
+        import membership_manager as mm
+        record = mm.MembershipRecord(user_id="u1", lifetime_credits=5_000)
+        self.assertEqual(record.fee_discount_percent, 10, "tier table changed")
+        payload = record.to_dict()
+        self.assertFalse(
+            payload["fee_discount_active"],
+            "the UI is told the discount is active while no fee is taken",
+        )
+        self.assertEqual(
+            payload["fee_discount_percent"], 10,
+            "the tier's defined rate stays visible; only the CLAIM changes",
+        )
+
+    def test_the_flag_follows_the_fee_switch(self):
+        # Implementing a fee must make the benefit real without any other edit.
+        import unittest.mock as m
+        import membership_manager as mm
+        record = mm.MembershipRecord(user_id="u1", lifetime_credits=5_000)
+        with m.patch.object(mm, "PLATFORM_FEE_ENABLED", True):
+            self.assertTrue(record.to_dict()["fee_discount_active"])
+
+    def test_bronze_has_nothing_to_claim_either_way(self):
+        import unittest.mock as m
+        import membership_manager as mm
+        record = mm.MembershipRecord(user_id="u1", lifetime_credits=0)
+        self.assertEqual(record.fee_discount_percent, 0)
+        self.assertFalse(record.to_dict()["fee_discount_active"])
+        with m.patch.object(mm, "PLATFORM_FEE_ENABLED", True):
+            self.assertFalse(record.to_dict()["fee_discount_active"])
+
+    def test_the_flag_matches_what_the_sale_path_actually_does(self):
+        # The guard against the two drifting apart: if a fee is ever deducted,
+        # the seller stops receiving the full price and this must be updated.
+        import avatar_marketplace as market
+        import membership_manager as mm
+        store = market.MarketplaceStore()
+        store.add_credits("buyer", 1000)
+        listing = store.publish(
+            avatar_id="a", owner_id="seller", owner_username="s", name="n",
+            description="d", tags=[], category="other", parameters={"p": 1},
+            price_credits=400, is_free=False,
+        )
+        store.download(listing.listing_id, "buyer")
+        seller_got = store.get_balance("seller")
+        if mm.PLATFORM_FEE_ENABLED:
+            self.assertLess(seller_got, 400, "a fee is advertised but none is deducted")
+        else:
+            self.assertEqual(
+                seller_got, 400,
+                "the seller no longer receives the full price -- a fee exists, so "
+                "set PLATFORM_FEE_ENABLED = True or the tier benefit stays hidden",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
