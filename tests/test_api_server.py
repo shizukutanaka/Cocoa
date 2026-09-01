@@ -2012,8 +2012,8 @@ class TestDirectPurchaseIsRecordedAsAnOrder(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
-class TestDeletionIsPersistedImmediately(unittest.TestCase):
-    """A deleted account must not come back from the snapshot (audit #84).
+class TestPromisedStateSurvivesACrash(unittest.TestCase):
+    """Actions the product CONFIRMED must not be undone by a crash (#84, #85).
 
     Measured before the fix: register, wait for a snapshot, delete the account
     (200 "deleted", and logging in immediately gives 401), then SIGKILL the
@@ -2057,13 +2057,25 @@ class TestDeletionIsPersistedImmediately(unittest.TestCase):
             api_server._persist_now("test")  # must not raise
         self.assertIs(api_server._last_snapshot["ok"], False)
 
-    def test_both_delete_endpoints_persist_immediately(self):
+    def test_every_promise_carrying_handler_persists_immediately(self):
         # Pin the wiring: it is the call site, not the helper, that was missing.
+        # Each of these answers with a promise about state that a crash before
+        # the next tick would silently take back -- measured for deletion (#84)
+        # and for ban (#85, the abusive account logged back in).
         import inspect
-        for handler in (api_server.delete_own_account, api_server.delete_user):
+        handlers = (
+            api_server.delete_own_account,   # "deleted"    (#84)
+            api_server.delete_user,          # "deleted"    (#84)
+            api_server.ban_user,             # "banned"     (#85)
+            api_server.unban_user,           # the reversal (#85)
+            api_server.update_moderation_status,  # takedown (#85)
+            api_server.admin_restore_listing,     # the reversal (#85)
+        )
+        for handler in handlers:
             src = inspect.getsource(handler)
             self.assertIn("_persist_now", src,
-                          f"{handler.__name__} must force a snapshot after erasure")
+                          f"{handler.__name__} must force a snapshot: its response "
+                          f"promises a state change a crash would otherwise undo")
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")

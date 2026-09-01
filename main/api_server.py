@@ -578,17 +578,24 @@ def _save_state_best_effort(state_dir: str) -> bool:
 def _persist_now(reason: str) -> None:
     """Snapshot immediately instead of waiting for the next autosave tick.
 
-    Reserved for erasure. Ordinary writes can wait up to the interval: losing a
-    purchase to a crash is a loss the user sees and can repeat. A DELETION is
-    different -- the response is a promise that the data no longer exists, and
-    a crash before the next tick restored it from the snapshot: the account
-    came back and could log in again (measured, audit #84). That is the #75
-    pattern, where durability resurrected something deliberately destroyed.
+    Reserved for operations whose RESPONSE is a promise about state, where a
+    crash silently taking it back is harmful in a way an ordinary lost write
+    is not. Losing a purchase to a crash is visible to the buyer and can be
+    repeated; these cannot:
 
-    Deletion is rare, so paying a save here costs nothing in practice. Silent
-    on failure: the deletion itself already succeeded in memory and the caller
-    must not see an error for it, and a failing save is now visible through
-    /ready and the admin console (#83).
+      deletion (#84)    "deleted" -- measured: after SIGKILL before the next
+                        tick, the account logged back in
+      ban (#85)         "banned" -- measured: the abusive account was back in
+      takedown (#85)    a listing pulled for malware returned to sale
+      unban / restore   the reversals, so a crash cannot silently re-punish
+
+    All of them are rare, so paying a save costs nothing in practice; this must
+    NOT be extended to frequent writes, which would reintroduce the latency
+    #78 measured (the save holds every store lock).
+
+    Silent on failure: the action already succeeded in memory and the caller
+    must not see an error for it, and a failing save is visible through /ready
+    and the admin console (#83).
     """
     state_dir = _state_dir()
     if not state_dir:
@@ -3141,6 +3148,7 @@ async def admin_restore_listing(listing_id: str, admin: dict = Depends(get_curre
     mp = get_marketplace()
     if not mp.admin_restore(listing_id):
         raise HTTPException(status_code=404, detail="リスティングが見つかりません")
+    _persist_now("listing restore")  # a crash must not silently re-remove it (#85)
     listing = mp.get_listing(listing_id)
     if listing:
         _reindex_listing(listing)
@@ -5711,6 +5719,7 @@ async def ban_user(
         raise HTTPException(status_code=503, detail="認証サービスが利用できません")
     try:
         user = get_auth_manager().ban_user(admin, user_id, body.reason)
+        _persist_now("user ban")  # a crash must not let them back in (#85)
         return {
             "user_id": user.user_id,
             "is_banned": user.is_banned,
@@ -5739,6 +5748,7 @@ async def unban_user(
         raise HTTPException(status_code=503, detail="認証サービスが利用できません")
     try:
         user = get_auth_manager().unban_user(admin, user_id)
+        _persist_now("user unban")  # ...nor silently re-punish them (#85)
         return {"user_id": user.user_id, "is_banned": user.is_banned}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
@@ -5866,6 +5876,7 @@ async def update_moderation_status(
             and get_marketplace
         ):
             get_marketplace().admin_deactivate(item.subject_id)
+            _persist_now("moderation takedown")  # malware must not return (#85)
             # Keep the search index consistent — a removed listing must not
             # keep appearing in public search results.
             if get_search_index:
