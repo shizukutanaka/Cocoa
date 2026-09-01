@@ -2012,6 +2012,99 @@ class TestDirectPurchaseIsRecordedAsAnOrder(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestDurabilityHealthIsObservable(unittest.TestCase):
+    """A failing snapshot must be visible, not just logged (audit #83).
+
+    #78 fixed saves that crashed; this fixes saves that fail where nobody
+    looks. Before: _save_state_best_effort's return value was discarded by the
+    autosave loop, so a deployment with a full disk failed every 30 seconds
+    forever while /ready said everything was fine and the admin console showed
+    nothing. The operator learned the truth at the restart that lost the data.
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.state_dir = self._tmp.name
+        self.addCleanup(self._tmp.cleanup)
+        self.addCleanup(api_server._state_autosave_stop.set)
+        # Each test starts from "no attempt yet this process".
+        self._orig = dict(api_server._last_snapshot)
+        api_server._last_snapshot.update(
+            ok=None, at=None, last_success_at=None, error=None, stores=None)
+        self.addCleanup(lambda: api_server._last_snapshot.update(self._orig))
+
+    def _ready(self):
+        res = asyncio.run(api_server.readiness_probe())
+        return res.status_code, json.loads(res.body.decode())
+
+    def test_a_successful_save_is_recorded(self):
+        from avatar_marketplace import MarketplaceStore
+        store = MarketplaceStore()
+        with patch.dict(os.environ, {"COCOA_STATE_DIR": self.state_dir}),              patch.object(api_server, "get_marketplace", lambda: store):
+            self.assertTrue(api_server._save_state_best_effort(self.state_dir))
+        snap = api_server._last_snapshot
+        self.assertIs(snap["ok"], True)
+        self.assertIsNotNone(snap["at"])
+        self.assertEqual(snap["at"], snap["last_success_at"])
+        self.assertIsNone(snap["error"])
+        self.assertGreaterEqual(snap["stores"], 1)
+
+    def test_a_failing_save_is_recorded_and_degrades_readiness(self):
+        with patch.dict(os.environ, {"COCOA_STATE_DIR": self.state_dir}),              patch.object(api_server.state_snapshot, "save",
+                          side_effect=OSError("No space left on device")):
+            self.assertFalse(api_server._save_state_best_effort(self.state_dir))
+            snap = api_server._last_snapshot
+            self.assertIs(snap["ok"], False)
+            self.assertIn("No space left", snap["error"])
+            status, body = self._ready()
+        self.assertEqual(status, 200)  # optional subsystem: degraded, not down
+        self.assertEqual(body["status"], "degraded")
+        self.assertIn("durability", body["missing_optional"])
+
+    def test_recovery_clears_the_degradation(self):
+        from avatar_marketplace import MarketplaceStore
+        store = MarketplaceStore()
+        with patch.dict(os.environ, {"COCOA_STATE_DIR": self.state_dir}),              patch.object(api_server, "get_marketplace", lambda: store):
+            with patch.object(api_server.state_snapshot, "save",
+                              side_effect=OSError("boom")):
+                api_server._save_state_best_effort(self.state_dir)
+            api_server._save_state_best_effort(self.state_dir)  # disk is back
+            snap = api_server._last_snapshot
+            self.assertIs(snap["ok"], True)
+            self.assertIsNone(snap["error"])
+            status, body = self._ready()
+        self.assertNotIn("durability", body["missing_optional"])
+
+    def test_durability_off_is_healthy_and_visible_as_disabled(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("COCOA_STATE_DIR", None)
+            # Even a stale failure record must not degrade a process that has
+            # durability off (e.g. tests that poked the module state).
+            api_server._last_snapshot["ok"] = False
+            _, body = self._ready()
+            self.assertNotIn("durability", body["missing_optional"])
+            with patch.object(api_server, "get_auth_manager", None),                  patch.object(api_server, "get_marketplace", None),                  patch.object(api_server, "get_search_index", None),                  patch.object(api_server, "get_rate_limiter", None):
+                stats = asyncio.run(api_server.admin_stats({"user_id": "a", "role": "admin"}))
+        self.assertIn("durability", stats)
+        self.assertFalse(stats["durability"]["enabled"])
+
+    def test_admin_stats_carries_the_full_record_when_enabled(self):
+        from avatar_marketplace import MarketplaceStore
+        store = MarketplaceStore()
+        with patch.dict(os.environ, {"COCOA_STATE_DIR": self.state_dir}),              patch.object(api_server, "get_marketplace", lambda: store):
+            api_server._save_state_best_effort(self.state_dir)
+            with patch.object(api_server, "get_auth_manager", None),                  patch.object(api_server, "get_search_index", None),                  patch.object(api_server, "get_rate_limiter", None):
+                stats = asyncio.run(api_server.admin_stats({"user_id": "a", "role": "admin"}))
+        d = stats["durability"]
+        self.assertTrue(d["enabled"])
+        self.assertIs(d["ok"], True)
+        self.assertIsNotNone(d["last_success_at"])
+        self.assertEqual(d["interval_seconds"],
+                         api_server._STATE_AUTOSAVE_INTERVAL_SECONDS)
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestProportionateEnforcementAndLedgerAudit(unittest.TestCase):
     """Publish quotas and the ledger integrity audit (audit #82).
 

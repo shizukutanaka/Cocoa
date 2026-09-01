@@ -528,14 +528,50 @@ def _verify_restored_credits() -> None:
         )
 
 
+# Outcome of the most recent snapshot attempt. Before this existed, a save
+# that failed every 30 seconds (full disk, revoked permissions) left no trace
+# but a log line: the operator believed durability was on and discovered
+# otherwise at the restart that lost everything -- the observable-failure half
+# of the lesson #78 taught about the crash half. /ready and /api/admin/stats
+# read this; _save_state_best_effort is the only writer.
+_last_snapshot: Dict[str, Any] = {
+    "ok": None,               # None = no attempt yet this process
+    "at": None,               # ISO time of the last attempt
+    "last_success_at": None,  # ISO time of the last SUCCESSFUL save
+    "error": None,            # str(e) of the last failure, cleared on success
+    "stores": None,           # store count in the last successful snapshot --
+                              # a drop here is the visible trace of a store
+                              # getter failing and being skipped (see
+                              # _durable_stores), which save() alone can't see
+}
+
+
+def _durability_healthy() -> bool:
+    """False only when durability is ON and the latest save attempt failed.
+
+    Durability off is healthy (nothing to degrade), and so is "no attempt yet"
+    (startup grace: the first autosave is up to 30s away).
+    """
+    if not _state_dir():
+        return True
+    return _last_snapshot["ok"] is not False
+
+
 def _save_state_best_effort(state_dir: str) -> bool:
     """Persist every store; never let a save failure break the caller."""
+    now = datetime.now(timezone.utc).isoformat()
     try:
-        state_snapshot.save(os.path.join(state_dir, state_snapshot.SNAPSHOT_FILENAME),
-                            _durable_stores())
+        counts = state_snapshot.save(
+            os.path.join(state_dir, state_snapshot.SNAPSHOT_FILENAME),
+            _durable_stores(),
+        )
+        _last_snapshot.update(
+            ok=True, at=now, last_success_at=now, error=None, stores=len(counts)
+        )
         return True
     except Exception as e:  # pragma: no cover - disk-full etc.
         logger.error("State snapshot to %s failed: %s", state_dir, e)
+        _last_snapshot.update(ok=False, at=now, error=str(e))
         return False
 
 
@@ -976,6 +1012,11 @@ _OPTIONAL_SUBSYSTEMS = {
     # failure is a missing COCOA_2FA_SECRET at construction time, which no
     # import-level check can see.
     "two_factor": lambda: True if _two_factor_available() else None,
+    # Probed, not name-checked, for the same reason as two_factor: the failure
+    # mode is runtime (a save attempt failing on a live process), which no
+    # import check can see. Healthy when durability is off or no attempt has
+    # happened yet; unhealthy the moment the latest attempt failed (#83).
+    "durability": lambda: True if _durability_healthy() else None,
 }
 
 
@@ -3969,6 +4010,20 @@ async def admin_stats(admin: dict = Depends(get_current_admin)):
 
     if get_rate_limiter:
         stats["rate_limiter"] = get_rate_limiter().get_stats()
+
+    # Unlike the sections above, this one is ALWAYS present. "Durability is
+    # off" is itself a fact an operator must be able to see -- an omitted key
+    # reads as "unknown", and unknown is how a full disk stayed invisible
+    # until a restart lost everything (#83).
+    stats["durability"] = {
+        "enabled": bool(_state_dir()),
+        "ok": _last_snapshot["ok"],
+        "last_attempt_at": _last_snapshot["at"],
+        "last_success_at": _last_snapshot["last_success_at"],
+        "error": _last_snapshot["error"],
+        "stores_in_last_snapshot": _last_snapshot["stores"],
+        "interval_seconds": _STATE_AUTOSAVE_INTERVAL_SECONDS,
+    }
 
     return stats
 

@@ -99,6 +99,21 @@ describe("getAdminStats", () => {
     expect(mockClient.get).toHaveBeenCalledWith("/api/admin/stats");
     expect(out.users?.total).toBe(3);
   });
+
+  it("passes the durability section through (a failing save must reach the UI)", async () => {
+    mockClient.get.mockResolvedValue({
+      data: {
+        durability: {
+          enabled: true, ok: false, last_attempt_at: "t1", last_success_at: "t0",
+          error: "No space left on device", stores_in_last_snapshot: 15,
+          interval_seconds: 30,
+        },
+      },
+    });
+    const out = await getAdminStats();
+    expect(out.durability?.ok).toBe(false);
+    expect(out.durability?.error).toContain("No space left");
+  });
 });
 
 describe("account administration", () => {
