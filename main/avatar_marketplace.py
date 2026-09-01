@@ -46,6 +46,12 @@ _MAX_GRANT_CREDITS = int(os.getenv("MAX_GRANT_CREDITS", "100_000_000"))  # 100M 
 # breakdowns and the oldest rows of a user's download history.
 _MAX_DOWNLOAD_LOG = int(os.getenv("MAX_DOWNLOAD_LOG", "100000"))
 
+# Ledger kinds that take money back off a SELLER: a refunded sale
+# (refund_manager) and a dispute resolved against them (resolve_dispute).
+# Earnings must net these out -- a figure that ignores them overstates what a
+# creator is owed, which matters the moment payouts are real (§3-2).
+_EARNINGS_REVERSAL_KINDS = ("sale_reversal", "dispute_reversal")
+
 # Cap on retained versions per listing (oldest discarded). Versions are
 # informational history -- no purchase or download resolves through them, they
 # carry no ownership -- so ageing the oldest out costs a changelog entry, not a
@@ -2256,10 +2262,22 @@ class MarketplaceStore:
                 if cat:
                     category_counts[cat] += 1
 
-            # Revenue: sum the amount_paid stored at download time so re-downloads
-            # (charged 0) and promo discounts are reflected accurately, not inflated
-            # by the listing's current price.
-            credits_earned = sum(ap for _, _, _, ap in logs)
+            # Revenue comes from the LEDGER, not from the download log, for two
+            # reasons the log cannot satisfy:
+            #   * a refunded sale leaves its log entry behind, so summing the
+            #     log reported proceeds that had already been clawed back
+            #   * the log is capped (_MAX_DOWNLOAD_LOG, #78), so old sales age
+            #     out of it and a long-lived creator's revenue silently shrank
+            # The ledger is the source of truth for money (#90) and is never
+            # trimmed, so netting sales against reversals there is both correct
+            # and stable.
+            credits_earned = 0
+            for entry in self._credit_ledger.get(owner_id, []):
+                kind, amount = entry["kind"], entry["amount"]
+                if kind == "sale" and amount > 0:
+                    credits_earned += amount
+                elif kind in _EARNINGS_REVERSAL_KINDS and amount < 0:
+                    credits_earned += amount  # negative: nets the sale out
 
             # Top listing by downloads
             top_dict = max((lst.to_dict() for lst in listings),
@@ -2296,6 +2314,7 @@ class MarketplaceStore:
 
         total_sales = 0
         total_tips = 0
+        total_reversed = 0
         by_day: Dict[str, int] = defaultdict(int)
 
         for entry in entries:
@@ -2316,13 +2335,23 @@ class MarketplaceStore:
             elif kind in ("tip_received", "gift_received") and amount > 0:
                 total_tips += amount
                 by_day[day] += amount
+            elif kind in _EARNINGS_REVERSAL_KINDS and amount < 0:
+                # Money taken back off this seller when a sale was refunded
+                # (refund_manager) or a dispute resolved against them
+                # (resolve_dispute). Counting only the positive side reported a
+                # seller as having earned proceeds that had already been
+                # clawed back out of their balance -- see the docstring.
+                total_reversed += -amount
+                by_day[day] += amount
 
         return {
             "user_id": user_id,
             "period_days": days,
-            "total_earned": total_sales + total_tips,
+            "total_earned": total_sales + total_tips - total_reversed,
+            "gross_earned": total_sales + total_tips,
             "sales": total_sales,
             "tips_and_gifts_received": total_tips,
+            "reversed_credits": total_reversed,
             "by_day": dict(sorted(by_day.items())),
         }
 

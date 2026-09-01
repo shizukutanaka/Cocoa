@@ -136,5 +136,84 @@ class TestMembershipIsNotASecondWallet(unittest.TestCase):
         )
 
 
+class TestEarningsNetOutReversals(unittest.TestCase):
+    """What a creator is OWED must track what they actually kept (audit #91).
+
+    Measured before the fix: a 400-credit sale was refunded, the seller's
+    balance was correctly clawed back to its starting value, and both
+    `total_credits_earned` and the earnings summary still reported 400. A
+    payout computed from either figure would have paid for a sale that was
+    refunded.
+
+    Two separate causes, one symptom:
+      * get_earnings_summary read the ledger but summed only the positive
+        kinds, ignoring the sale_reversal / dispute_reversal entries sitting
+        right next to them
+      * get_creator_analytics summed amount_paid from the DOWNLOAD LOG, which
+        keeps a refunded sale's entry and is also capped (#78), so a
+        long-lived creator's revenue would silently shrink as old sales aged
+        out
+
+    Sending money is the owner's decision (§3-2); the number that decides how
+    much is not.
+    """
+
+    def _sold_then_refunded(self):
+        import avatar_marketplace as market
+        store = market.MarketplaceStore()
+        store.add_credits("buyer", 1000)
+        listing = store.publish(
+            avatar_id="a", owner_id="seller", owner_username="s", name="n",
+            description="d", tags=[], category="other", parameters={"p": 1},
+            price_credits=400, is_free=False,
+        )
+        store.download(listing.listing_id, "buyer")
+        return store, listing
+
+    def test_a_refunded_sale_is_not_still_owed(self):
+        store, listing = self._sold_then_refunded()
+        self.assertEqual(store.get_balance("seller"), 400)
+        self.assertEqual(store.get_earnings_summary("seller")["total_earned"], 400)
+
+        # What refund_manager does to the seller on approval.
+        with store._lock:
+            store._debit_locked("seller", 400, "sale_reversal", ref_id="order1")
+
+        self.assertEqual(store.get_balance("seller"), 0)
+        summary = store.get_earnings_summary("seller")
+        self.assertEqual(summary["total_earned"], 0, "a refunded sale is still counted as owed")
+        self.assertEqual(summary["reversed_credits"], 400)
+        self.assertEqual(summary["gross_earned"], 400, "gross must stay visible for analytics")
+        self.assertEqual(
+            store.get_creator_analytics("seller")["total_credits_earned"], 0,
+            "analytics revenue must net the refund too",
+        )
+
+    def test_a_dispute_resolved_against_the_seller_also_nets_out(self):
+        store, _ = self._sold_then_refunded()
+        with store._lock:
+            store._debit_locked("seller", 400, "dispute_reversal", ref_id="dispute1")
+        self.assertEqual(store.get_earnings_summary("seller")["total_earned"], 0)
+
+    def test_earnings_survive_download_log_trimming(self):
+        # The log is capped (#78); the ledger is not. Revenue must come from
+        # the ledger, or a busy creator's history silently erases their sales.
+        store, _ = self._sold_then_refunded()
+        before = store.get_creator_analytics("seller")["total_credits_earned"]
+        with store._lock:
+            store._download_log.clear()  # what the cap eventually does
+        after = store.get_creator_analytics("seller")["total_credits_earned"]
+        self.assertEqual(before, after, "revenue changed when the download log was trimmed")
+        self.assertEqual(after, 400)
+
+    def test_earnings_still_count_tips_and_gifts(self):
+        store, _ = self._sold_then_refunded()
+        with store._lock:
+            store._credit_locked("seller", 50, "tip_received", ref_id="fan")
+        summary = store.get_earnings_summary("seller")
+        self.assertEqual(summary["tips_and_gifts_received"], 50)
+        self.assertEqual(summary["total_earned"], 450)
+
+
 if __name__ == "__main__":
     unittest.main()
