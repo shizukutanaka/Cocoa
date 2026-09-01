@@ -2012,6 +2012,61 @@ class TestDirectPurchaseIsRecordedAsAnOrder(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
+class TestDeletionIsPersistedImmediately(unittest.TestCase):
+    """A deleted account must not come back from the snapshot (audit #84).
+
+    Measured before the fix: register, wait for a snapshot, delete the account
+    (200 "deleted", and logging in immediately gives 401), then SIGKILL the
+    process before the next 30s tick and restart -- the account logged in
+    again with 200. The snapshot still held the user, because deletion only
+    removed them from memory.
+
+    This is the #75 pattern, durability resurrecting something deliberately
+    destroyed, but worse in kind: the response was a promise that the data no
+    longer existed. Ordinary writes may wait for the next tick (a lost
+    purchase is visible and repeatable); erasure may not.
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.state_dir = self._tmp.name
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_persist_now_writes_without_waiting_for_the_tick(self):
+        from avatar_marketplace import MarketplaceStore
+        store = MarketplaceStore()
+        snapshot = os.path.join(self.state_dir, "state.json")
+        with patch.dict(os.environ, {"COCOA_STATE_DIR": self.state_dir}),              patch.object(api_server, "get_marketplace", lambda: store):
+            self.assertFalse(os.path.exists(snapshot))
+            api_server._persist_now("test")
+            self.assertTrue(os.path.exists(snapshot))
+
+    def test_persist_now_is_a_no_op_when_durability_is_off(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("COCOA_STATE_DIR", None)
+            with patch.object(api_server, "state_snapshot") as mock_snap:
+                api_server._persist_now("test")
+            mock_snap.save.assert_not_called()
+
+    def test_a_failing_save_never_breaks_the_deletion(self):
+        # The account is already gone from memory; the caller must not see an
+        # error for it. The failure is surfaced via /ready and the console (#83).
+        with patch.dict(os.environ, {"COCOA_STATE_DIR": self.state_dir}),              patch.object(api_server.state_snapshot, "save",
+                          side_effect=OSError("No space left on device")):
+            api_server._persist_now("test")  # must not raise
+        self.assertIs(api_server._last_snapshot["ok"], False)
+
+    def test_both_delete_endpoints_persist_immediately(self):
+        # Pin the wiring: it is the call site, not the helper, that was missing.
+        import inspect
+        for handler in (api_server.delete_own_account, api_server.delete_user):
+            src = inspect.getsource(handler)
+            self.assertIn("_persist_now", src,
+                          f"{handler.__name__} must force a snapshot after erasure")
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestDurabilityHealthIsObservable(unittest.TestCase):
     """A failing snapshot must be visible, not just logged (audit #83).
 

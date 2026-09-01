@@ -575,6 +575,28 @@ def _save_state_best_effort(state_dir: str) -> bool:
         return False
 
 
+def _persist_now(reason: str) -> None:
+    """Snapshot immediately instead of waiting for the next autosave tick.
+
+    Reserved for erasure. Ordinary writes can wait up to the interval: losing a
+    purchase to a crash is a loss the user sees and can repeat. A DELETION is
+    different -- the response is a promise that the data no longer exists, and
+    a crash before the next tick restored it from the snapshot: the account
+    came back and could log in again (measured, audit #84). That is the #75
+    pattern, where durability resurrected something deliberately destroyed.
+
+    Deletion is rare, so paying a save here costs nothing in practice. Silent
+    on failure: the deletion itself already succeeded in memory and the caller
+    must not see an error for it, and a failing save is now visible through
+    /ready and the admin console (#83).
+    """
+    state_dir = _state_dir()
+    if not state_dir:
+        return
+    if _save_state_best_effort(state_dir):
+        logger.info("State persisted immediately after %s", reason)
+
+
 def _state_autosave_loop(state_dir: str) -> None:
     # Crash protection: SIGKILL / power loss never runs the shutdown hook, so
     # bound the loss window to the interval. The write is atomic (tempfile +
@@ -1852,6 +1874,8 @@ async def delete_own_account(body: DeleteAccountRequest, current_user: dict = De
     except AuthError as e:
         raise HTTPException(status_code=400, detail=e.message) from e
     cascade = _cascade_delete_user_data(current_user["user_id"])
+    # "deleted" must not be undone by a crash before the next autosave (#84).
+    _persist_now("account self-deletion")
     return {"status": "deleted", **cascade}
 
 
@@ -3907,6 +3931,7 @@ async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
     if not ok:
         raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
     cascade = _cascade_delete_user_data(user_id)
+    _persist_now("admin account deletion")  # see delete_own_account (#84)
     return {"user_id": user_id, "status": "deleted", **cascade}
 
 
