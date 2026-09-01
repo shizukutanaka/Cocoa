@@ -600,6 +600,17 @@ export interface AdminStats {
     total_ratings: number;
     categories: string[];
   };
+  // Always present (unlike the sections above): "durability is off" is itself
+  // a fact an operator must be able to see (#83).
+  durability?: {
+    enabled: boolean;
+    ok: boolean | null; // null = no save attempt yet this process
+    last_attempt_at: string | null;
+    last_success_at: string | null;
+    error: string | null;
+    stores_in_last_snapshot: number | null;
+    interval_seconds: number;
+  };
 }
 
 // Mirrors main/avatar_marketplace.py get_report_stats()

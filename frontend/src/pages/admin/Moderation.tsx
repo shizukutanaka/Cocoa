@@ -372,6 +372,48 @@ function OverviewTab() {
 
   return (
     <>
+      {data?.durability && (
+        <section style={{ marginBottom: 24 }}>
+          <h2 style={{ fontSize: 16, marginBottom: 8 }}>データの永続化</h2>
+          <div className="card card-pad">
+            {!data.durability.enabled ? (
+              <div>
+                <span className="badge badge-warning">無効</span>
+                <span style={{ marginLeft: 8, fontSize: 13, color: "var(--muted)" }}>
+                  完全インメモリで動作中 — 再起動で全データが消えます（COCOA_STATE_DIR で有効化）。
+                </span>
+              </div>
+            ) : data.durability.ok === false ? (
+              <div>
+                <span className="badge badge-warning">⚠ 保存に失敗しています</span>
+                <div style={{ fontSize: 13, marginTop: 6, whiteSpace: "pre-wrap" }}>
+                  {data.durability.error}
+                </div>
+                <div style={{ fontSize: 13, marginTop: 4 }}>
+                  このままプロセスが停止すると、最終成功
+                  {data.durability.last_success_at
+                    ? `（${new Date(data.durability.last_success_at).toLocaleString("ja-JP")}）`
+                    : "（なし）"}
+                  以降のデータを失います。
+                </div>
+              </div>
+            ) : (
+              <div>
+                <span className="badge">✓ 保存中</span>
+                <span style={{ marginLeft: 8, fontSize: 13, color: "var(--muted)" }}>
+                  {data.durability.last_success_at
+                    ? `最終保存 ${new Date(data.durability.last_success_at).toLocaleString("ja-JP")} · `
+                    : "起動直後（初回保存待ち） · "}
+                  {data.durability.interval_seconds}秒ごとに自動保存
+                  {data.durability.stores_in_last_snapshot != null &&
+                    ` · ${data.durability.stores_in_last_snapshot}ストア`}
+                </span>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {integrity && (
         <section style={{ marginBottom: 24 }}>
           <h2 style={{ fontSize: 16, marginBottom: 8 }}>クレジット台帳の整合性</h2>
