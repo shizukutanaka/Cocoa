@@ -575,6 +575,35 @@ def _save_state_best_effort(state_dir: str) -> bool:
         return False
 
 
+def _persist_now(reason: str) -> None:
+    """Snapshot immediately instead of waiting for the next autosave tick.
+
+    Reserved for operations whose RESPONSE is a promise about state, where a
+    crash silently taking it back is harmful in a way an ordinary lost write
+    is not. Losing a purchase to a crash is visible to the buyer and can be
+    repeated; these cannot:
+
+      deletion (#88)    "deleted" -- measured: after SIGKILL before the next
+                        tick, the account logged back in
+      ban (#89)         "banned" -- measured: the abusive account was back in
+      takedown (#89)    a listing pulled for malware returned to sale
+      unban / restore   the reversals, so a crash cannot silently re-punish
+
+    All of them are rare, so paying a save costs nothing in practice; this must
+    NOT be extended to frequent writes, which would reintroduce the latency
+    #78 measured (the save holds every store lock).
+
+    Silent on failure: the action already succeeded in memory and the caller
+    must not see an error for it, and a failing save is visible through /ready
+    and the admin console (#83).
+    """
+    state_dir = _state_dir()
+    if not state_dir:
+        return
+    if _save_state_best_effort(state_dir):
+        logger.info("State persisted immediately after %s", reason)
+
+
 def _state_autosave_loop(state_dir: str) -> None:
     # Crash protection: SIGKILL / power loss never runs the shutdown hook, so
     # bound the loss window to the interval. The write is atomic (tempfile +
@@ -1852,6 +1881,8 @@ async def delete_own_account(body: DeleteAccountRequest, current_user: dict = De
     except AuthError as e:
         raise HTTPException(status_code=400, detail=e.message) from e
     cascade = _cascade_delete_user_data(current_user["user_id"])
+    # "deleted" must not be undone by a crash before the next autosave (#88).
+    _persist_now("account self-deletion")
     return {"status": "deleted", **cascade}
 
 
@@ -3117,6 +3148,7 @@ async def admin_restore_listing(listing_id: str, admin: dict = Depends(get_curre
     mp = get_marketplace()
     if not mp.admin_restore(listing_id):
         raise HTTPException(status_code=404, detail="リスティングが見つかりません")
+    _persist_now("listing restore")  # a crash must not silently re-remove it (#89)
     listing = mp.get_listing(listing_id)
     if listing:
         _reindex_listing(listing)
@@ -3907,6 +3939,7 @@ async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
     if not ok:
         raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
     cascade = _cascade_delete_user_data(user_id)
+    _persist_now("admin account deletion")  # see delete_own_account (#88)
     return {"user_id": user_id, "status": "deleted", **cascade}
 
 
@@ -5686,6 +5719,7 @@ async def ban_user(
         raise HTTPException(status_code=503, detail="認証サービスが利用できません")
     try:
         user = get_auth_manager().ban_user(admin, user_id, body.reason)
+        _persist_now("user ban")  # a crash must not let them back in (#89)
         return {
             "user_id": user.user_id,
             "is_banned": user.is_banned,
@@ -5714,6 +5748,7 @@ async def unban_user(
         raise HTTPException(status_code=503, detail="認証サービスが利用できません")
     try:
         user = get_auth_manager().unban_user(admin, user_id)
+        _persist_now("user unban")  # ...nor silently re-punish them (#89)
         return {"user_id": user.user_id, "is_banned": user.is_banned}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
@@ -5841,6 +5876,7 @@ async def update_moderation_status(
             and get_marketplace
         ):
             get_marketplace().admin_deactivate(item.subject_id)
+            _persist_now("moderation takedown")  # malware must not return (#89)
             # Keep the search index consistent — a removed listing must not
             # keep appearing in public search results.
             if get_search_index:
