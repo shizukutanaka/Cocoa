@@ -2013,7 +2013,7 @@ class TestDirectPurchaseIsRecordedAsAnOrder(unittest.TestCase):
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestPromisedStateSurvivesACrash(unittest.TestCase):
-    """Actions the product CONFIRMED must not be undone by a crash (#84, #85).
+    """Actions the product CONFIRMED must not be undone by a crash (#88, #89).
 
     Measured before the fix: register, wait for a snapshot, delete the account
     (200 "deleted", and logging in immediately gives 401), then SIGKILL the
@@ -2051,7 +2051,7 @@ class TestPromisedStateSurvivesACrash(unittest.TestCase):
 
     def test_a_failing_save_never_breaks_the_deletion(self):
         # The account is already gone from memory; the caller must not see an
-        # error for it. The failure is surfaced via /ready and the console (#83).
+        # error for it. The failure is surfaced via /ready and the console (#87).
         with patch.dict(os.environ, {"COCOA_STATE_DIR": self.state_dir}),              patch.object(api_server.state_snapshot, "save",
                           side_effect=OSError("No space left on device")):
             api_server._persist_now("test")  # must not raise
@@ -2060,16 +2060,16 @@ class TestPromisedStateSurvivesACrash(unittest.TestCase):
     def test_every_promise_carrying_handler_persists_immediately(self):
         # Pin the wiring: it is the call site, not the helper, that was missing.
         # Each of these answers with a promise about state that a crash before
-        # the next tick would silently take back -- measured for deletion (#84)
-        # and for ban (#85, the abusive account logged back in).
+        # the next tick would silently take back -- measured for deletion (#88)
+        # and for ban (#89, the abusive account logged back in).
         import inspect
         handlers = (
-            api_server.delete_own_account,   # "deleted"    (#84)
-            api_server.delete_user,          # "deleted"    (#84)
-            api_server.ban_user,             # "banned"     (#85)
-            api_server.unban_user,           # the reversal (#85)
-            api_server.update_moderation_status,  # takedown (#85)
-            api_server.admin_restore_listing,     # the reversal (#85)
+            api_server.delete_own_account,   # "deleted"    (#88)
+            api_server.delete_user,          # "deleted"    (#88)
+            api_server.ban_user,             # "banned"     (#89)
+            api_server.unban_user,           # the reversal (#89)
+            api_server.update_moderation_status,  # takedown (#89)
+            api_server.admin_restore_listing,     # the reversal (#89)
         )
         for handler in handlers:
             src = inspect.getsource(handler)
@@ -2080,7 +2080,7 @@ class TestPromisedStateSurvivesACrash(unittest.TestCase):
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestDurabilityHealthIsObservable(unittest.TestCase):
-    """A failing snapshot must be visible, not just logged (audit #83).
+    """A failing snapshot must be visible, not just logged (audit #87).
 
     #78 fixed saves that crashed; this fixes saves that fail where nobody
     looks. Before: _save_state_best_effort's return value was discarded by the
