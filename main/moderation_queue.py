@@ -64,6 +64,10 @@ _OPEN_STATUSES = ("pending", "in_review")
 # nobody can act on because it silently vanished -- so open items are kept
 # regardless of the cap, and a queue that exceeds it while still open is an
 # operational emergency that stays visible rather than being trimmed away.
+# Moderation-queue decision notes. See
+# avatar_marketplace.MAX_RESOLUTION_NOTE_LEN for the reasoning (#102).
+MAX_QUEUE_NOTES_LEN = 2000
+
 _MAX_RESOLVED_ITEMS = int(os.getenv("MAX_MODERATION_HISTORY", "20000"))
 # Scan for eviction only once per this many items over the cap, so the trim
 # cost is amortised instead of paid on every single enqueue. Proportional to
@@ -213,7 +217,7 @@ class ModerationQueue:
                 return None
             item.status = status
             if notes:
-                item.notes = notes.strip()[:2000]
+                item.notes = notes.strip()[:MAX_QUEUE_NOTES_LEN]
             now = datetime.now(timezone.utc)
             item.updated_at = now
             item.resolved_at = now if status in ("resolved", "dismissed") else None
@@ -247,7 +251,7 @@ class ModerationQueue:
                 raise ValueError("モデレーションアイテムが見つかりません")
             item.status = status
             if notes:
-                item.notes = notes.strip()[:2000]
+                item.notes = notes.strip()[:MAX_QUEUE_NOTES_LEN]
             now = datetime.now(timezone.utc)
             item.updated_at = now
             # resolved_at tracks the terminal state exactly: set it when closing,

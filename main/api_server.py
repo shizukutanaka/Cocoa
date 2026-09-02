@@ -216,6 +216,14 @@ PendingTwoFactor = PendingTwoFactor or type("PendingTwoFactor", (), {})
 (get_wishlist_manager,) = _import_subsystem("wishlist_manager", "get_wishlist_manager")
 (get_idempotency_store,) = _import_subsystem("idempotency", "get_idempotency_store")
 
+# Audit-record length limits, imported from the stores that hold the text so
+# the check below and the store read one number rather than two copies (#102).
+(MAX_RESOLUTION_NOTE_LEN, MAX_DISPUTE_NOTE_LEN) = _import_subsystem(
+    "avatar_marketplace", "MAX_RESOLUTION_NOTE_LEN", "MAX_DISPUTE_NOTE_LEN")
+(MAX_REVIEW_NOTE_LEN,) = _import_subsystem("auth_manager", "MAX_REVIEW_NOTE_LEN")
+(MAX_QUEUE_NOTES_LEN,) = _import_subsystem("moderation_queue", "MAX_QUEUE_NOTES_LEN")
+(MAX_ADMIN_NOTES_LEN,) = _import_subsystem("refund_manager", "MAX_ADMIN_NOTES_LEN")
+
 # Snapshot machinery is pure stdlib and has no optional deps, but keep the
 # server bootable if it is somehow missing rather than failing every import.
 try:
@@ -573,6 +581,41 @@ def _save_state_best_effort(state_dir: str) -> bool:
         logger.error("State snapshot to %s failed: %s", state_dir, e)
         _last_snapshot.update(ok=False, at=now, error=str(e))
         return False
+
+
+def _audit_note(value: Optional[str], limit: int, *, label: str, required: bool = True) -> str:
+    """Validate a note the moderation console promises to put in the record.
+
+    Every decision field in the console is labelled 「必須・監査記録に残ります」
+    -- required, and kept in the audit record. Both halves of that promise
+    lived only in React. The server declared `note: str = ""` and each store
+    sliced the text to its own bare literal, so measured against a running
+    server (#102):
+
+        resolve a report with note=""      -> HTTP 200, resolution_note=""
+        resolve a report with 1500 chars   -> HTTP 200, 1000 kept, 500 gone
+
+    Neither response said anything had happened. A takedown nobody can
+    explain, and a justification that stops mid-sentence with no marker, are
+    both worse than no record: the next moderator -- or the seller appealing
+    the takedown -- cannot tell whether the reason was never written or was
+    eaten in transit.
+
+    Over-length input is REFUSED rather than trimmed. Storing a different
+    string than the moderator wrote is the defect here; the length is only
+    how it happens. The caller loses nothing, because the console now stops
+    typing at the same limit (`maxLength`), which
+    tests/test_stated_policy_matches_enforcement.py pins to these constants.
+    """
+    text = (value or "").strip()
+    if required and not text:
+        raise HTTPException(status_code=400, detail=f"{label}を入力してください（監査記録に残ります）")
+    if len(text) > limit:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{label}は{limit}文字以内で入力してください（現在 {len(text)} 文字）",
+        )
+    return text
 
 
 def _persist_now(reason: str) -> None:
@@ -4203,9 +4246,10 @@ async def resolve_report(report_id: str, body: ResolveReportRequest, admin: dict
     """通報を解決（管理者専用）。takedown=True でリスティングを取り下げ"""
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    note = _audit_note(body.note, MAX_RESOLUTION_NOTE_LEN, label="判断の理由")
     try:
         report = get_marketplace().resolve_report(
-            report_id, admin["user_id"], body.action, body.note, takedown=body.takedown
+            report_id, admin["user_id"], body.action, note, takedown=body.takedown
         )
         # If the listing was taken down, remove from search index and notify owner
         if body.takedown:
@@ -4223,7 +4267,7 @@ async def resolve_report(report_id: str, body: ResolveReportRequest, admin: dict
         # stale "pending" item after the underlying report is resolved here.
         if get_moderation_queue:
             try:
-                get_moderation_queue().resolve_by_source(report.report_id, body.action, body.note)
+                get_moderation_queue().resolve_by_source(report.report_id, body.action, note)
             except Exception:
                 pass
         _notify_reporter_of_outcome(
@@ -4328,14 +4372,15 @@ async def resolve_review_report(
     """レビュー通報を解決（管理者専用）。hide=trueで対象レビューも非表示化"""
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    note = _audit_note(body.note, MAX_RESOLUTION_NOTE_LEN, label="判断の理由")
     try:
         report = get_marketplace().resolve_review_report(
-            report_id, admin["user_id"], body.action, body.note, hide=body.hide
+            report_id, admin["user_id"], body.action, note, hide=body.hide
         )
         # See resolve_report: sync the mirrored moderation-queue entry.
         if get_moderation_queue:
             try:
-                get_moderation_queue().resolve_by_source(report.report_id, body.action, body.note)
+                get_moderation_queue().resolve_by_source(report.report_id, body.action, note)
             except Exception:
                 pass
         _notify_reporter_of_outcome(
@@ -4373,9 +4418,13 @@ async def admin_resolve_dispute(
     """争議を解決（refund: 返金 / release: 解決）（管理者専用）"""
     if not get_marketplace:
         raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    # A dispute is adjudicated over PAID work (#68); the losing party is
+    # entitled to a reason that survives intact. Same rule as the report
+    # queue, applied here too so the class has no gap (#102).
+    note = _audit_note(body.note, MAX_DISPUTE_NOTE_LEN, label="判断の理由")
     try:
         dispute = get_marketplace().resolve_dispute(
-            dispute_id, admin["user_id"], body.decision, body.note
+            dispute_id, admin["user_id"], body.decision, note
         )
         # A refunded dispute returns the buyer's credits, so reverse that
         # purchase's membership-tier contribution too (non-critical).
@@ -4750,8 +4799,9 @@ async def review_creator_application(
     if not get_auth_manager:
         raise HTTPException(status_code=503, detail="認証モジュールが利用できません")
     auth = get_auth_manager()
+    note = _audit_note(body.note, MAX_REVIEW_NOTE_LEN, label="確認した内容")
     try:
-        application = auth.review_creator_application(admin, application_id, body.decision, body.note)
+        application = auth.review_creator_application(admin, application_id, body.decision, note)
         # See resolve_report: sync the mirrored moderation-queue entry.
         # decision is "approved" | "rejected"; map to the queue's terminal
         # statuses ("resolved" = action taken, "dismissed" = no action taken).
@@ -4759,7 +4809,7 @@ async def review_creator_application(
             try:
                 queue_status = "resolved" if body.decision == "approved" else "dismissed"
                 get_moderation_queue().resolve_by_source(
-                    application.application_id, queue_status, body.note
+                    application.application_id, queue_status, note
                 )
             except Exception:
                 pass
@@ -5885,8 +5935,18 @@ async def update_moderation_status(
     """モデレーションアイテムのステータスを更新する"""
     if not get_moderation_queue:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
+    # A note is the record of a DECISION, so it is required only for the two
+    # terminal statuses. The console's "確認中にする" button moves an item to
+    # in_review with no note and must keep working -- requiring one there
+    # would break a button that is not recording a judgement at all.
+    notes = _audit_note(
+        body.notes,
+        MAX_QUEUE_NOTES_LEN,
+        label="判断の理由",
+        required=body.status in ("resolved", "dismissed"),
+    )
     try:
-        item = get_moderation_queue().update_status(item_id, body.status, body.notes)
+        item = get_moderation_queue().update_status(item_id, body.status, notes)
         # When resolving a listing_report with action="remove_listing", force-deactivate
         # the listing so it becomes unpurchasable atomically with the moderation decision.
         if (
@@ -6107,8 +6167,11 @@ async def admin_reject_refund(
     if not get_refund_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
     payload = _verify_token(_bearer_token(credentials))
+    # Rejecting a refund is a decision the buyer is entitled to an explanation
+    # for; the console already demands one before enabling the button (#102).
+    notes = _audit_note(body.notes, MAX_ADMIN_NOTES_LEN, label="却下の理由")
     try:
-        result = get_refund_manager().reject_refund(payload, request_id, body.notes)
+        result = get_refund_manager().reject_refund(payload, request_id, notes)
         buyer_id = result.get("user_id")
         if get_notification_queue and buyer_id:
             try:

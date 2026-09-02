@@ -3025,5 +3025,133 @@ class TestHealthEndpointStatusMapping(unittest.TestCase):
         self.assertEqual(self._status_for(None), "unhealthy")
 
 
+class TestAuditNoteIsRequiredAndWhole(unittest.TestCase):
+    """Every moderation decision must carry a reason, kept exactly (#102).
+
+    The console labels these fields 「必須・監査記録に残ります」. Measured
+    against a running server before this test, both halves were false:
+
+        POST /api/admin/reports/{id}/resolve  note=""          -> 200, note=""
+        POST /api/admin/reports/{id}/resolve  note=1500 chars  -> 200, 1000 kept
+
+    The required check lived in React and the length was silently trimmed by
+    each store. A takedown with no reason, or one that stops mid-sentence with
+    nothing to mark the cut, is a record nobody can act on: the next moderator
+    and the seller appealing the decision both read it and cannot tell what
+    happened.
+
+    Over-length input is refused rather than trimmed on purpose -- storing a
+    different string than the moderator wrote is the defect, and truncation
+    hides it behind a success.
+    """
+
+    def _http_status(self, coro):
+        try:
+            asyncio.run(coro)
+        except api_server.HTTPException as e:
+            return e.status_code, e.detail
+        return 200, None
+
+    def test_report_resolution_requires_a_reason(self):
+        body = api_server.ResolveReportRequest(action="resolved", note="   ", takedown=False)
+        status, detail = self._http_status(
+            api_server.resolve_report("rep1", body, {"user_id": "modA"}))
+        self.assertEqual(status, 400)
+        self.assertIn("判断の理由", detail)
+
+    def test_report_resolution_refuses_more_than_it_would_keep(self):
+        limit = api_server.MAX_RESOLUTION_NOTE_LEN
+        body = api_server.ResolveReportRequest(
+            action="resolved", note="あ" * (limit + 1), takedown=False)
+        status, detail = self._http_status(
+            api_server.resolve_report("rep1", body, {"user_id": "modA"}))
+        self.assertEqual(
+            status, 400,
+            "a note one character over the stored limit was accepted; the "
+            "excess is dropped and the response says nothing")
+        self.assertIn(str(limit), detail)
+
+    def test_a_note_exactly_at_the_limit_is_accepted(self):
+        # The boundary must not be off by one: refusing text the store would
+        # have kept whole is its own defect.
+        limit = api_server.MAX_RESOLUTION_NOTE_LEN
+        note = "あ" * limit
+        self.assertEqual(
+            api_server._audit_note(note, limit, label="判断の理由"), note)
+
+    def test_review_report_and_application_and_dispute_all_require_one(self):
+        cases = [
+            (api_server.resolve_review_report,
+             api_server.ResolveReviewReportRequest(action="resolved", note="", hide=False),
+             "判断の理由"),
+            (api_server.review_creator_application,
+             api_server.ReviewApplicationRequest(decision="approved", note=""),
+             "確認した内容"),
+            (api_server.admin_resolve_dispute,
+             api_server.ResolveDisputeRequest(decision="refund", note=""),
+             "判断の理由"),
+        ]
+        for handler, body, label in cases:
+            with self.subTest(handler=handler.__name__):
+                status, detail = self._http_status(handler("x1", body, {"user_id": "modA"}))
+                self.assertEqual(status, 400)
+                self.assertIn(label, detail)
+
+    def test_refund_rejection_requires_a_reason(self):
+        # Authenticated on purpose: the handler verifies the token BEFORE it
+        # looks at the note, so an anonymous caller gets 401 and learns
+        # nothing about the validation behind it.
+        body = api_server.RefundRejectRequest(notes="")
+        with patch.object(api_server, "_verify_token", lambda *a, **k: {"user_id": "modA"}), \
+             patch.object(api_server, "_bearer_token", lambda *a, **k: "t"), \
+             patch.object(api_server, "get_refund_manager", lambda: MagicMock()):
+            status, detail = self._http_status(
+                api_server.admin_reject_refund("req1", body, None))
+        self.assertEqual(status, 400)
+        self.assertIn("却下の理由", detail)
+
+    def test_moving_an_item_to_in_review_still_needs_no_note(self):
+        """The one place a note is NOT required, and why.
+
+        The console's 「確認中にする」 button calls the same endpoint with no
+        note. It is not recording a judgement -- it is claiming an item to
+        work on -- so requiring a reason there would break a working button
+        for no gain. Pinned because it is the tempting over-correction.
+        """
+        queue = MagicMock()
+        queue.update_status.return_value = MagicMock(
+            kind="listing_report", subject_id="L1", to_dict=lambda: {"item_id": "i1"})
+        body = api_server.ModerationUpdateRequest(status="in_review", notes="", action="")
+        with patch.object(api_server, "get_moderation_queue", lambda: queue), \
+             patch.object(api_server, "get_marketplace", None):
+            asyncio.run(api_server.update_moderation_status("i1", body, {"user_id": "modA"}))
+        queue.update_status.assert_called_once_with("i1", "in_review", "")
+
+    def test_resolving_a_queue_item_does_require_one(self):
+        body = api_server.ModerationUpdateRequest(status="resolved", notes="", action="")
+        queue = MagicMock()
+        with patch.object(api_server, "get_moderation_queue", lambda: queue):
+            status, detail = self._http_status(
+                api_server.update_moderation_status("i1", body, {"user_id": "modA"}))
+        self.assertEqual(status, 400)
+        queue.update_status.assert_not_called()
+
+    def test_the_limits_are_the_stores_own_numbers(self):
+        """api_server must not carry a second copy of each limit.
+
+        #93 (bundle price computed twice) and #98 (creator rating computed
+        twice) were both this shape. Importing the constant instead of
+        restating it is what keeps them from drifting.
+        """
+        import auth_manager, avatar_marketplace, moderation_queue, refund_manager
+        self.assertEqual(api_server.MAX_RESOLUTION_NOTE_LEN,
+                         avatar_marketplace.MAX_RESOLUTION_NOTE_LEN)
+        self.assertEqual(api_server.MAX_DISPUTE_NOTE_LEN,
+                         avatar_marketplace.MAX_DISPUTE_NOTE_LEN)
+        self.assertEqual(api_server.MAX_REVIEW_NOTE_LEN, auth_manager.MAX_REVIEW_NOTE_LEN)
+        self.assertEqual(api_server.MAX_QUEUE_NOTES_LEN, moderation_queue.MAX_QUEUE_NOTES_LEN)
+        self.assertEqual(api_server.MAX_ADMIN_NOTES_LEN, refund_manager.MAX_ADMIN_NOTES_LEN)
+
+
 if __name__ == "__main__":
     unittest.main()

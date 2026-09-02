@@ -105,5 +105,119 @@ class TestStatedNumbersMatchTheEnforcedOnes(unittest.TestCase):
                     AuthManager._validate_password_strength(bad)
 
 
+class TestAuditRecordPromisesAreKept(unittest.TestCase):
+    """「必須・監査記録に残ります」 must be true of the server, not of React (#102).
+
+    The moderation console labels every decision field required, and says the
+    text goes into the audit record. Measured against a running server before
+    this test existed:
+
+        resolve a report with note=""     -> HTTP 200, resolution_note=""
+        resolve a report with 1500 chars  -> HTTP 200, 1000 stored, 500 gone
+
+    Both promises were enforced by React alone. This pins the second one --
+    the console must not let a moderator type more than the server keeps --
+    and tests/test_api_server.py covers the first by calling the endpoints.
+
+    The caps are checked as a SET per file rather than one at a time, so a
+    sixth decision field added later without a cap fails here instead of
+    silently joining the class (the #101 lesson: N fixes do not close a class,
+    only the mechanism that catches N+1 does).
+    """
+
+    CONSOLE = "pages/admin/Moderation.tsx"
+
+    def server_limits(self):
+        import auth_manager, avatar_marketplace, moderation_queue, refund_manager
+        return {
+            "QUEUE_NOTES_MAX": moderation_queue.MAX_QUEUE_NOTES_LEN,
+            "REPORT_NOTE_MAX": avatar_marketplace.MAX_RESOLUTION_NOTE_LEN,
+            "REFUND_NOTE_MAX": refund_manager.MAX_ADMIN_NOTES_LEN,
+            "APPLICATION_NOTE_MAX": auth_manager.MAX_REVIEW_NOTE_LEN,
+        }
+
+    def test_declared_caps_equal_the_server_constants(self):
+        text = frontend_text(self.CONSOLE)
+        for name, server_value in self.server_limits().items():
+            with self.subTest(constant=name):
+                declared = re.findall(rf"const {name} = (\d+);", text)
+                self.assertEqual(
+                    len(declared), 1,
+                    f"{self.CONSOLE} should declare {name} exactly once, found "
+                    f"{len(declared)}",
+                )
+                self.assertEqual(
+                    int(declared[0]), server_value,
+                    f"the console caps {name} at {declared[0]} but the server keeps "
+                    f"{server_value}; text between the two is accepted by the "
+                    f"browser and refused (or worse, cut) by the server",
+                )
+
+    def test_every_decision_field_declares_a_cap(self):
+        """No uncapped text input in the console.
+
+        Every <input>/<textarea> here collects a moderator's reason for a
+        decision. Scanning for the ones WITHOUT maxLength is what found #102:
+        five of them, all labelled as recorded, none capped. The one input
+        that is not a decision field -- the user search box -- is named
+        explicitly so adding another exemption is a conscious act.
+        """
+        text = frontend_text(self.CONSOLE)
+        exempt = (
+            # maxLength does nothing on a numeric input; these are bounded by
+            # min/step and by the server's own range checks.
+            'type="number"',
+            # Not a decision field: a filter over the user list, typed and
+            # discarded, never stored and never shown back as a record.
+            "ユーザー名・メール・ID・ロールで検索",
+        )
+        uncapped = [
+            block for block in jsx_elements(text, ("input", "textarea"))
+            if "maxLength" not in block and not any(e in block for e in exempt)
+        ]
+        self.assertEqual(
+            [], uncapped,
+            "moderation console input without maxLength: the server refuses "
+            "over-length notes, so an uncapped field loses the whole submission "
+            f"to an error.\n{uncapped}",
+        )
+
+
+def jsx_elements(text, tags):
+    """Yield the opening tag of each <tag ...> in `text`.
+
+    Written by hand rather than with a regex because a JSX attribute contains
+    arrow functions -- `onChange={(e) => ...}` -- and any `[^>]*` pattern stops
+    at the `>` inside the arrow, reporting a capped element as uncapped. That
+    exact mistake produced a wrong list of 47 fields while auditing #102
+    before being caught.
+    """
+    for tag in tags:
+        start = 0
+        while True:
+            i = text.find("<" + tag, start)
+            if i < 0:
+                break
+            j, depth, quote = i + len(tag) + 1, 0, None
+            while j < len(text):
+                c = text[j]
+                if quote:
+                    if c == quote:
+                        quote = None
+                    elif c == "\\":
+                        j += 1
+                elif c in "\"'`":
+                    quote = c
+                elif c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                elif c == ">" and depth == 0:
+                    break
+                j += 1
+            yield text[i:j + 1]
+            start = j + 1
+
+
 if __name__ == "__main__":
     unittest.main()
