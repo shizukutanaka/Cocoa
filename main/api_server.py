@@ -5316,7 +5316,16 @@ async def list_active_bundles(
     """公開中のバンドル一覧を取得する（認証不要）"""
     if not get_bundle_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    return get_bundle_manager().list_active_bundles(limit=limit, offset=offset)
+    page = get_bundle_manager().list_active_bundles(limit=limit, offset=offset)
+    # Price each bundle server-side. The storefront used to fetch every
+    # constituent listing and recompute the total itself, which is how the
+    # advertised price drifted from the charged one (#93).
+    if get_marketplace:
+        mgr, mp = get_bundle_manager(), get_marketplace()
+        page["items"] = [
+            mgr.quote(b["bundle_id"], mp) or b for b in page.get("items", [])
+        ]
+    return page
 
 
 @app.get("/api/bundles/mine", tags=["bundles"])
@@ -5340,7 +5349,11 @@ async def get_bundle(bundle_id: str):
     """バンドルの詳細を取得する（認証不要）"""
     if not get_bundle_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
-    bundle = get_bundle_manager().get_bundle(bundle_id)
+    bundle = (
+        get_bundle_manager().quote(bundle_id, get_marketplace())
+        if get_marketplace
+        else get_bundle_manager().get_bundle(bundle_id)
+    )
     if not bundle:
         raise HTTPException(status_code=404, detail="バンドルが見つかりません")
     return bundle
