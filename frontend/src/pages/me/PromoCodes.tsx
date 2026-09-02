@@ -5,6 +5,7 @@ import { apiErrorMessage } from "../../services/apiClient";
 import { useToast } from "../../hooks/useToast";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 import type { PromoCode } from "../../types/api";
 
 function statusBadge(pc: PromoCode) {
@@ -29,7 +30,7 @@ export function PromoCodes() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const { data: codes, isLoading } = useQuery({
+  const { data: codes, isLoading, isError, error: loadError, refetch } = useQuery({
     queryKey: ["my-promo-codes"],
     queryFn: marketplaceService.listMyPromoCodes,
   });
@@ -150,7 +151,9 @@ export function PromoCodes() {
         </form>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <LoadError error={loadError} retry={refetch} />
+      ) : isLoading ? (
         <CenterSpinner />
       ) : !codes || codes.items.length === 0 ? (
         <div className="empty-state">まだプロモコードがありません。</div>

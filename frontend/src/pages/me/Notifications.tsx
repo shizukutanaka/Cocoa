@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as notificationsService from "../../services/notificationsService";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { useToast } from "../../hooks/useToast";
 import { apiErrorMessage } from "../../services/apiClient";
@@ -26,7 +27,7 @@ export function Notifications() {
   usePageTitle("通知");
   const { show } = useToast();
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["notifications"],
     queryFn: () => notificationsService.listNotifications(false, 50, 0),
   });
@@ -96,7 +97,9 @@ export function Notifications() {
         </div>
       </details>
 
-      {!data || data.items.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : !data || data.items.length === 0 ? (
         <div className="empty-state">通知はありません。</div>
       ) : (
         <div className="card card-pad">
