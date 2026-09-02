@@ -2519,10 +2519,42 @@ class TestSearchFacets(unittest.TestCase):
         self.assertIn("cute", tags)
         self.assertEqual(tags["cute"], 2)
 
-    def test_facets_reflect_applied_filters(self):
-        # Filter by category=vrc; facet should only count vrc listings
+    def test_a_facet_excludes_its_own_filter_so_you_can_switch(self):
+        """A category facet counts what selecting it INSTEAD would return.
+
+        This previously asserted the opposite -- that filtering by vrc makes
+        the vrchat facet 0, because facets were counted over the final result
+        set. That reading makes the number a lie in the only situation it
+        matters: from a vrc-filtered page the UI would show "vrchat (0)" while
+        clicking it actually returns 1. It also makes the control useless,
+        since every unselected option reads zero and nothing can be switched
+        to. Facets now exclude their own dimension (audit #96), which is both
+        the standard behaviour and the only one where the count matches the
+        click.
+        """
         r = self.store.search(category="vrc", include_facets=True)
-        self.assertEqual(r["facets"]["categories"].get("vrchat", 0), 0)
+        cats = r["facets"]["categories"]
+        self.assertEqual(cats.get("vrchat"), 1, "cannot switch to a category shown as 0")
+        self.assertEqual(cats.get("vrc"), 2, "the selected category still counts correctly")
+
+    def test_a_facet_count_equals_what_selecting_it_returns(self):
+        # The property the number exists to have.
+        faceted = self.store.search(category="vrc", include_facets=True)["facets"]
+        for category, count in faceted["categories"].items():
+            actual = self.store.search(category=category)["total"]
+            self.assertEqual(
+                count, actual,
+                f"facet says {count} for {category} but selecting it returns {actual}",
+            )
+
+    def test_other_filters_still_narrow_a_facet(self):
+        # Excluding its OWN dimension must not mean ignoring the others.
+        store = _store()
+        store.publish("a1", "u1", "alice", "Hit", "keeps", ["k"], "vrc", {})
+        store.publish("a2", "u1", "alice", "Miss", "other", ["k"], "neos", {})
+        cats = store.search(query="keeps", include_facets=True)["facets"]["categories"]
+        self.assertEqual(cats.get("vrc"), 1)
+        self.assertNotIn("neos", cats, "a facet ignored the text query")
 
     def test_facets_include_platforms(self):
         store = _store()

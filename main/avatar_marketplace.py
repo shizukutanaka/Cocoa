@@ -1610,13 +1610,50 @@ class MarketplaceStore:
             facets: Optional[Dict[str, Any]] = None
             if include_facets:
                 from collections import Counter
-                cat_counts: Counter = Counter(lst.category for lst in results)
-                lic_counts: Counter = Counter(lst.license_type for lst in results)
+
+                # Each facet EXCLUDES its own filter. Counting the final result
+                # set instead would collapse a facet to the single value the
+                # user already picked -- every other category showing zero, so
+                # they could never switch. The count answers "how many would I
+                # get if I chose this instead", which is the only reading that
+                # matches what clicking actually does.
+                def _passing(skip: str) -> List[MarketplaceListing]:
+                    out = []
+                    for lst in self._listings.values():
+                        if not lst.is_active:
+                            continue
+                        if query and not (
+                            q in lst.name.lower()
+                            or q in lst.description.lower()
+                            or q in lst.owner_username.lower()
+                        ):
+                            continue
+                        if skip != "tags" and tag_set and not (tag_set & set(lst.tags)):
+                            continue
+                        if skip != "category" and category and lst.category.lower() != category.lower():
+                            continue
+                        if owner_id and lst.owner_id != owner_id:
+                            continue
+                        if skip != "license_type" and license_type and lst.license_type != license_type:
+                            continue
+                        if skip != "platform" and platform and lst.platform.lower() != platform.lower():
+                            continue
+                        if is_free is not None and lst.is_free != is_free:
+                            continue
+                        if min_price is not None and lst.price_credits < min_price:
+                            continue
+                        if max_price is not None and lst.price_credits > max_price:
+                            continue
+                        out.append(lst)
+                    return out
+
+                cat_counts: Counter = Counter(l.category for l in _passing("category"))
+                lic_counts: Counter = Counter(l.license_type for l in _passing("license_type"))
                 tag_counts: Counter = Counter(
-                    tag for lst in results for tag in lst.tags
+                    tag for l in _passing("tags") for tag in l.tags
                 )
                 plat_counts: Counter = Counter(
-                    lst.platform for lst in results if lst.platform
+                    l.platform for l in _passing("platform") if l.platform
                 )
                 facets = {
                     "categories": dict(cat_counts.most_common()),

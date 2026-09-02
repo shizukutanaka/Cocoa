@@ -28,6 +28,9 @@ export interface BrowseParams {
   offset?: number;
   is_free?: boolean;
   platform?: string;
+  // Ask the server for per-filter counts computed over THIS search, so the
+  // filter controls show numbers that match what selecting them returns (#96).
+  facets?: boolean;
 }
 
 export async function browseMarketplace(params: BrowseParams): Promise<Paginated<Listing>> {
