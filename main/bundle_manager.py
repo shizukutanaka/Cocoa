@@ -280,6 +280,53 @@ class BundleManager:
     def delete_bundle(self, bundle_id: str, requester_id: str) -> None:
         self.store.delete(bundle_id, requester_id)
 
+    @staticmethod
+    def item_price(unit_price: int, discount_percent: int) -> int:
+        """Discounted price of ONE listing in a bundle.
+
+        The single definition of bundle arithmetic. purchase_bundle() charges
+        per item, so a total must be the sum of these -- not the discount
+        applied to the summed price. The two differ under floor division:
+        3 listings at 101 with 10% off cost 3*floor(90.9) = 270, while
+        floor(303*0.9) = 272. The storefront used to compute the second and
+        the server charged the first, so the page advertised a price two
+        credits above what it took (audit #93).
+        """
+        discount = max(0, min(90, discount_percent))
+        return max(0, unit_price * (100 - discount) // 100)
+
+    def quote(self, bundle_id: str, marketplace_store: Any) -> Optional[Dict[str, Any]]:
+        """Bundle payload plus what it actually costs right now.
+
+        Priced here rather than in the client because the client cannot know
+        the arithmetic above, and reimplementing it is exactly how the two
+        drifted apart. `original_total` and `total_price` cover only the
+        listings that are still active and priced; a buyer who already owns
+        some of them is charged less again at purchase time (those are skipped),
+        which the client cannot compute either.
+        """
+        bundle = self.store.get(bundle_id)
+        if not bundle:
+            return None
+        payload = bundle.to_dict()
+        original_total = 0
+        total_price = 0
+        available = 0
+        for listing_id in bundle.listing_ids:
+            with marketplace_store._lock:
+                lst = marketplace_store._listings.get(listing_id)
+            if not lst or not lst.is_active:
+                continue
+            available += 1
+            unit = 0 if lst.is_free else lst.price_credits
+            original_total += unit
+            total_price += self.item_price(unit, bundle.discount_percent)
+        payload["original_total"] = original_total
+        payload["total_price"] = total_price
+        payload["savings"] = max(0, original_total - total_price)
+        payload["available_listing_count"] = available
+        return payload
+
     def get_bundle(self, bundle_id: str) -> Optional[Dict[str, Any]]:
         b = self.store.get(bundle_id)
         return b.to_dict() if b else None
@@ -331,7 +378,9 @@ class BundleManager:
                 final_price = 0
             else:
                 unit_price = lst.price_credits
-                final_price = max(0, unit_price * (100 - discount) // 100)
+                # Same helper the quote uses -- one definition, so the price
+                # shown and the price charged cannot diverge (#93).
+                final_price = self.item_price(unit_price, discount)
 
             # Temporarily create a promo to drive the download at the discounted price
             # We do it by calling download() with the adjusted price via direct credit deduction

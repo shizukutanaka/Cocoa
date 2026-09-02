@@ -22,8 +22,17 @@ function BundleCard({ bundle }: { bundle: Bundle }) {
     queryFn: () => Promise.all(bundle.listing_ids.map((id) => getListing(id))),
   });
 
-  const originalTotal = listings?.reduce((sum, l) => sum + l.price_credits, 0) ?? 0;
-  const discountedTotal = Math.max(0, Math.floor((originalTotal * (100 - bundle.discount_percent)) / 100));
+  // Prices come from the server (bundle.total_price / original_total). This
+  // page used to sum the listings and apply the discount itself, which put the
+  // arithmetic in two places: the server discounts and floors PER ITEM, so
+  // 3 listings at 101 with 10% off cost 270, while flooring the summed price
+  // gives 272. The page advertised 272 and the server charged 270 (#93).
+  // The local sum is kept only as a fallback for a server too old to price.
+  const listingSum = listings?.reduce((sum, l) => sum + l.price_credits, 0) ?? 0;
+  const originalTotal = bundle.original_total ?? listingSum;
+  const discountedTotal =
+    bundle.total_price ??
+    Math.max(0, Math.floor((listingSum * (100 - bundle.discount_percent)) / 100));
   const isSelf = user?.user_id === bundle.creator_id;
 
   async function handlePurchase() {

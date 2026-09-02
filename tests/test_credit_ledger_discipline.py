@@ -288,5 +288,108 @@ class TestAdvertisedBenefitsAreReal(unittest.TestCase):
             )
 
 
+class TestBundlePriceIsQuotedByTheServer(unittest.TestCase):
+    """The advertised bundle price must be the price charged (audit #93).
+
+    Bundle pricing lived in two places. The server discounts and floors PER
+    ITEM inside purchase_bundle; the storefront fetched every constituent
+    listing, summed the prices and floored ONCE. Those disagree whenever
+    per-item flooring loses more:
+
+        3 listings at 101, 10% off
+          server:  3 * floor(101*0.9) = 3 * 90 = 270
+          page:    floor(303 * 0.9)   = 272
+
+    Measured against a live server before the fix: the page advertised 272 and
+    the purchase took 270. Money stayed conserved -- the buyer paid exactly
+    what the sellers received -- so no integrity check could have caught it.
+    The defect was the shop window, and the cause was computing a price twice.
+
+    Fixed by making the server quote it: BundleManager.item_price is the single
+    definition, used by both quote() and purchase_bundle().
+    """
+
+    def _mgr_and_store(self):
+        import avatar_marketplace as market
+        from bundle_manager import BundleManager
+        return BundleManager(), market.MarketplaceStore()
+
+    def _bundle_of(self, mgr, store, prices, discount):
+        listing_ids = []
+        for i, price in enumerate(prices):
+            lst = store.publish(
+                avatar_id=f"a{i}", owner_id="seller", owner_username="s", name=f"n{i}",
+                description="d", tags=[], category="other", parameters={"p": i},
+                price_credits=price, is_free=False,
+            )
+            listing_ids.append(lst.listing_id)
+        bundle = mgr.create_bundle(
+            creator_id="seller", creator_username="s", name="b", description="d",
+            listing_ids=listing_ids, discount_percent=discount,
+            marketplace_store=store,
+        )
+        return bundle["bundle_id"]
+
+    def test_the_quote_equals_what_the_purchase_charges(self):
+        mgr, store = self._mgr_and_store()
+        bundle_id = self._bundle_of(mgr, store, [101, 101, 101], 10)
+        quoted = mgr.quote(bundle_id, store)["total_price"]
+
+        store.add_credits("buyer", 5000)
+        before = store.get_balance("buyer")
+        mgr.purchase_bundle(bundle_id, "buyer", store)
+        charged = before - store.get_balance("buyer")
+
+        self.assertEqual(quoted, charged, "the advertised price is not the charged price")
+        self.assertEqual(charged, 270, "per-item flooring changed")
+
+    def test_the_quote_is_not_the_discount_applied_to_the_sum(self):
+        # The specific arithmetic that used to be on the page. If a future
+        # change adopts it, the quote and the charge silently diverge again.
+        mgr, store = self._mgr_and_store()
+        bundle_id = self._bundle_of(mgr, store, [101, 101, 101], 10)
+        quoted = mgr.quote(bundle_id, store)["total_price"]
+        floor_of_sum = (303 * 90) // 100
+        self.assertEqual(floor_of_sum, 272)
+        self.assertNotEqual(quoted, floor_of_sum)
+
+    def test_the_seller_receives_exactly_what_the_buyer_paid(self):
+        mgr, store = self._mgr_and_store()
+        bundle_id = self._bundle_of(mgr, store, [101, 101, 101], 10)
+        store.add_credits("buyer", 5000)
+        buyer_before, seller_before = store.get_balance("buyer"), store.get_balance("seller")
+        mgr.purchase_bundle(bundle_id, "buyer", store)
+        paid = buyer_before - store.get_balance("buyer")
+        received = store.get_balance("seller") - seller_before
+        self.assertEqual(paid, received, "a bundle purchase created or destroyed credits")
+
+    def test_the_quote_reports_the_saving_against_the_undiscounted_total(self):
+        mgr, store = self._mgr_and_store()
+        bundle_id = self._bundle_of(mgr, store, [101, 101, 101], 10)
+        quote = mgr.quote(bundle_id, store)
+        self.assertEqual(quote["original_total"], 303)
+        self.assertEqual(quote["savings"], 303 - quote["total_price"])
+
+    def test_a_free_listing_costs_nothing_in_a_bundle(self):
+        import avatar_marketplace as market
+        from bundle_manager import BundleManager
+        mgr, store = BundleManager(), market.MarketplaceStore()
+        free = store.publish(
+            avatar_id="f", owner_id="seller", owner_username="s", name="free",
+            description="d", tags=[], category="other", parameters={"p": 1},
+        )
+        paid = store.publish(
+            avatar_id="p", owner_id="seller", owner_username="s", name="paid",
+            description="d", tags=[], category="other", parameters={"p": 2},
+            price_credits=200, is_free=False,
+        )
+        bundle = mgr.create_bundle(
+            creator_id="seller", creator_username="s", name="b", description="d",
+            listing_ids=[free.listing_id, paid.listing_id], discount_percent=50,
+            marketplace_store=store,
+        )
+        self.assertEqual(mgr.quote(bundle["bundle_id"], store)["total_price"], 100)
+
+
 if __name__ == "__main__":
     unittest.main()

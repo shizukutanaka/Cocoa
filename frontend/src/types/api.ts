@@ -438,6 +438,12 @@ export interface Bundle {
   listing_ids: string[];
   listing_count: number;
   discount_percent: number;
+  // Priced by the server so the advertised total is the charged total (#93).
+  // Absent only from an older server; the page falls back to a local sum.
+  original_total?: number;
+  total_price?: number;
+  savings?: number;
+  available_listing_count?: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
