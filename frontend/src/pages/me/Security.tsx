@@ -276,6 +276,11 @@ function ChangePasswordSection() {
         <div className="field">
           <label htmlFor="new-password">新しいパスワード</label>
           <input id="new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} />
+          {/* The same wording Register and ResetPassword show. The server
+              requires a digit and a letter as well as the length, and this
+              form stated neither -- so a valid-looking 8-character password
+              was rejected only after submitting (#99). */}
+          <span style={{ fontSize: 12, color: "var(--faint)" }}>8文字以上、数字と文字を含めてください</span>
         </div>
         <button type="submit" className="btn btn-secondary" disabled={busy}>
           変更する
