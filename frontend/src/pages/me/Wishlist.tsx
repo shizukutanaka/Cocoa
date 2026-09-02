@@ -6,13 +6,14 @@ import { apiErrorMessage } from "../../services/apiClient";
 import { useToast } from "../../hooks/useToast";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 
 export function Wishlist() {
   usePageTitle("ウィッシュリスト");
   const { show } = useToast();
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["wishlist"],
     queryFn: () => wishlistService.getWishlist(true),
   });
@@ -37,7 +38,9 @@ export function Wishlist() {
   return (
     <div>
       <h1>ウィッシュリスト</h1>
-      {!data || data.items.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : !data || data.items.length === 0 ? (
         <div className="empty-state">ウィッシュリストは空です。</div>
       ) : (
         <div className="card card-pad">

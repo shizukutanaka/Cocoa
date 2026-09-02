@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import * as marketplaceService from "../../services/marketplaceService";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 import { ParameterDelivery } from "../../components/ParameterDelivery";
 import { useToast } from "../../hooks/useToast";
 import { apiErrorMessage } from "../../services/apiClient";
@@ -17,7 +18,7 @@ export function DownloadHistory() {
   const [delivered, setDelivered] = useState<AvatarData | null>(null);
   const [retrievingId, setRetrievingId] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["download-history"],
     queryFn: () => marketplaceService.getDownloadHistory(50, 0),
   });
@@ -40,7 +41,9 @@ export function DownloadHistory() {
     <div>
       <h1>ダウンロード履歴</h1>
 
-      {isLoading ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : isLoading ? (
         <CenterSpinner />
       ) : !data || data.items.length === 0 ? (
         <div className="empty-state">まだダウンロードした作品がありません。</div>

@@ -5,6 +5,7 @@ import { checkout, getCart, removeFromCart, setCartItemPromo } from "../services
 import { lookupPromoCode } from "../services/marketplaceService";
 import { newIdempotencyKey } from "../services/apiClient";
 import { CenterSpinner } from "../components/Spinner";
+import { LoadError } from "../components/LoadError";
 import { useToast } from "../hooks/useToast";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { apiErrorMessage } from "../services/apiClient";
@@ -26,7 +27,7 @@ export function CartPage() {
   // charging twice -- see main/api_server.py's checkout_cart.
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
 
-  const { data: cart, isLoading } = useQuery({ queryKey: ["cart"], queryFn: getCart });
+  const { data: cart, isLoading, isError, error: loadError, refetch } = useQuery({ queryKey: ["cart"], queryFn: getCart });
 
   // Rebuild discount previews for items whose promo_code survived a reload --
   // the cart stores the code but its subtotal_credits is pre-discount (the
@@ -108,6 +109,8 @@ export function CartPage() {
   }
 
   if (isLoading) return <CenterSpinner />;
+  // An outage must not read as "your cart is empty" (#101).
+  if (isError) return <LoadError error={loadError} retry={refetch} />;
   if (!cart || cart.items.length === 0) {
     return (
       <div>

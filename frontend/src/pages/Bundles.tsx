@@ -7,6 +7,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { CenterSpinner } from "../components/Spinner";
+import { LoadError } from "../components/LoadError";
 import type { Bundle } from "../types/api";
 
 function BundleCard({ bundle }: { bundle: Bundle }) {
@@ -93,7 +94,7 @@ function BundleCard({ bundle }: { bundle: Bundle }) {
 export function Bundles() {
   usePageTitle("バンドル");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["bundles"],
     queryFn: () => bundleService.listActiveBundles(50, 0),
   });
@@ -106,7 +107,9 @@ export function Bundles() {
       <p style={{ color: "var(--muted)", fontSize: 14 }}>
         クリエイターがまとめたセット商品を割引価格で購入できます。
       </p>
-      {!data || data.items.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : !data || data.items.length === 0 ? (
         <div className="empty-state">現在公開中のバンドルはありません。</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>

@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { getBalance, getHistory } from "../../services/creditsService";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 
 export function Credits() {
   const { data: balance, isLoading: loadingBalance } = useQuery({ queryKey: ["credits-balance"], queryFn: getBalance });
-  const { data: history, isLoading: loadingHistory } = useQuery({ queryKey: ["credits-history"], queryFn: () => getHistory(50, 0) });
+  const { data: history, isLoading: loadingHistory, isError, error, refetch } = useQuery({ queryKey: ["credits-history"], queryFn: () => getHistory(50, 0) });
 
   return (
     <div>
@@ -18,7 +19,9 @@ export function Credits() {
       </div>
 
       <h2 style={{ fontSize: 16, marginTop: 24 }}>取引履歴</h2>
-      {loadingHistory ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : loadingHistory ? (
         <CenterSpinner />
       ) : !history || history.items.length === 0 ? (
         <div className="empty-state">取引履歴がありません。</div>

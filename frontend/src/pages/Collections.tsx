@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import * as collectionsService from "../services/collectionsService";
 import { getPublicProfile } from "../services/userService";
 import { CenterSpinner } from "../components/Spinner";
+import { LoadError } from "../components/LoadError";
 import { useToast } from "../hooks/useToast";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
@@ -27,7 +28,7 @@ export function Collections() {
   const [publicQuery, setPublicQuery] = useState("");
   const debouncedQuery = useDebouncedValue(publicQuery, 300);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["my-collections"],
     queryFn: () => collectionsService.myCollections(50, 0),
     enabled: tab === "mine",
@@ -86,9 +87,11 @@ export function Collections() {
             </button>
           </form>
 
-          {isLoading ? (
-            <CenterSpinner />
-          ) : !data || data.items.length === 0 ? (
+          {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : isLoading ? (
+        <CenterSpinner />
+      ) : !data || data.items.length === 0 ? (
             <div className="empty-state">コレクションはまだありません。</div>
           ) : (
             <div className="listing-grid">
