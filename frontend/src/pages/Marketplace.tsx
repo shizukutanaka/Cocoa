@@ -48,7 +48,7 @@ export function Marketplace() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["marketplace", q, category, tags, sortBy, offset],
     queryFn: () =>
-      browseMarketplace({ q, category, tags, sort_by: sortBy, limit: PAGE_SIZE, offset }),
+      browseMarketplace({ q, category, tags, sort_by: sortBy, limit: PAGE_SIZE, offset, facets: true }),
   });
 
   const { data: categories } = useQuery({
@@ -110,6 +110,8 @@ export function Marketplace() {
   }
 
   const hasFilters = Boolean(q || category || tags);
+  // Present only when the server supports facets; falls back to global counts.
+  const facetCategories = data?.facets?.categories;
 
   // Discovery strip for the default landing view only -- once the user is
   // actively filtering/searching, the main grid IS the answer and the strip
@@ -181,11 +183,20 @@ export function Marketplace() {
           onChange={(e) => updateParams({ category: e.target.value, offset: "0" })}
         >
           <option value="">全カテゴリ</option>
-          {categories?.items.map((c) => (
-            <option key={c.category} value={c.category}>
-              {c.category}（{c.count}）
-            </option>
-          ))}
+          {categories?.items.map((c) => {
+            // Prefer the facet count for the CURRENT search. The global count
+            // from /categories is only right when nothing is filtering: with a
+            // query active the dropdown promised a number the click did not
+            // deliver (audit #96 measured 17 offered vs 2 returned). Facets
+            // exclude their own dimension, so this stays correct after a
+            // category is chosen and remains switchable.
+            const count = facetCategories ? facetCategories[c.category] ?? 0 : c.count;
+            return (
+              <option key={c.category} value={c.category}>
+                {c.category}（{count}）
+              </option>
+            );
+          })}
         </select>
 
         <input
