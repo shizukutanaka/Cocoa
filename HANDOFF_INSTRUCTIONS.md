@@ -148,6 +148,10 @@ python3 scripts/e2e_critical_flows.py --base http://127.0.0.1:8250 \
 - **バックグラウンドコマンドの cwd**: uvicorn/テストを background で回すと cwd がずれて import 失敗しやすい。必ず `cd /home/user/Cocoa &&` を前置。background の出力ファイルが空なら foreground で回し直す。
 - **パッケージ import 事故**: §1.1 参照。回帰テスト `TestVRChatToolsPackagedImport`(サブプロセスでルートから `import main.api_server`)は、通常スイート(`main/` を sys.path に載せてしまう)では隠れる import バグを検出するためにある。消さない。
 - **オブジェクト配列を描画してクラッシュ**: React error #31。`to_dict()` がオブジェクトを返すフィールドを文字列扱いすると落ちる。型を正しく引いてから描画する(監査 #41)。
+- **ミューテーション検証と `__pycache__`**: 変異 → 復元を**同一秒内**に行うと `.pyc` と `.py` の
+  mtime が一致し、CPython は**正しいソースに対して古いバイトコードを配る**（#99 で実際に踏んだ）。
+  結果として「復元したのにテストが落ち続ける」「変異したのに落ちない」が起きる。
+  変異と復元の各後に `find . -name __pycache__ -type d -prune -exec rm -rf {} +` を挟むこと。
 - **分類器/ツールの一時エラー**: Bash の一時的な失敗は同一コマンドの再試行で通ることがある。
 
 ---
