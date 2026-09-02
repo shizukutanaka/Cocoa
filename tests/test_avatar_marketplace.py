@@ -3822,3 +3822,114 @@ class TestEarningsSummary(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestCreatorRatingIsWeighted(unittest.TestCase):
+    """One creator must not carry two different ratings (audit #98).
+
+    The profile endpoint averaged the per-listing averages while the
+    leaderboard averaged every review. Measured before the fix on a creator
+    with 5.0 from one review and 3.0 from a hundred: the profile said 4.00 and
+    the leaderboard said 3.02 -- the same person, two pages, a 0.98 gap. The
+    unweighted form also lets a single five-star review on an obscure listing
+    lift the headline as much as a hundred reviews on a popular one.
+
+    get_creator_rating is now the single definition; the leaderboard computes
+    the same arithmetic inline because its loop also aggregates downloads.
+    """
+
+    def _creator_with_skewed_reviews(self):
+        store = MarketplaceStore()
+        obscure = store.publish(
+            avatar_id="a", owner_id="creator", owner_username="c", name="obscure",
+            description="d", tags=[], category="other", parameters={"p": 1},
+        )
+        popular = store.publish(
+            avatar_id="b", owner_id="creator", owner_username="c", name="popular",
+            description="d", tags=[], category="other", parameters={"p": 2},
+        )
+        store.download(obscure.listing_id, "u0")
+        store.rate(obscure.listing_id, "u0", 5)
+        for i in range(100):
+            store.download(popular.listing_id, f"v{i}")
+            store.rate(popular.listing_id, f"v{i}", 3)
+        return store, obscure, popular
+
+    def test_the_creator_average_weights_by_review_count(self):
+        store, _, _ = self._creator_with_skewed_reviews()
+        rating = store.get_creator_rating("creator")
+        self.assertEqual(rating["rating_count"], 101)
+        self.assertEqual(rating["rating_sum"], 5 + 300)
+        self.assertEqual(rating["average_rating"], 3.02)
+
+    def test_it_is_not_the_mean_of_the_per_listing_means(self):
+        # The exact arithmetic the profile endpoint used to do. Pinned by name
+        # so re-adopting it fails rather than silently splitting the rating.
+        store, _, _ = self._creator_with_skewed_reviews()
+        listings = [l for l in store.get_user_listings("creator") if l.rating_count > 0]
+        mean_of_means = round(sum(l.average_rating for l in listings) / len(listings), 2)
+        self.assertEqual(mean_of_means, 4.0)
+        self.assertNotEqual(store.get_creator_rating("creator")["average_rating"], mean_of_means)
+
+    def test_the_leaderboard_agrees_with_the_creator_rating(self):
+        store, _, _ = self._creator_with_skewed_reviews()
+        entry = next(e for e in store.get_leaderboard(by="rating") if e["owner_id"] == "creator")
+        self.assertEqual(
+            entry["average_rating"], store.get_creator_rating("creator")["average_rating"],
+            "the leaderboard and the profile disagree about the same creator",
+        )
+
+    def test_a_hidden_review_leaves_the_creator_average_too(self):
+        store, obscure, _ = self._creator_with_skewed_reviews()
+        before = store.get_creator_rating("creator")
+        _, rv = store.review(obscure.listing_id, "u0", "c", 5, "shill")
+        store.hide_review(rv.review_id)
+        after = store.get_creator_rating("creator")
+        self.assertEqual(after["rating_count"], before["rating_count"] - 1)
+        self.assertEqual(after["average_rating"], 3.0)
+
+    def test_a_creator_with_no_ratings_reports_none_rather_than_dividing(self):
+        store = MarketplaceStore()
+        store.publish(
+            avatar_id="a", owner_id="quiet", owner_username="q", name="n",
+            description="d", tags=[], category="other", parameters={"p": 1},
+        )
+        rating = store.get_creator_rating("quiet")
+        self.assertEqual(rating["rating_count"], 0)
+        self.assertIsNone(rating["average_rating"])
+
+
+class TestAnalyticsCountsMatchTheirDistribution(unittest.TestCase):
+    """A payload must not report two populations as one (audit #98).
+
+    total_reviews counted every review while the rating_distribution beside it
+    excluded hidden ones, so a moderated listing reported "2 reviews" next to a
+    distribution summing to 1.
+    """
+
+    def _listing_with_one_hidden_review(self):
+        store = MarketplaceStore()
+        listing = store.publish(
+            avatar_id="a", owner_id="creator", owner_username="c", name="n",
+            description="d", tags=[], category="other", parameters={"p": 1},
+        )
+        shill_review = None
+        for user, stars in (("good", 4), ("shill", 5)):
+            store.download(listing.listing_id, user)
+            _, rv = store.review(listing.listing_id, user, user, stars, "text")
+            if user == "shill":
+                shill_review = rv
+        store.hide_review(shill_review.review_id)
+        return store, listing
+
+    def test_listing_analytics_count_matches_its_distribution(self):
+        store, listing = self._listing_with_one_hidden_review()
+        analytics = store.get_listing_analytics(listing.listing_id, "creator")
+        self.assertEqual(analytics["total_reviews"], 1)
+        self.assertEqual(sum(analytics["rating_distribution"].values()), 1)
+
+    def test_creator_analytics_count_matches_its_distribution(self):
+        store, _ = self._listing_with_one_hidden_review()
+        analytics = store.get_creator_analytics("creator")
+        self.assertEqual(analytics["total_reviews"], 1)
+        self.assertEqual(sum(analytics["rating_distribution"].values()), 1)
