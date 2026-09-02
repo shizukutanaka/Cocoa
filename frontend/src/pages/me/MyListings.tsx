@@ -8,6 +8,7 @@ import { useToast } from "../../hooks/useToast";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 import type { Listing, PublicProfile } from "../../types/api";
 
 /**
@@ -364,7 +365,7 @@ function ListingRow({ listing }: { listing: Listing }) {
 export function MyListings() {
   usePageTitle("出品管理");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["my-listings"],
     queryFn: () => marketplaceService.myListings(true, 50, 0),
   });
@@ -378,7 +379,9 @@ export function MyListings() {
         </Link>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : isLoading ? (
         <CenterSpinner />
       ) : !data || data.items.length === 0 ? (
         <div className="empty-state">まだ出品がありません。</div>
