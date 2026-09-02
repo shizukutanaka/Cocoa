@@ -152,5 +152,79 @@ class TestCreditsAreConserved(unittest.TestCase):
         self.assertEqual(discrepancies, [], f"ledger disagrees with balances: {discrepancies}")
 
 
+class TestSingleUseInstrumentsCannotBeUsedTwice(unittest.TestCase):
+    """Bearer and use-limited instruments under contention (audit #95).
+
+    #81 covered purchases, stock and refunds but not the instruments whose
+    whole value is "this may be used once": a gift card is a bearer note, and
+    a max_uses promo is a seller's cap on their own discount. Both mint value
+    if they can be claimed twice -- credits from nothing for the card, lost
+    revenue for the seller on the promo.
+
+    Probed both with eight threads released together under
+    sys.setswitchinterval(1e-6): each held, one winner every time across 30
+    trials. This is a negative result, pinned so it stays true.
+
+    The same caveat as the rest of this file applies: these assert the
+    INVARIANT, not the locking. See the module docstring.
+    """
+
+    def test_a_gift_card_can_only_be_redeemed_once(self):
+        from gift_card_manager import GiftCardManager
+        store, cards = market.MarketplaceStore(), GiftCardManager()
+        store.add_credits("buyer", 5000)
+        code = cards.purchase("buyer", 500, store, message="")["code"]
+
+        results = run_concurrently(
+            lambda i: cards.redeem(code, "redeemer", store), 8
+        )
+        succeeded = [r for r in results if r[0] == "ok"]
+        self.assertEqual(len(succeeded), 1, "a gift card was redeemed more than once")
+        self.assertEqual(
+            store.get_balance("redeemer"), 500,
+            "the redeemer received more than the card was worth",
+        )
+
+    def test_a_one_use_promo_discounts_exactly_one_purchase(self):
+        store = market.MarketplaceStore()
+        listing = store.publish(
+            avatar_id="a", owner_id="seller", owner_username="s", name="n",
+            description="d", tags=[], category="other", parameters={"p": 1},
+            price_credits=100, is_free=False,
+        )
+        store.create_promo_code("seller", "ONCE", 50, listing_id=listing.listing_id,
+                                max_uses=1)
+        for i in range(8):
+            store.add_credits(f"buyer{i}", 1000)
+
+        results = run_concurrently(
+            lambda i: store.download(listing.listing_id, f"buyer{i}", "ONCE"), 8
+        )
+        discounted = [
+            r for r in results
+            if r[0] == "ok" and r[1] and r[1].get("amount_paid") == 50
+        ]
+        self.assertEqual(
+            len(discounted), 1,
+            "a max_uses=1 promo was honoured more than once -- the seller loses "
+            "the difference on every extra use",
+        )
+
+    def test_the_gift_card_purchase_and_redemption_conserve_credits(self):
+        from gift_card_manager import GiftCardManager
+        store, cards = market.MarketplaceStore(), GiftCardManager()
+        store.add_credits("buyer", 5000)
+        supply_before = store.get_balance("buyer")
+
+        code = cards.purchase("buyer", 500, store, message="")["code"]
+        run_concurrently(lambda i: cards.redeem(code, "redeemer", store), 8)
+
+        supply_after = store.get_balance("buyer") + store.get_balance("redeemer")
+        self.assertEqual(
+            supply_after, supply_before,
+            f"gift card flow changed the credit supply: {supply_before} -> {supply_after}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
