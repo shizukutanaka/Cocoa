@@ -1489,6 +1489,35 @@ class MarketplaceStore:
             for cat, cnt in sorted(counts.items(), key=lambda x: (-x[1], x[0]))
         ]
 
+    def get_creator_rating(self, owner_id: str) -> Dict[str, Any]:
+        """A creator's rating across all their listings, weighted by review count.
+
+        The single definition of "this creator's average rating". It is the
+        mean of every visible review, NOT the mean of each listing's mean --
+        those differ whenever listings have unequal review counts, and the
+        difference is not small: a creator with 5.0 from one review and 3.0
+        from a hundred averages 3.02 weighted and 4.00 unweighted.
+
+        The profile endpoint used to compute the unweighted form while the
+        leaderboard computed this one, so the same creator carried two
+        different ratings on two pages of the same product, and a single
+        five-star review on an obscure listing lifted the headline as much as
+        a hundred reviews on a popular one (audit #98).
+
+        rating_sum/rating_count already exclude hidden reviews -- they are
+        rebuilt from _visible_votes_locked -- so moderation carries through
+        here for free.
+        """
+        with self._lock:
+            listings = [l for l in self._listings.values() if l.owner_id == owner_id]
+            rating_sum = sum(l.rating_sum for l in listings)
+            rating_count = sum(l.rating_count for l in listings)
+        return {
+            "rating_sum": rating_sum,
+            "rating_count": rating_count,
+            "average_rating": round(rating_sum / rating_count, 2) if rating_count else None,
+        }
+
     def get_leaderboard(
         self,
         by: str = "downloads",   # downloads | rating | listings
@@ -1519,6 +1548,9 @@ class MarketplaceStore:
         entries = list(stats.values())
         for s in entries:
             rc = s["total_rating_count"]
+            # Same arithmetic as get_creator_rating -- weighted by review
+            # count. Kept inline because this loop also aggregates downloads
+            # and listing counts in one pass (#98).
             s["average_rating"] = round(s["total_rating_sum"] / rc, 2) if rc else 0.0
 
         if by == "rating":
@@ -2228,7 +2260,13 @@ class MarketplaceStore:
             listing_name = listing.name
             total_downloads = listing.download_count
             logs = [(lid, did, ts) for lid, did, ts, _ap in self._download_log if lid == listing_id]
-            review_count = len(self._reviews.get(listing_id, {}))
+            # Visible only, so this count and the rating_distribution beside
+            # it describe the same population. Counting every review here
+            # while the distribution excluded hidden ones reported e.g.
+            # "total_reviews: 2" next to a distribution summing to 1 (#98).
+            review_count = sum(
+                1 for r in self._reviews.get(listing_id, {}).values() if not r.is_hidden
+            )
             # Snapshot visible votes under the lock (was read unlocked before,
             # and counted hidden-review votes the headline average excludes).
             visible_votes = list(self._visible_votes_locked(listing_id).values())
@@ -2267,7 +2305,11 @@ class MarketplaceStore:
                     if self._listings.get(lid) and self._listings[lid].owner_id == owner_id]
             # Snapshot review/vote counts under the lock so we're consistent with listings.
             listing_ids = {lst.listing_id for lst in listings}
-            review_counts = {lid: len(self._reviews.get(lid, {})) for lid in listing_ids}
+            # Visible only -- same reason as get_listing_analytics (#98).
+            review_counts = {
+                lid: sum(1 for r in self._reviews.get(lid, {}).values() if not r.is_hidden)
+                for lid in listing_ids
+            }
             # Visible votes only, so the distribution matches each listing's
             # headline average (hidden-review votes excluded).
             vote_snapshots = {lid: self._visible_votes_locked(lid) for lid in listing_ids}

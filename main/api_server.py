@@ -2113,11 +2113,12 @@ async def get_user_stats(user_id: str):
         listings = mp.get_user_listings(user_id)
         stats["public_listings"] = len(listings)
         stats["total_downloads"] = sum(lst.download_count for lst in listings)
-        rated = [lst for lst in listings if lst.rating_count > 0]
-        stats["average_rating"] = (
-            round(sum(lst.average_rating for lst in rated) / len(rated), 2)
-            if rated else None
-        )
+        # Weighted by review count, via the same definition the leaderboard
+        # uses. This used to average the per-listing averages, which gave the
+        # same creator a different rating here than on the leaderboard and let
+        # one five-star review on an obscure listing outweigh a hundred
+        # reviews on a popular one (#98).
+        stats["average_rating"] = mp.get_creator_rating(user_id)["average_rating"]
     return stats
 
 
