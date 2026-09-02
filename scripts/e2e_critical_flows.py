@@ -17,7 +17,8 @@ the assertions that previous rounds had to rediscover by hand:
   2. Publish a priced listing -> it appears in public search
   3. Buy it through the cart -> CREDITS ACTUALLY MOVE, both sides
   4. Request a refund -> an admin approves it -> the buyer is made whole
-  5. Report a listing -> an admin adjudicates it in the console
+  5. Report a listing -> an admin adjudicates it in the console, and the
+     reason they typed is what ends up in the audit record (#102)
 
 Step 3 is the one that matters most: FEATURE_AUDIT #44 was a bug where a priced
 listing transferred for zero credits and the seller was never paid. It passed
@@ -230,6 +231,36 @@ async def run(base: str, admin_password: str) -> int:
         reports_body = await page.inner_text("body")
         checks.that("the filed report is waiting for a moderator",
                     listing_name in reports_body or "スパム" in reports_body)
+
+        # ...and a moderator can actually adjudicate it, WITH the reason the
+        # console promises to record (#102). Journey 5 used to stop one step
+        # short, at "the report is visible" -- so the decision path itself,
+        # the part that writes the audit record, was never driven in a
+        # browser. The server now refuses a decision with no reason; if the
+        # console ever stops sending one, everything else here still passes.
+        reason_box = page.locator("input[aria-label='判断の理由']")
+        if await reason_box.count():
+            written = f"e2e 監査記録 {suffix}"
+            await reason_box.first.fill(written)
+            # "対応済みにする" -- resolve without a takedown. Not "取り下げる",
+            # which is the same decision plus a confirm() dialog, and not
+            # "解決", which matches no button on this tab (the first draft of
+            # this check passed nothing and failed for that reason alone).
+            resolve_button = page.locator("button:has-text('対応済みにする')")
+            if await resolve_button.count():
+                await resolve_button.first.click()
+                await page.wait_for_timeout(1500)
+            _, resolved = api(base, "GET", "/api/admin/reports?status=resolved&limit=50",
+                              token=admin_token)
+            notes = [r.get("resolution_note", "")
+                     for r in (resolved.get("reports") or resolved.get("items") or [])]
+            checks.that("adjudicating records the moderator's reason verbatim",
+                        written in notes,
+                        f"{written!r} is not among the stored resolution notes; "
+                        f"the console decided without recording what it typed")
+        else:
+            checks.that("the console offers a reason field before deciding", False,
+                        "no input[aria-label='判断の理由'] on the report tab")
 
         await browser.close()
 

@@ -13,6 +13,23 @@ import { LoadError } from "../../components/LoadError";
 import { apiErrorMessage } from "../../services/apiClient";
 import type { AdminUser, ListingReport, ReviewReportRecord } from "../../types/api";
 
+// Server-side limits on the text these decisions record. Each is the same
+// number as the constant in the module that stores it -- moderation_queue
+// MAX_QUEUE_NOTES_LEN, avatar_marketplace MAX_RESOLUTION_NOTE_LEN, and so on
+// -- and tests/test_stated_policy_matches_enforcement.py fails if the two
+// drift apart.
+//
+// These fields say 「監査記録に残ります」. Until #102 the server kept only the
+// first N characters of a longer justification and answered HTTP 200, so the
+// record could end mid-sentence with nothing to show it had been cut. The
+// server now refuses over-length input; stopping the typing here means a
+// moderator meets the limit while writing instead of losing the whole
+// submission to an error on submit.
+const QUEUE_NOTES_MAX = 2000;
+const REPORT_NOTE_MAX = 1000;
+const REFUND_NOTE_MAX = 2000;
+const APPLICATION_NOTE_MAX = 500;
+
 type Tab =
   | "overview"
   | "reports"
@@ -316,6 +333,7 @@ function CommissionDisputesTab() {
                       <input
                         className="input"
                         placeholder="判断の理由（必須・記録されます）"
+                        maxLength={QUEUE_NOTES_MAX}
                         value={notes[item.item_id] ?? ""}
                         onChange={(e) =>
                           setNotes((prev) => ({ ...prev, [item.item_id]: e.target.value }))
@@ -632,6 +650,7 @@ function ListingReportsTab() {
                 <input
                   aria-label="判断の理由"
                   placeholder="判断の理由（必須・監査記録に残ります）"
+                  maxLength={REPORT_NOTE_MAX}
                   value={notes[r.report_id] ?? ""}
                   onChange={(e) => setNotes((n) => ({ ...n, [r.report_id]: e.target.value }))}
                 />
@@ -738,6 +757,7 @@ function ReviewReportsTab() {
                 <input
                   aria-label="判断の理由"
                   placeholder="判断の理由（必須・監査記録に残ります）"
+                  maxLength={REPORT_NOTE_MAX}
                   value={notes[r.report_id] ?? ""}
                   onChange={(e) => setNotes((n) => ({ ...n, [r.report_id]: e.target.value }))}
                 />
@@ -830,6 +850,7 @@ function RefundsTab() {
                 <input
                   aria-label="却下の理由"
                   placeholder="却下する場合は理由を入力"
+                  maxLength={REFUND_NOTE_MAX}
                   value={notes[r.request_id] ?? ""}
                   onChange={(e) => setNotes((n) => ({ ...n, [r.request_id]: e.target.value }))}
                 />
@@ -942,6 +963,7 @@ function CreatorApplicationsTab() {
                 <input
                   aria-label="確認した内容"
                   placeholder="確認した内容（必須・記録に残ります）"
+                  maxLength={APPLICATION_NOTE_MAX}
                   value={notes[a.application_id] ?? ""}
                   onChange={(e) => setNotes((n) => ({ ...n, [a.application_id]: e.target.value }))}
                 />

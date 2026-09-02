@@ -30,7 +30,9 @@ logger = logging.getLogger(__name__)
 REFUND_WINDOW_HOURS = 72
 VALID_STATUSES = frozenset({"pending", "approved", "rejected"})
 _MAX_REASON_LEN = 1000
-_MAX_NOTES_LEN = 2000
+# Admin notes on a refund decision. Public so api_server can refuse
+# over-length input rather than let it be cut silently (#102).
+MAX_ADMIN_NOTES_LEN = 2000
 
 
 @dataclass
@@ -131,7 +133,7 @@ class RefundStore:
             if not req:
                 raise ValueError("払い戻しリクエストが見つかりません")
             req.status = status
-            req.admin_notes = notes.strip()[:_MAX_NOTES_LEN]
+            req.admin_notes = notes.strip()[:MAX_ADMIN_NOTES_LEN]
             req.resolved_by = resolved_by
             req.resolved_at = datetime.now(timezone.utc)
             return req
@@ -162,7 +164,7 @@ class RefundStore:
                 )
             req.status = to_status
             if notes:
-                req.admin_notes = notes.strip()[:_MAX_NOTES_LEN]
+                req.admin_notes = notes.strip()[:MAX_ADMIN_NOTES_LEN]
             req.resolved_by = resolved_by
             req.resolved_at = datetime.now(timezone.utc)
             return req

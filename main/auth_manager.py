@@ -105,6 +105,10 @@ def _sanitize_public_url(raw: str) -> str:
         return ""
     return raw if scheme in ("http", "https") else ""
 
+# Creator-application review note. See avatar_marketplace.MAX_RESOLUTION_NOTE_LEN
+# for why this is public and why over-length input is refused rather than cut (#102).
+MAX_REVIEW_NOTE_LEN = 500
+
 _MAX_BOOKMARKS = int(os.getenv("MAX_BOOKMARKS", "1000"))
 _MAX_FOLLOWING = int(os.getenv("MAX_FOLLOWING", "2000"))
 
@@ -1225,7 +1229,7 @@ class AuthManager:
                 raise ValueError("この申請はすでに審査済みです")
             app.status = decision
             app.reviewed_by = self._actor_id(admin_payload)
-            app.review_note = note.strip()[:500]
+            app.review_note = note.strip()[:MAX_REVIEW_NOTE_LEN]
             app.reviewed_at = datetime.now(timezone.utc)
             if decision == "approved":
                 user = self.store._by_id.get(app.user_id)

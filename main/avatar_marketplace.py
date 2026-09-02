@@ -71,6 +71,16 @@ _MAX_PRICE_HISTORY = int(os.getenv("MAX_PRICE_HISTORY", "200"))
 # and the credit ledger are unaffected: this is the display log, not the money.
 _MAX_TIPS = int(os.getenv("MAX_TIPS", "50000"))
 
+# --- Moderation audit-record limits (#102) -------------------------------
+# Public, not underscore-prefixed: api_server imports these so the boundary
+# that REFUSES an over-long note and the store that holds it read the same
+# number. They used to be bare literals here, with the console's own
+# maxLength as a separate copy that did not exist -- so a 1500-character
+# justification returned HTTP 200 and 1000 characters were kept, with
+# nothing anywhere to say the rest had been dropped.
+MAX_RESOLUTION_NOTE_LEN = 1000   # listing/review report resolution note
+MAX_DISPUTE_NOTE_LEN = 500       # commission dispute resolution note
+
 _MAX_PARAM_KEYS = 500
 _MAX_PARAM_BYTES = 65536
 
@@ -1995,7 +2005,7 @@ class MarketplaceStore:
                 raise ValueError("この購入はすでに払い戻し済みです")
             dispute.status = f"resolved_{decision}"
             dispute.resolved_by = admin_id
-            dispute.resolution_note = note.strip()[:500]
+            dispute.resolution_note = note.strip()[:MAX_DISPUTE_NOTE_LEN]
             dispute.resolved_at = datetime.now(timezone.utc)
             if decision == "refund":
                 # Claim the purchase so the order-refund channel can't also
@@ -2563,7 +2573,7 @@ class MarketplaceStore:
                 raise ValueError("このレポートはすでに処理済みです")
             report.status = action
             report.resolved_by = moderator_id
-            report.resolution_note = note.strip()[:1000]
+            report.resolution_note = note.strip()[:MAX_RESOLUTION_NOTE_LEN]
             report.resolved_at = datetime.now(timezone.utc)
             if takedown:
                 listing = self._listings.get(report.listing_id)
@@ -2652,7 +2662,7 @@ class MarketplaceStore:
                 raise ValueError("この報告はすでに処理済みです")
             report.status = action
             report.resolved_by = moderator_id
-            report.resolution_note = note.strip()[:1000]
+            report.resolution_note = note.strip()[:MAX_RESOLUTION_NOTE_LEN]
             report.resolved_at = datetime.now(timezone.utc)
             if hide:
                 rv = self._find_review(report.review_id)
