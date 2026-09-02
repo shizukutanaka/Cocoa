@@ -391,5 +391,78 @@ class TestBundlePriceIsQuotedByTheServer(unittest.TestCase):
         self.assertEqual(mgr.quote(bundle["bundle_id"], store)["total_price"], 100)
 
 
+class TestCartQuotesThePayableTotal(unittest.TestCase):
+    """The cart must state what checkout will charge (audit #94).
+
+    subtotal_credits is the sum of LIST prices; promo discounts are applied per
+    item at checkout, so it is not the payable amount -- measured, a cart whose
+    subtotal read 151 was charged 140. The page compensated by calling the
+    promo-preview endpoint once per item and doing the arithmetic itself, which
+    is the same split-brain pricing #93 fixed for bundles, and it went stale
+    whenever a code expired between the preview and checkout.
+
+    Unlike bundles this was not showing a wrong number to users, because the
+    preview endpoint is server-side and matches checkout's arithmetic. The
+    defect was that the API never quoted a payable total, so every client had
+    to rebuild one.
+    """
+
+    def _setup(self):
+        import avatar_marketplace as market
+        from cart_manager import CartManager
+        store, cart = market.MarketplaceStore(), CartManager()
+        store.add_credits("buyer", 5000)
+        listing = store.publish(
+            avatar_id="a", owner_id="seller", owner_username="s", name="n",
+            description="d", tags=[], category="other", parameters={"p": 1},
+            price_credits=101, is_free=False,
+        )
+        return store, cart, listing
+
+    def test_the_quote_matches_what_checkout_charges(self):
+        store, cart, listing = self._setup()
+        store.create_promo_code("seller", "SAVE10", 10, listing_id=listing.listing_id)
+        cart.add_item("buyer", listing.listing_id, listing.name, "seller", "s",
+                      listing.price_credits, False, promo_code="SAVE10")
+
+        quote = cart.quote("buyer", store)
+        self.assertEqual(quote["subtotal_credits"], 101, "subtotal is the list price")
+        self.assertEqual(quote["total_credits"], 90, "quote must apply the promo")
+        self.assertEqual(quote["discount_credits"], 11)
+
+        before = store.get_balance("buyer")
+        cart.checkout("buyer", store)
+        self.assertEqual(before - store.get_balance("buyer"), quote["total_credits"])
+
+    def test_a_cart_without_promos_quotes_the_subtotal(self):
+        store, cart, listing = self._setup()
+        cart.add_item("buyer", listing.listing_id, listing.name, "seller", "s",
+                      listing.price_credits, False)
+        quote = cart.quote("buyer", store)
+        self.assertEqual(quote["total_credits"], quote["subtotal_credits"])
+        self.assertEqual(quote["discount_credits"], 0)
+
+    def test_an_invalid_code_falls_back_to_list_price_and_is_reported(self):
+        # Better to quote high and charge less than to fail the whole cart, but
+        # the client must be able to say the quote is uncertain.
+        store, cart, listing = self._setup()
+        cart.add_item("buyer", listing.listing_id, listing.name, "seller", "s",
+                      listing.price_credits, False, promo_code="NOSUCHCODE")
+        quote = cart.quote("buyer", store)
+        self.assertEqual(quote["total_credits"], 101)
+        self.assertIn(listing.listing_id, quote["unpriced_listing_ids"])
+
+    def test_free_items_cost_nothing_in_the_quote(self):
+        import avatar_marketplace as market
+        from cart_manager import CartManager
+        store, cart = market.MarketplaceStore(), CartManager()
+        free = store.publish(
+            avatar_id="f", owner_id="seller", owner_username="s", name="free",
+            description="d", tags=[], category="other", parameters={"p": 1},
+        )
+        cart.add_item("buyer", free.listing_id, free.name, "seller", "s", 0, True)
+        self.assertEqual(cart.quote("buyer", store)["total_credits"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

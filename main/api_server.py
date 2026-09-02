@@ -5090,6 +5090,12 @@ async def get_cart(current_user: dict = Depends(get_current_user)):
     """現在のカートを取得する"""
     if not get_cart_manager:
         raise HTTPException(status_code=503, detail="サービスが利用できません")
+    # Quote the payable total server-side. subtotal_credits is pre-discount, so
+    # a client that shows it as "the total" is wrong the moment a promo code is
+    # attached -- and reconstructing it client-side is what #93 fixed for
+    # bundles. Falls back to the plain cart if the marketplace is unavailable.
+    if get_marketplace:
+        return get_cart_manager().quote(current_user["user_id"], get_marketplace())
     return get_cart_manager().get_cart(current_user["user_id"])
 
 

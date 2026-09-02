@@ -312,6 +312,47 @@ class CartManager:
     def set_promo_code(self, user_id: str, listing_id: str, promo_code: str) -> Dict[str, Any]:
         return self.store.set_promo_code(user_id, listing_id, promo_code).to_dict()
 
+    def quote(self, user_id: str, marketplace_store: Any) -> Dict[str, Any]:
+        """The cart, plus what checking out would actually cost.
+
+        `subtotal_credits` is the sum of LIST prices; promo discounts are
+        applied per item at checkout, so it is not the payable amount. Clients
+        used to reconstruct the real total by calling the promo-preview
+        endpoint once per item and doing the arithmetic themselves -- the same
+        split-brain pricing that made bundles advertise a total they did not
+        charge (#93). Quoting it here keeps one implementation.
+
+        Best-effort per item: anything the marketplace cannot price (a delisted
+        listing, an expired code) falls back to the list price rather than
+        failing the whole cart, and is reported in `unpriced` so a client can
+        say so instead of silently showing a wrong number.
+        """
+        cart = self.store.get_cart(user_id)
+        payload = cart.to_dict()
+        total = 0
+        unpriced = []
+        for item in cart.items:
+            qty = max(1, item.quantity)
+            if item.is_free:
+                continue
+            unit = item.price_credits
+            if item.promo_code:
+                try:
+                    preview = marketplace_store.lookup_promo_code(
+                        item.promo_code, item.listing_id
+                    )
+                    if preview and "discounted_price" in preview:
+                        unit = int(preview["discounted_price"])
+                    else:
+                        unpriced.append(item.listing_id)
+                except Exception:
+                    unpriced.append(item.listing_id)
+            total += unit * qty
+        payload["total_credits"] = total
+        payload["discount_credits"] = max(0, payload["subtotal_credits"] - total)
+        payload["unpriced_listing_ids"] = unpriced
+        return payload
+
     def checkout(self, user_id: str, marketplace_store: Any) -> Dict[str, Any]:
         """Process all items in the cart.
 
