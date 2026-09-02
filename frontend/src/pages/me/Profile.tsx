@@ -30,9 +30,17 @@ function MembershipCard() {
             {TIER_LABEL_JA[membership.tier] ?? membership.tier_label}
           </div>
         </div>
-        {membership.fee_discount_percent > 0 && (
-          <span className="badge badge-success">手数料 {membership.fee_discount_percent}% 割引</span>
-        )}
+        {membership.fee_discount_percent > 0 &&
+          (membership.fee_discount_active ? (
+            <span className="badge badge-success">手数料 {membership.fee_discount_percent}% 割引</span>
+          ) : (
+            // The platform takes no cut today, so a "discount" badge would
+            // promise a rebate on a fee nobody is charged (#92). Show the
+            // tier benefit as what it is: pending.
+            <span className="badge" title="現在プラットフォーム手数料は徴収していません">
+              手数料 {membership.fee_discount_percent}% 割引（手数料導入時に適用）
+            </span>
+          ))}
       </div>
       <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 8 }}>
         累計購入 {membership.lifetime_credits.toLocaleString()} cr
