@@ -91,7 +91,12 @@ export interface Cart {
   user_id: string;
   items: CartItem[];
   item_count: number;
-  subtotal_credits: number;
+  subtotal_credits: number; // sum of LIST prices -- not the payable amount
+  // Priced by the server with the same promo resolution checkout uses (#94).
+  // Absent only from an older server; the cart page falls back to a local sum.
+  total_credits?: number;
+  discount_credits?: number;
+  unpriced_listing_ids?: string[];
   created_at: string;
   updated_at: string;
 }

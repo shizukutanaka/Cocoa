@@ -47,12 +47,23 @@ export function CartPage() {
     }
   }, [cart]);
 
-  // Display total: backend subtotal minus validated per-item discounts.
-  const discountTotal = cart
+  // The payable total comes from the server (cart.total_credits), which prices
+  // the cart with the same promo resolution checkout uses. This page used to
+  // subtract per-item previews itself; that is the split-brain pricing #93
+  // fixed for bundles, and it also went stale whenever a code expired between
+  // the preview and checkout. The local reduction is kept only as a fallback
+  // for a server too old to quote.
+  const localDiscount = cart
     ? cart.items.reduce((sum, item) => {
         const p = promoPreviews[item.listing_id];
         return p ? sum + (p.original_price - p.discounted_price) : sum;
       }, 0)
+    : 0;
+  const payableTotal = cart
+    ? cart.total_credits ?? Math.max(0, cart.subtotal_credits - localDiscount)
+    : 0;
+  const discountTotal = cart
+    ? cart.discount_credits ?? localDiscount
     : 0;
 
   async function handleRemove(listingId: string) {
@@ -180,11 +191,11 @@ export function CartPage() {
             <>
               <s style={{ color: "var(--faint)" }}>{cart.subtotal_credits.toLocaleString()} cr</s>{" "}
               <span style={{ fontSize: 20, fontWeight: 700, color: "var(--success)" }}>
-                {(cart.subtotal_credits - discountTotal).toLocaleString()} cr
+                {payableTotal.toLocaleString()} cr
               </span>
             </>
           ) : (
-            <span style={{ fontSize: 20, fontWeight: 700 }}>{cart.subtotal_credits.toLocaleString()} cr</span>
+            <span style={{ fontSize: 20, fontWeight: 700 }}>{payableTotal.toLocaleString()} cr</span>
           )}
         </div>
         <button className="btn btn-primary" onClick={handleCheckout} disabled={checkingOut}>
