@@ -6,6 +6,7 @@ import { apiErrorMessage } from "../../services/apiClient";
 import { useToast } from "../../hooks/useToast";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 import type { Bundle } from "../../types/api";
 
 function statusBadge(bundle: Bundle) {
@@ -28,7 +29,7 @@ export function Bundles() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const { data: bundles, isLoading } = useQuery({
+  const { data: bundles, isLoading, isError, error: loadError, refetch } = useQuery({
     queryKey: ["my-bundles"],
     queryFn: () => bundleService.listMyBundles(true, 50, 0),
   });
@@ -172,7 +173,9 @@ export function Bundles() {
         </form>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <LoadError error={loadError} retry={refetch} />
+      ) : isLoading ? (
         <CenterSpinner />
       ) : !bundles || bundles.items.length === 0 ? (
         <div className="empty-state">まだバンドルがありません。</div>

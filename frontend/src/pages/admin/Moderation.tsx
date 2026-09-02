@@ -9,6 +9,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../hooks/useToast";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 import { apiErrorMessage } from "../../services/apiClient";
 import type { AdminUser, ListingReport, ReviewReportRecord } from "../../types/api";
 
@@ -161,7 +162,7 @@ function CommissionDisputesTab() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["admin-commission-disputes"],
     queryFn: () => adminService.listModerationItems("commission_dispute"),
   });
@@ -215,7 +216,9 @@ function CommissionDisputesTab() {
         判断の理由を必ず記録してください。
       </p>
 
-      {items.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : items.length === 0 ? (
         <div className="empty-state">コミッション紛争はありません。</div>
       ) : (
         <div className="card card-pad">
@@ -532,7 +535,7 @@ function ListingReportsTab() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["admin-reports", "pending"],
     queryFn: () => adminService.listReports("pending"),
   });
@@ -580,7 +583,9 @@ function ListingReportsTab() {
   return (
     <>
       <QueueHealth pending={sorted.length} oldest={sorted[sorted.length - 1]?.created_at} />
-      {sorted.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : sorted.length === 0 ? (
         <div className="empty-state">未処理の通報はありません。</div>
       ) : (
         <div className="card card-pad">
@@ -676,7 +681,7 @@ function ReviewReportsTab() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["admin-review-reports", "pending"],
     queryFn: () => adminService.listReviewReports("pending"),
   });
@@ -711,7 +716,9 @@ function ReviewReportsTab() {
   return (
     <>
       <QueueHealth pending={sorted.length} oldest={sorted[sorted.length - 1]?.created_at} />
-      {sorted.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : sorted.length === 0 ? (
         <div className="empty-state">未処理のレビュー通報はありません。</div>
       ) : (
         <div className="card card-pad">
@@ -765,7 +772,7 @@ function RefundsTab() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["admin-refunds", "pending"],
     queryFn: () => adminService.listRefunds("pending"),
   });
@@ -801,7 +808,9 @@ function RefundsTab() {
   return (
     <>
       <QueueHealth pending={items.length} oldest={items[items.length - 1]?.created_at} />
-      {items.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : items.length === 0 ? (
         <div className="empty-state">未処理の払い戻し申請はありません。</div>
       ) : (
         <div className="card card-pad">
@@ -867,7 +876,7 @@ function CreatorApplicationsTab() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["admin-creator-applications", "pending"],
     queryFn: () => adminService.listCreatorApplications("pending"),
   });
@@ -901,7 +910,9 @@ function CreatorApplicationsTab() {
         この審査で確認できるのは<strong>申請理由とポートフォリオ</strong>のみです。本人確認・法人確認は含まれないため、
         認定バッジはその範囲を超える保証を意味しません。確認した内容を必ず記録してください。
       </div>
-      {items.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : items.length === 0 ? (
         <div className="empty-state">未処理の認定申請はありません。</div>
       ) : (
         <div className="card card-pad">
@@ -996,7 +1007,7 @@ function UsersTab() {
   const [quotaValue, setQuotaValue] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["admin-users"],
     queryFn: () => adminService.listUsers(),
   });
@@ -1119,7 +1130,9 @@ function UsersTab() {
         />
       </div>
 
-      {users.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : users.length === 0 ? (
         <div className="empty-state">該当するユーザーはいません。</div>
       ) : (
         <div className="card card-pad">
@@ -1260,7 +1273,7 @@ function BannedUsersTab() {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["admin-banned-users"],
     queryFn: () => adminService.listBannedUsers(),
   });
@@ -1291,7 +1304,9 @@ function BannedUsersTab() {
           <div className="stat-label">停止中</div>
         </div>
       </div>
-      {items.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : items.length === 0 ? (
         <div className="empty-state">停止中のユーザーはいません。</div>
       ) : (
         <div className="card card-pad">

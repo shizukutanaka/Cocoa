@@ -5,6 +5,7 @@ import { apiErrorMessage } from "../../services/apiClient";
 import { useToast } from "../../hooks/useToast";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 import type { SavedSearch } from "../../types/api";
 
 // Rebuild the marketplace URL a saved search points at, so "実行" lands the
@@ -25,7 +26,7 @@ export function SavedSearches() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["saved-searches"],
     queryFn: savedSearchService.listSavedSearches,
   });
@@ -57,7 +58,9 @@ export function SavedSearches() {
       <p style={{ color: "var(--muted)", fontSize: 14 }}>
         通知をオンにすると、条件に一致する新着アバターが出品されたときに通知が届きます。
       </p>
-      {!data || data.items.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : !data || data.items.length === 0 ? (
         <div className="empty-state">
           保存した検索はありません。マーケットプレイスで条件を指定し「この検索を保存」から追加できます。
         </div>

@@ -4,12 +4,13 @@ import * as giftCardService from "../../services/giftCardService";
 import { apiErrorMessage } from "../../services/apiClient";
 import { useToast } from "../../hooks/useToast";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 
 export function GiftCards() {
   const { show } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: cards, isLoading } = useQuery({
+  const { data: cards, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["gift-cards"],
     queryFn: () => giftCardService.myGiftCards(50, 0),
   });
@@ -158,7 +159,9 @@ export function GiftCards() {
       </div>
 
       <h2 style={{ fontSize: 16 }}>購入したギフトカード</h2>
-      {isLoading ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : isLoading ? (
         <CenterSpinner />
       ) : !cards || cards.items.length === 0 ? (
         <div className="empty-state">まだ購入したギフトカードはありません。</div>

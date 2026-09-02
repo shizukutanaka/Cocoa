@@ -2,16 +2,19 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { getOrders } from "../../services/cartService";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 
 export function Orders() {
-  const { data, isLoading } = useQuery({ queryKey: ["orders"], queryFn: () => getOrders(50, 0) });
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ["orders"], queryFn: () => getOrders(50, 0) });
 
   if (isLoading) return <CenterSpinner />;
 
   return (
     <div>
       <h1>注文履歴</h1>
-      {!data || data.items.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : !data || data.items.length === 0 ? (
         <div className="empty-state">まだ注文がありません。</div>
       ) : (
         <div className="card card-pad">

@@ -5,6 +5,7 @@ import { apiErrorMessage } from "../../services/apiClient";
 import { useToast } from "../../hooks/useToast";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 import type { CommissionRequest } from "../../types/api";
 
 const STATUS_LABEL: Record<CommissionRequest["status"], string> = {
@@ -225,7 +226,7 @@ export function Commissions() {
   usePageTitle("コミッション");
   const [tab, setTab] = useState<"received" | "sent">("received");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["commissions", tab],
     queryFn: () =>
       tab === "received"
@@ -255,7 +256,9 @@ export function Commissions() {
         </button>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : isLoading ? (
         <CenterSpinner />
       ) : !data || data.items.length === 0 ? (
         <div className="empty-state">

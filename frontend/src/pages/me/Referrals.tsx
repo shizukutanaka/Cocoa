@@ -3,6 +3,7 @@ import * as referralService from "../../services/referralService";
 import { useToast } from "../../hooks/useToast";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 
 export function Referrals() {
   usePageTitle("友達を招待");
@@ -18,7 +19,7 @@ export function Referrals() {
     queryFn: referralService.getMyStats,
   });
 
-  const { data: referrals } = useQuery({
+  const { data: referrals, isError, error, refetch } = useQuery({
     queryKey: ["referral-list"],
     queryFn: () => referralService.getMyReferrals(50, 0),
   });
@@ -86,7 +87,9 @@ export function Referrals() {
       )}
 
       <h2 style={{ fontSize: 18 }}>招待履歴</h2>
-      {!referrals || referrals.items.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : !referrals || referrals.items.length === 0 ? (
         <div className="empty-state">まだ招待実績がありません。上のリンクを友達に共有しましょう。</div>
       ) : (
         <div className="card card-pad">

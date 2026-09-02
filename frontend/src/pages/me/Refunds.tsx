@@ -3,11 +3,12 @@ import { Link } from "react-router-dom";
 import * as refundService from "../../services/refundService";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 
 export function Refunds() {
   usePageTitle("払い戻しリクエスト");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["my-refunds"],
     queryFn: () => refundService.getMyRefunds(50, 0),
   });
@@ -17,7 +18,9 @@ export function Refunds() {
   return (
     <div>
       <h1>払い戻しリクエスト</h1>
-      {!data || data.items.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : !data || data.items.length === 0 ? (
         <div className="empty-state">
           払い戻しリクエストはありません。注文詳細ページから申請できます。
         </div>

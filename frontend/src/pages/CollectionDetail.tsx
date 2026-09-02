@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import * as collectionsService from "../services/collectionsService";
 import { CenterSpinner } from "../components/Spinner";
+import { LoadError } from "../components/LoadError";
 import { useToast } from "../hooks/useToast";
 import { apiErrorMessage } from "../services/apiClient";
 
@@ -10,7 +11,7 @@ export function CollectionDetail() {
   const queryClient = useQueryClient();
   const { show } = useToast();
 
-  const { data: collection, isLoading: loadingCollection } = useQuery({
+  const { data: collection, isLoading: loadingCollection, isError, error, refetch } = useQuery({
     queryKey: ["collection", collectionId],
     queryFn: () => collectionsService.getCollection(collectionId!),
     enabled: !!collectionId,
@@ -33,6 +34,9 @@ export function CollectionDetail() {
   }
 
   if (loadingCollection || loadingItems) return <CenterSpinner />;
+  // A failed load is not a missing collection: saying "not found" during an
+  // outage tells the owner their collection was deleted (#101).
+  if (isError) return <LoadError error={error} retry={refetch} />;
   if (!collection) return <div className="empty-state">コレクションが見つかりませんでした。</div>;
 
   return (

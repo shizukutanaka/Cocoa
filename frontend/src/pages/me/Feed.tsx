@@ -2,12 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import * as userService from "../../services/userService";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 import { usePageTitle } from "../../hooks/usePageTitle";
 
 export function Feed() {
   usePageTitle("フィード");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["feed"],
     queryFn: () => userService.getFeed(30, 0),
   });
@@ -19,7 +20,9 @@ export function Feed() {
         フォロー中のクリエイターが公開した新着アバターです。
       </p>
 
-      {isLoading ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : isLoading ? (
         <CenterSpinner />
       ) : !data || data.items.length === 0 ? (
         <div className="empty-state">

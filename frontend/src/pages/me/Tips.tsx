@@ -5,6 +5,7 @@ import * as tipService from "../../services/tipService";
 import { getPublicProfile } from "../../services/userService";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 
 // Tip.to_dict() only carries recipient_id (no recipient_username) -- look it
 // up on demand for the "sent" tab. Cheap: react-query dedupes/caches by id.
@@ -20,7 +21,7 @@ export function Tips() {
   usePageTitle("チップ");
   const [tab, setTab] = useState<"received" | "sent">("received");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["tips", tab],
     queryFn: () => (tab === "received" ? tipService.getTipsReceived(50, 0) : tipService.getTipsSent(50, 0)),
   });
@@ -47,7 +48,9 @@ export function Tips() {
         </button>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : isLoading ? (
         <CenterSpinner />
       ) : !data || data.items.length === 0 ? (
         <div className="empty-state">

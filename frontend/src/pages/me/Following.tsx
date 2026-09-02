@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import * as userService from "../../services/userService";
 import { CenterSpinner } from "../../components/Spinner";
+import { LoadError } from "../../components/LoadError";
 import { useToast } from "../../hooks/useToast";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { apiErrorMessage } from "../../services/apiClient";
@@ -11,7 +12,7 @@ export function Following() {
   const { show } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: following, isLoading } = useQuery({
+  const { data: following, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["my-following"],
     queryFn: userService.getMyFollowing,
   });
@@ -33,7 +34,9 @@ export function Following() {
       <p style={{ color: "var(--muted)", fontSize: 14 }}>
         フォロー中のクリエイターが新しいアバターを公開すると通知が届きます。
       </p>
-      {!following || following.length === 0 ? (
+      {isError ? (
+        <LoadError error={error} retry={refetch} />
+      ) : !following || following.length === 0 ? (
         <div className="empty-state">
           まだ誰もフォローしていません。気になるクリエイターのページからフォローできます。
         </div>
