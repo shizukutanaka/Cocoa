@@ -16,6 +16,13 @@ can ever read that data back out.
 Each was found by hand, late. This script surfaces the whole class in one run
 so the next one is noticed immediately.
 
+A capability can also hide inside an endpoint that IS called. GET
+/api/marketplace supports ?facets=true, which returns per-search filter counts;
+nothing ever asked for it, so the category dropdown showed global counts and
+promised numbers that clicking did not deliver (#96). The endpoint scan below
+could not see that -- the path is called constantly. So this also reports
+declared query parameters no frontend file mentions.
+
 Reading the output
 ------------------
 An unreferenced endpoint is NOT automatically a bug. Three outcomes are all
@@ -37,6 +44,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from pathlib import Path
@@ -47,6 +55,19 @@ API_SERVER = REPO_ROOT / "main" / "api_server.py"
 FRONTEND_SRC = REPO_ROOT / "frontend" / "src"
 
 Endpoint = Tuple[str, str]  # (VERB, path)
+
+
+def _frontend_sources():
+    """Shipped frontend source files only.
+
+    Matching "*.ts*" would also pick up .ts.bak, .tsbuildinfo and editor
+    leftovers; a stale copy sitting in the tree would then make a parameter
+    look used when the live code no longer sends it. Found while verifying
+    this very check -- a backup file I had written next to the original was
+    silently keeping ?facets alive in the corpus.
+    """
+    for suffix in ("*.ts", "*.tsx"):
+        yield from FRONTEND_SRC.rglob(suffix)
 
 
 def backend_endpoints() -> Set[Endpoint]:
@@ -66,12 +87,68 @@ def frontend_paths() -> Set[str]:
     into the product.
     """
     paths: Set[str] = set()
-    for file in FRONTEND_SRC.rglob("*.ts*"):
+    for file in _frontend_sources():
         if ".test." in file.name:
             continue
         text = file.read_text(encoding="utf-8")
         paths.update(re.findall(r'["\'`](/api/[^"\'`]*)["\'`]', text))
     return paths
+
+
+def declared_query_parameters() -> List[Tuple[str, str]]:
+    """(path, parameter) for every FastAPI Query(...) argument in the API.
+
+    Parsed from the AST rather than grepped, so a default like Query(False)
+    is not confused with an ordinary keyword argument.
+    """
+    tree = ast.parse(API_SERVER.read_text(encoding="utf-8"))
+    found: List[Tuple[str, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        path = None
+        for dec in node.decorator_list:
+            func = dec.func if isinstance(dec, ast.Call) else dec
+            if (
+                isinstance(func, ast.Attribute)
+                and getattr(func.value, "id", None) == "app"
+                and isinstance(dec, ast.Call)
+                and dec.args
+                and isinstance(dec.args[0], ast.Constant)
+            ):
+                path = dec.args[0].value
+        if not path or not str(path).startswith("/api/"):
+            continue
+        defaults = node.args.defaults or []
+        for arg, default in zip(node.args.args[-len(defaults):], defaults):
+            if isinstance(default, ast.Call) and getattr(default.func, "id", None) == "Query":
+                found.append((path, arg.arg))
+    return found
+
+
+def unused_query_parameters() -> List[Tuple[str, str]]:
+    """Declared query parameters no shipped frontend file SENDS.
+
+    Type declarations are excluded from the corpus, and that exclusion is the
+    whole point. Verifying this check against #96 exposed a flaw in it: the
+    frontend declared `facets?:` on the Paginated type while never sending
+    ?facets=true, and a loose name match counted the declaration as use -- so
+    the check would have missed the very bug that motivated it. A type says
+    what a response may contain; only a request sends a parameter.
+
+    Still deliberately loose otherwise: any mention in non-type code counts.
+    A parameter surviving that is genuinely never sent.
+    """
+    text = ""
+    for file in _frontend_sources():
+        if ".test." in file.name or "types" in file.parts:
+            continue
+        text += file.read_text(encoding="utf-8")
+    return [
+        (path, name)
+        for path, name in declared_query_parameters()
+        if not re.search(rf"\b{re.escape(name)}\b", text)
+    ]
 
 
 def matcher(path: str) -> re.Pattern:
@@ -120,10 +197,19 @@ def main() -> int:
         for verb, path in wired:
             print(f"  {verb:6} {path}")
 
+    unused_params = unused_query_parameters()
+    print(f"\n--- declared query parameters never sent ({len(unused_params)}) ---")
+    for path, name in sorted(unused_params):
+        print(f"  {path}  ?{name}")
+    if not unused_params:
+        print("  (none)")
+
     print(
         "\nAn unwired endpoint is not automatically a bug -- see this file's "
         "docstring.\nThe one that matters is: can a user already put data in "
-        "with no way to get it out?"
+        "with no way to get it out?\nAn unused query parameter is a capability "
+        "hiding inside an endpoint that IS\ncalled; ?facets=true was one, and "
+        "the filter counts were wrong until it was sent (#96)."
     )
     # Informational by design: the judgement is human, so never fail a build.
     return 0
