@@ -6,6 +6,7 @@ import {
   getCategories,
   getLeaderboard,
   getListing,
+  getPlatforms,
   getSuggestions,
   getTrending,
   getTrendingTags,
@@ -30,7 +31,11 @@ export function Marketplace() {
   const [params, setParams] = useSearchParams();
   const q = params.get("q") ?? "";
   const category = params.get("category") ?? "";
+  const platform = params.get("platform") ?? "";
   const tags = params.get("tags") ?? "";
+  const isFreeOnly = params.get("is_free") === "true";
+  const minPrice = params.get("min_price") ?? "";
+  const maxPrice = params.get("max_price") ?? "";
   const sortBy = (params.get("sort_by") as SortKey) ?? "newest";
   const offset = Number(params.get("offset") ?? "0");
 
@@ -46,14 +51,31 @@ export function Marketplace() {
   }, [q]);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["marketplace", q, category, tags, sortBy, offset],
+    queryKey: ["marketplace", q, category, platform, tags, isFreeOnly, minPrice, maxPrice, sortBy, offset],
     queryFn: () =>
-      browseMarketplace({ q, category, tags, sort_by: sortBy, limit: PAGE_SIZE, offset, facets: true }),
+      browseMarketplace({
+        q,
+        category,
+        platform: platform || undefined,
+        tags,
+        is_free: isFreeOnly || undefined,
+        min_price: minPrice ? Number(minPrice) : undefined,
+        max_price: maxPrice ? Number(maxPrice) : undefined,
+        sort_by: sortBy,
+        limit: PAGE_SIZE,
+        offset,
+        facets: true,
+      }),
   });
 
   const { data: categories } = useQuery({
     queryKey: ["marketplace-categories"],
     queryFn: getCategories,
+  });
+
+  const { data: platforms } = useQuery({
+    queryKey: ["marketplace-platforms"],
+    queryFn: getPlatforms,
   });
 
   const { data: suggestions } = useQuery({
@@ -98,9 +120,18 @@ export function Marketplace() {
     const name = window.prompt("この検索の名前を入力してください", q || category || "検索");
     if (!name) return;
     try {
+      // Every filter currently applied, so "保存した検索に一致する新着" notifies
+      // on exactly what this search shows -- not a subset of it. The matcher
+      // (saved_searches.py _listing_matches) already checks platform/is_free/
+      // min_price/max_price; leaving them out here would silently notify for
+      // listings outside the price range or platform the user actually saved.
       await createSavedSearch(name, q, {
         category: category || undefined,
+        platform: platform || undefined,
         tags: tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : undefined,
+        is_free: isFreeOnly || undefined,
+        min_price: minPrice ? Number(minPrice) : undefined,
+        max_price: maxPrice ? Number(maxPrice) : undefined,
         sort_by: sortBy,
       });
       show("検索を保存しました");
@@ -109,9 +140,10 @@ export function Marketplace() {
     }
   }
 
-  const hasFilters = Boolean(q || category || tags);
+  const hasFilters = Boolean(q || category || platform || tags || isFreeOnly || minPrice || maxPrice);
   // Present only when the server supports facets; falls back to global counts.
   const facetCategories = data?.facets?.categories;
+  const facetPlatforms = data?.facets?.platforms;
 
   // Discovery strip for the default landing view only -- once the user is
   // actively filtering/searching, the main grid IS the answer and the strip
@@ -199,12 +231,62 @@ export function Marketplace() {
           })}
         </select>
 
+        <select
+          value={platform}
+          aria-label="プラットフォームで絞り込み"
+          onChange={(e) => updateParams({ platform: e.target.value, offset: "0" })}
+        >
+          <option value="">全プラットフォーム</option>
+          {platforms?.items.map((p) => {
+            // Same reasoning as the category dropdown just above (#96): show
+            // the count for the CURRENT search, not the unfiltered global
+            // count, so the number next to each option matches what selecting
+            // it actually returns.
+            const count = facetPlatforms ? facetPlatforms[p.platform] ?? 0 : p.count;
+            return (
+              <option key={p.platform} value={p.platform}>
+                {p.platform}（{count}）
+              </option>
+            );
+          })}
+        </select>
+
         <input
           type="text"
           placeholder="タグ（カンマ区切り）"
           aria-label="タグで絞り込み"
           defaultValue={tags}
           onBlur={(e) => updateParams({ tags: e.target.value.trim(), offset: "0" })}
+        />
+
+        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 14, whiteSpace: "nowrap" }}>
+          <input
+            type="checkbox"
+            checked={isFreeOnly}
+            aria-label="無料のみ表示"
+            onChange={(e) => updateParams({ is_free: e.target.checked ? "true" : "", offset: "0" })}
+          />
+          無料のみ
+        </label>
+
+        <input
+          type="number"
+          min={0}
+          placeholder="最低価格"
+          aria-label="最低価格"
+          defaultValue={minPrice}
+          style={{ width: 90 }}
+          onBlur={(e) => updateParams({ min_price: e.target.value.trim(), offset: "0" })}
+        />
+        <span aria-hidden="true">〜</span>
+        <input
+          type="number"
+          min={0}
+          placeholder="最高価格"
+          aria-label="最高価格"
+          defaultValue={maxPrice}
+          style={{ width: 90 }}
+          onBlur={(e) => updateParams({ max_price: e.target.value.trim(), offset: "0" })}
         />
 
         <select

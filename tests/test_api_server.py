@@ -3153,5 +3153,51 @@ class TestAuditNoteIsRequiredAndWhole(unittest.TestCase):
         self.assertEqual(api_server.MAX_ADMIN_NOTES_LEN, refund_manager.MAX_ADMIN_NOTES_LEN)
 
 
+class TestListPlatformsEndpoint(unittest.TestCase):
+    """GET /api/marketplace/platforms mirrors /categories (audit #103)."""
+
+    def test_returns_items_and_total_from_the_store(self):
+        mp = MagicMock()
+        mp.get_platforms.return_value = [{"platform": "vrchat", "count": 3}]
+        with patch.object(api_server, "get_marketplace", lambda: mp):
+            result = asyncio.run(api_server.list_platforms())
+        self.assertEqual(result, {"items": [{"platform": "vrchat", "count": 3}], "total": 1})
+
+    def test_503_when_marketplace_unavailable(self):
+        with patch.object(api_server, "get_marketplace", None):
+            with self.assertRaises(api_server.HTTPException) as ctx:
+                asyncio.run(api_server.list_platforms())
+        self.assertEqual(ctx.exception.status_code, 503)
+
+
+class TestBrowseMarketplacePriceAndPlatformFilters(unittest.TestCase):
+    """The price/platform/is_free filters reach the store (audit #103).
+
+    Measured before this round: the server fully implemented and enforced
+    min_price/max_price/platform/is_free (avatar_marketplace.search(), and
+    independently saved_searches._listing_matches), and no frontend file ever
+    sent them -- confirmed by scripts/unwired_endpoints.py's "declared query
+    parameters never sent" list. This pins the wiring on the server side of
+    that fix: the endpoint must still pass every filter through unchanged.
+    """
+
+    def test_all_filter_kwargs_reach_the_store(self):
+        mp = MagicMock()
+        mp.search.return_value = {"items": [], "total": 0}
+        with patch.object(api_server, "get_marketplace", lambda: mp):
+            asyncio.run(api_server.browse_marketplace(
+                q="cat", tags="a,b", category="vrc", sort_by="newest",
+                limit=20, offset=0, is_free=True, min_price=10, max_price=500,
+                license_type="personal", owner_id="u1", platform="vrchat",
+                facets=True,
+            ))
+        mp.search.assert_called_once()
+        kwargs = mp.search.call_args.kwargs
+        self.assertEqual(kwargs["is_free"], True)
+        self.assertEqual(kwargs["min_price"], 10)
+        self.assertEqual(kwargs["max_price"], 500)
+        self.assertEqual(kwargs["platform"], "vrchat")
+
+
 if __name__ == "__main__":
     unittest.main()

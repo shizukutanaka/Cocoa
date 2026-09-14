@@ -14,7 +14,8 @@ covers depth on the few journeys that matter most, through the actual UI, with
 the assertions that previous rounds had to rediscover by hand:
 
   1. Register -> log in -> the session survives a reload
-  2. Publish a priced listing -> it appears in public search
+  2. Publish a priced listing -> it appears in public search, and the price
+     filter (min_price/max_price) actually includes/excludes it (#103)
   3. Buy it through the cart -> CREDITS ACTUALLY MOVE, both sides
   4. Request a refund -> an admin approves it -> the buyer is made whole
   5. Report a listing -> an admin adjudicates it in the console, and the
@@ -149,6 +150,20 @@ async def run(base: str, admin_password: str) -> int:
     checks.that("listing published", status == 200 and bool(listing_id), f"status={status}")
     found = api(base, "GET", f"/api/marketplace?q=E2E+Avatar+{suffix}")[1].get("total", 0)
     checks.that("published listing is findable in public search", found >= 1)
+
+    # The price/platform filters were fully implemented and enforced server-side
+    # with no UI that ever sent them (#103, same shape as #96's facets gap).
+    # Check the whole path end to end: a range that DOES bracket the listing's
+    # price returns it, and one that does not is what actually EXCLUDES it --
+    # not just that the parameter is accepted.
+    in_range = api(base, "GET",
+        f"/api/marketplace?q=E2E+Avatar+{suffix}&min_price={price - 10}&max_price={price + 10}")[1]
+    checks.that("price range including the listing's price returns it",
+                in_range.get("total", 0) >= 1)
+    out_of_range = api(base, "GET",
+        f"/api/marketplace?q=E2E+Avatar+{suffix}&min_price={price + 1}")[1]
+    checks.that("min_price above the listing's price excludes it",
+                out_of_range.get("total", 0) == 0)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(executable_path=CHROMIUM)

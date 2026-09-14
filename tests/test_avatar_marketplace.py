@@ -2896,6 +2896,58 @@ class TestCategories(unittest.TestCase):
             self.assertIn("count", entry)
 
 
+class TestPlatforms(unittest.TestCase):
+    """Mirror of TestCategories for get_platforms() (audit #103).
+
+    min_price/max_price/is_free/platform were fully implemented and enforced
+    server-side (search(), and independently in saved_searches._listing_matches)
+    with no UI that ever sent them -- the same shape as #96 (facets) and #102
+    (audit notes): a capability finished on the server with no path for a user
+    to reach it. get_platforms() gives the marketplace page a stable option
+    list for a platform filter, the same way get_categories() already does.
+    """
+
+    def setUp(self):
+        self.store = _store()
+
+    def test_empty_when_no_listings(self):
+        self.assertEqual(self.store.get_platforms(), [])
+
+    def test_returns_platforms_with_counts(self):
+        _listing(self.store, platform="vrchat")
+        _listing(self.store, avatar_id="av2", platform="vrchat")
+        _listing(self.store, avatar_id="av3", platform="neos")
+        plat_map = {p["platform"]: p["count"] for p in self.store.get_platforms()}
+        self.assertEqual(plat_map["vrchat"], 2)
+        self.assertEqual(plat_map["neos"], 1)
+
+    def test_sorted_by_count_descending(self):
+        _listing(self.store, platform="b")
+        _listing(self.store, avatar_id="av2", platform="a")
+        _listing(self.store, avatar_id="av3", platform="a")
+        plats = self.store.get_platforms()
+        self.assertEqual(plats[0]["platform"], "a")
+
+    def test_inactive_listings_excluded(self):
+        lst = _listing(self.store, platform="rare_platform")
+        self.store.unpublish(lst.listing_id, "u1")
+        names = [p["platform"] for p in self.store.get_platforms()]
+        self.assertNotIn("rare_platform", names)
+
+    def test_blank_platform_excluded(self):
+        # publish() defaults platform to "" when not given; a blank option in
+        # the filter dropdown would be a confusing, unlabeled choice.
+        _listing(self.store, avatar_id="av_noplat")
+        names = [p["platform"] for p in self.store.get_platforms()]
+        self.assertNotIn("", names)
+
+    def test_each_entry_has_platform_and_count_keys(self):
+        _listing(self.store, platform="test")
+        for entry in self.store.get_platforms():
+            self.assertIn("platform", entry)
+            self.assertIn("count", entry)
+
+
 class TestReviewHiding(unittest.TestCase):
     def setUp(self):
         self.store = MarketplaceStore()

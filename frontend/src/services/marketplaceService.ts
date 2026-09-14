@@ -28,6 +28,8 @@ export interface BrowseParams {
   offset?: number;
   is_free?: boolean;
   platform?: string;
+  min_price?: number;
+  max_price?: number;
   // Ask the server for per-filter counts computed over THIS search, so the
   // filter controls show numbers that match what selecting them returns (#96).
   facets?: boolean;
@@ -124,6 +126,11 @@ export async function republishListing(listingId: string) {
 
 export async function getCategories(): Promise<{ items: Array<{ category: string; count: number }>; total: number }> {
   const { data } = await client.get("/api/marketplace/categories");
+  return data;
+}
+
+export async function getPlatforms(): Promise<{ items: Array<{ platform: string; count: number }>; total: number }> {
+  const { data } = await client.get("/api/marketplace/platforms");
   return data;
 }
 
