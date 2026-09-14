@@ -2810,6 +2810,15 @@ async def list_categories():
     return {"items": cats, "total": len(cats)}
 
 
+@app.get("/api/marketplace/platforms", tags=["marketplace"])
+async def list_platforms():
+    """プラットフォーム一覧と各プラットフォームのリスティング数を取得"""
+    if not get_marketplace:
+        raise HTTPException(status_code=503, detail="マーケットプレイスが利用できません")
+    plats = get_marketplace().get_platforms()
+    return {"items": plats, "total": len(plats)}
+
+
 @app.get("/api/marketplace/favorites", tags=["marketplace"])
 async def list_favorites(current_user: dict = Depends(get_current_user)):
     """お気に入りリスト（ブックマーク済みのリスティング）"""

@@ -1499,6 +1499,29 @@ class MarketplaceStore:
             for cat, cnt in sorted(counts.items(), key=lambda x: (-x[1], x[0]))
         ]
 
+    def get_platforms(self) -> List[Dict[str, Any]]:
+        """Return all platforms that have at least one active listing, with counts.
+
+        Mirror of get_categories(). Exists so the marketplace search page can
+        offer a platform filter with a stable option list (every platform that
+        exists ANYWHERE), the same way the category dropdown does -- rather
+        than deriving options from the current search's facets, which would
+        make the option list itself shrink and grow as a user types (#102's
+        sibling gap: min_price/max_price/platform were fully implemented and
+        enforced server-side with no UI that ever sent them).
+        """
+        from collections import Counter
+        with self._lock:
+            counts: Counter = Counter(
+                lst.platform
+                for lst in self._listings.values()
+                if lst.is_active and lst.platform
+            )
+        return [
+            {"platform": plat, "count": cnt}
+            for plat, cnt in sorted(counts.items(), key=lambda x: (-x[1], x[0]))
+        ]
+
     def get_creator_rating(self, owner_id: str) -> Dict[str, Any]:
         """A creator's rating across all their listings, weighted by review count.
 
