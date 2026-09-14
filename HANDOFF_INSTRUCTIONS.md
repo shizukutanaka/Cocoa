@@ -160,6 +160,15 @@ python3 scripts/e2e_critical_flows.py --base http://127.0.0.1:8250 \
   `@types/node` を devDependency に入れる。入れずに通るのは依存が**偶然**存在している間だけで、
   クリーンインストールの `npm run build` が落ちる（#101 で実際に持ち込み、#102 で修正）。
   検証を主張する前に、`npm run build` が**この差分だけを持つ木で**緑かを確認すること。
+- **新しいコンテナでは依存関係が空**: セッションが再起動すると `frontend/node_modules` が
+  丸ごと消えていることがある(`npm ci` で復元)。バックエンド側も `pip show fastapi` で
+  未導入なら `pip install --ignore-installed -r requirements-ci.txt`(debian管理の
+  `PyJWT` 等との衝突を避けるため `--ignore-installed` が必要)。`requirements-ci.txt` は
+  意図的に `psycopg2-binary` を含めない(コメント参照)ため、`SQLAlchemy` はあるのに
+  ドライバが無い状態になり、`/api/avatars*` が 500 を返す(#103 で実際に踏んだ。
+  これは環境差であり、本番の `requirements.txt` は psycopg2 を含む)。
+  検証前に必ず `npm ci` と依存導入を済ませ、smoke の 500 が自分の変更由来かこの
+  環境差由来かを切り分けること。
 - **分類器/ツールの一時エラー**: Bash の一時的な失敗は同一コマンドの再試行で通ることがある。
 
 ---
