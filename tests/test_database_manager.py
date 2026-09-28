@@ -144,3 +144,42 @@ class TestUserRepository(unittest.TestCase):
         result = self.repo.get_by_username(self.session, "uniqueuser")
         self.assertIsNotNone(result)
         self.assertEqual(result.email, "u@x.com")
+
+
+class TestGetUserAvatarsDoesNotSwallowDriverMissing(unittest.TestCase):
+    """get_user_avatars() must not turn a missing DB driver into [] (audit #104).
+
+    api_server.get_avatars() checks SQLALCHEMY_AVAILABLE before calling this
+    function -- but that flag only proves `import sqlalchemy` succeeded, not
+    that the configured dialect's driver (e.g. psycopg2 for postgresql://) is
+    importable too. When SQLAlchemy is present and the driver is not,
+    create_engine() raises ModuleNotFoundError past that guard, and this
+    function's own `except Exception: return []` used to swallow it --
+    turning GET /api/avatars into 200 {"avatars": [], "status": "success"},
+    exactly the "outage looks like an empty list" anti-pattern (#47) the
+    caller's comment already warns about, just one layer further down.
+    """
+
+    def test_module_not_found_error_propagates(self):
+        from unittest.mock import patch
+        with patch.object(_dm_module, "get_database_service",
+                           side_effect=ModuleNotFoundError("No module named 'psycopg2'")):
+            with self.assertRaises(ModuleNotFoundError):
+                _dm_module.get_user_avatars(1)
+
+    def test_import_error_propagates(self):
+        from unittest.mock import patch
+        with patch.object(_dm_module, "get_database_service",
+                           side_effect=ImportError("driver missing")):
+            with self.assertRaises(ImportError):
+                _dm_module.get_user_avatars(1)
+
+    def test_other_exceptions_still_return_empty_list(self):
+        # Scope is deliberately narrow: only the missing-dependency class
+        # changes behavior here. An unrelated runtime error (bad query,
+        # connection refused) keeps the existing swallow-to-[] behavior --
+        # widening that is a separate decision, not this fix's job.
+        from unittest.mock import patch
+        with patch.object(_dm_module, "get_database_service",
+                           side_effect=RuntimeError("connection refused")):
+            self.assertEqual(_dm_module.get_user_avatars(1), [])

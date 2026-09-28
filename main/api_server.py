@@ -1341,6 +1341,18 @@ async def get_avatars(current_user: dict = Depends(get_current_user)):
             "total": 0,
             "message": "データベース機能が利用できません"
         }
+    except (ModuleNotFoundError, ImportError) as e:
+        # SQLALCHEMY_AVAILABLE above only proves the ORM package imports --
+        # not that the configured dialect's DRIVER does (e.g. psycopg2 for
+        # postgresql://). create_engine() imports the driver eagerly, so a
+        # deployment with SQLAlchemy but no driver reached this far and threw
+        # here, past the guard meant to catch exactly this state (#64/#65's
+        # class, reopened: #104). Same 503 convention, not a second copy of it.
+        logger.error(f"アバター一覧取得: データベースドライバが利用できません: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"データベースが構成されていません（ドライバ未導入: {e}）",
+        ) from e
     except Exception as e:
         logger.error(f"アバター一覧取得エラー: {e}")
         raise HTTPException(status_code=500, detail="アバター一覧取得に失敗しました") from e
@@ -1379,6 +1391,14 @@ async def create_avatar(avatar_data: Dict[str, Any], current_user: dict = Depend
             "status": "created_mock",
             "message": "データベース機能が利用できないため、モックデータで作成されました"
         }
+    except (ModuleNotFoundError, ImportError) as e:
+        # See get_avatars just above (#104): SQLALCHEMY_AVAILABLE does not
+        # prove the DB driver is importable, only the ORM package.
+        logger.error(f"アバター作成: データベースドライバが利用できません: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"データベースが構成されていません（ドライバ未導入: {e}）",
+        ) from e
     except Exception as e:
         logger.error(f"アバター作成エラー: {e}")
         raise HTTPException(status_code=500, detail="アバター作成に失敗しました") from e
@@ -1425,6 +1445,14 @@ async def get_avatar(avatar_id: str, current_user: dict = Depends(get_current_us
             raise HTTPException(status_code=404, detail="データベース機能が利用できません")
     except HTTPException:
         raise
+    except (ModuleNotFoundError, ImportError) as e:
+        # See get_avatars above (#104): SQLALCHEMY_AVAILABLE does not prove
+        # the DB driver is importable, only the ORM package.
+        logger.error(f"アバター取得: データベースドライバが利用できません: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"データベースが構成されていません（ドライバ未導入: {e}）",
+        ) from e
     except Exception as e:
         logger.error(f"アバター取得エラー: {e}")
         raise HTTPException(status_code=500, detail="アバター取得に失敗しました") from e
