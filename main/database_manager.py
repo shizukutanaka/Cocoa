@@ -569,6 +569,17 @@ def get_user_avatars(user_id: int) -> List[Dict[str, Any]]:
                 }
                 for avatar in avatars
             ]
+    except (ModuleNotFoundError, ImportError):
+        # Do NOT swallow this one (audit #104): api_server.get_avatars()
+        # checks SQLALCHEMY_AVAILABLE and expects a real exception to reach
+        # it when that guard doesn't catch the failure -- which is exactly
+        # what happens when SQLAlchemy imports fine but the configured
+        # dialect's driver (e.g. psycopg2) does not. Swallowing it here
+        # turned that into 200 {"avatars": [], "status": "success"}: an
+        # outage reported as "you simply have no avatars", the very
+        # anti-pattern this function's docstring already warned the caller
+        # about. Let it propagate so the caller's 503 is reachable.
+        raise
     except Exception as e:
         logger.error(f"Failed to get user avatars: {e}")
         return []

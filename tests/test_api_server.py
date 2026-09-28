@@ -2535,6 +2535,57 @@ class TestAvatarEndpointsReportMissingDatabaseHonestly(unittest.TestCase):
                 asyncio.run(api_server.create_avatar({"name": "X"}, {"user_id": "u1"}))
         self.assertEqual(ctx.exception.status_code, 503)
 
+    def test_sqlalchemy_present_but_driver_missing_is_also_503_not_500(self):
+        """The sibling gap SQLALCHEMY_AVAILABLE does not cover (audit #104).
+
+        SQLALCHEMY_AVAILABLE only proves `import sqlalchemy` succeeded -- not
+        that the configured dialect's DRIVER (psycopg2 for postgresql://) is
+        importable. create_engine() imports the driver eagerly, so with
+        SQLAlchemy present and the driver absent, every handler here sailed
+        past the SQLALCHEMY_AVAILABLE guard and fell into the generic
+        `except Exception` -> 500, leaking a raw exception message and
+        reporting a config state as a server bug -- exactly what #64/#65
+        already fixed for the "no SQLAlchemy at all" case. Measured against a
+        running server before this test: GET/POST /api/avatars* -> 500,
+        {"detail": "...に失敗しました"}, with "No module named 'psycopg2'"
+        only in the server log, not even surfaced to the caller.
+        """
+        # create=True on get_database_manager: this test's flat import path
+        # falls into api_server's ImportError fallback (an unrelated sibling
+        # module, not database_manager itself, fails to import here), which
+        # -- consistently with SQLALCHEMY_AVAILABLE=False in that branch --
+        # never binds get_database_manager at all. A real deployment where
+        # SQLALCHEMY_AVAILABLE is True always has it bound; create=True
+        # reproduces that real state without requiring the whole import
+        # chain to succeed in this test environment.
+        driver_missing = ModuleNotFoundError("No module named 'psycopg2'")
+        with patch.object(api_server, "SQLALCHEMY_AVAILABLE", True), \
+             patch.object(api_server, "get_user_avatars", MagicMock(side_effect=driver_missing)), \
+             patch.object(api_server, "create_avatar_preset", MagicMock(side_effect=driver_missing)), \
+             patch.object(api_server, "get_database_service", MagicMock(), create=True), \
+             patch.object(api_server, "get_database_manager", MagicMock(side_effect=driver_missing), create=True):
+            for name, call in self.CALLS:
+                with self.subTest(endpoint=name):
+                    with self.assertRaises(HTTPException) as ctx:
+                        asyncio.run(call())
+                    self.assertEqual(
+                        ctx.exception.status_code, 503,
+                        f"{name} returned {ctx.exception.status_code} for a missing DB "
+                        "driver -- SQLAlchemy present, psycopg2 absent -- instead of "
+                        "the same 503 a missing SQLAlchemy itself gets",
+                    )
+                    self.assertIn("データベース", ctx.exception.detail)
+
+    def test_a_genuine_bug_downstream_still_reports_500(self):
+        # The fix narrows to ImportError/ModuleNotFoundError specifically; an
+        # unrelated defect (e.g. a KeyError in the handler) must not be
+        # swallowed into a false "database not configured" 503.
+        with patch.object(api_server, "SQLALCHEMY_AVAILABLE", True), \
+             patch.object(api_server, "get_user_avatars", MagicMock(side_effect=KeyError("oops"))):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(api_server.get_avatars({"user_id": "u1"}))
+        self.assertEqual(ctx.exception.status_code, 500)
+
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi/pydantic not installed")
 class TestAdminPayloadShapeIsNotCrossed(unittest.TestCase):
