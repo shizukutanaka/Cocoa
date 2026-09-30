@@ -296,14 +296,22 @@ def create_access_token(user_id: str, username: str, role: str, extra: Optional[
     return _encode_token(payload)
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_refresh_token(user_id: str, family: Optional[str] = None) -> str:
+    """``family`` ties every refresh token descended from one login together.
+
+    Rotation keeps the family; a fresh login starts a new one. It is what lets
+    a replayed (already-rotated) refresh token take down the whole session
+    lineage instead of only being refused itself (#105).
+    """
     now = datetime.now(timezone.utc)
+    jti = secrets.token_hex(16)
     payload: Dict[str, Any] = {
         "sub": user_id,
         "type": "refresh",
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(days=_REFRESH_TOKEN_EXPIRE_DAYS)).timestamp()),
-        "jti": secrets.token_hex(16),
+        "jti": jti,
+        "fam": family or jti,
     }
     return _encode_token(payload)
 
@@ -323,6 +331,10 @@ def decode_refresh_token(token: str) -> Dict[str, Any]:
 
 
 _TWO_FACTOR_PENDING_EXPIRE_MINUTES = 5
+
+# A refresh token presented again within this many seconds of being rotated is
+# treated as a benign race (two tabs, a retried request), not as theft (#105).
+_REFRESH_REUSE_GRACE_SECONDS = int(os.getenv("REFRESH_REUSE_GRACE_SECONDS", "10"))
 
 
 def create_2fa_pending_token(user_id: str) -> str:
@@ -361,6 +373,8 @@ class UserStore:
         self._by_username: Dict[str, str] = {}  # username → user_id
         self._by_email: Dict[str, str] = {}      # email → user_id
         self._revoked_jtis: Dict[str, float] = {}  # jti → expiry timestamp
+        self._revoked_families: Dict[str, float] = {}  # session family → expiry (#105)
+        self._rotated_at: Dict[str, float] = {}         # rotated refresh jti → when (#105)
         self._reset_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
         self._verify_tokens: Dict[str, tuple] = {}  # token → (user_id, exp)
         self._api_keys: Dict[str, Dict] = {}          # key_id → {user_id, name, key_id, key_hash, ...}
@@ -483,6 +497,9 @@ class UserStore:
         other thread already removed."""
         for k in [k for k, e in self._revoked_jtis.items() if e < now]:
             self._revoked_jtis.pop(k, None)
+            self._rotated_at.pop(k, None)
+        for k in [k for k, e in self._revoked_families.items() if e < now]:
+            self._revoked_families.pop(k, None)
 
     def revoke_jti(self, jti: str, exp: Optional[float] = None) -> None:
         if exp is None:
@@ -505,6 +522,42 @@ class UserStore:
                 return False
             self._revoked_jtis[jti] = exp
             return True
+
+    def rotate_jti(self, jti: str, exp: Optional[float] = None) -> str:
+        """Rotate a refresh token exactly once and classify a second attempt.
+
+        Returns ``"ok"`` for the winner; ``"raced"`` when the token was rotated
+        moments ago (two tabs refreshing together -- refused, but not evidence
+        of theft); ``"reused"`` when it was rotated or revoked long enough ago
+        that the only sensible reading is a stolen copy being replayed.
+        """
+        if exp is None:
+            exp = time.time() + _REFRESH_TOKEN_EXPIRE_DAYS * 86400
+        now = time.time()
+        with self._lock:
+            self._prune_revoked_locked(now)
+            if jti in self._revoked_jtis:
+                at = self._rotated_at.get(jti)
+                if at is not None and now - at <= _REFRESH_REUSE_GRACE_SECONDS:
+                    return "raced"
+                return "reused"
+            self._revoked_jtis[jti] = exp
+            self._rotated_at[jti] = now
+            return "ok"
+
+    def revoke_family(self, family: str, exp: Optional[float] = None) -> None:
+        if exp is None:
+            exp = time.time() + _REFRESH_TOKEN_EXPIRE_DAYS * 86400
+        with self._lock:
+            self._revoked_families[family] = exp
+
+    def is_family_revoked(self, family: str) -> bool:
+        if not family:
+            return False
+        now = time.time()
+        with self._lock:
+            self._prune_revoked_locked(now)
+            return family in self._revoked_families
 
     def is_revoked(self, jti: str) -> bool:
         now = time.time()
@@ -800,8 +853,10 @@ class AuthManager:
     # --- Login / Logout ---
 
     def _issue_tokens(self, user: UserRecord) -> TokenPair:
-        access = create_access_token(user.user_id, user.username, user.role, pw_version=user.pw_version)
         refresh = create_refresh_token(user.user_id)
+        family = decode_refresh_token(refresh)["fam"]
+        access = create_access_token(user.user_id, user.username, user.role,
+                                     extra={"fam": family}, pw_version=user.pw_version)
         return TokenPair(access_token=access, refresh_token=refresh)
 
     def login(self, username: str, password: str) -> Union[TokenPair, PendingTwoFactor]:
@@ -905,7 +960,7 @@ class AuthManager:
     def verify_access_token(self, token: str) -> Dict[str, Any]:
         payload = decode_access_token(token)
         jti = payload.get("jti", "")
-        if self.store.is_revoked(jti):
+        if self.store.is_revoked(jti) or self.store.is_family_revoked(payload.get("fam", "")):
             raise AuthError("token_revoked", "トークンは無効化されました")
         user = self.store.get_by_id(payload["sub"])
         if not user or not user.is_active:
@@ -938,10 +993,24 @@ class AuthManager:
         # revocation AND guarantees a single refresh token rotates exactly once —
         # two concurrent refreshes race on the claim and only the winner mints a
         # new session, so a replayed/stolen token can't fork a second session.
-        if not self.store.claim_jti_revocation(jti, exp=payload.get("exp")):
+        family = payload.get("fam") or jti  # tokens minted before #105 have no family
+        if self.store.is_family_revoked(family):
             raise AuthError("token_revoked", "リフレッシュトークンは無効化されました")
-        new_access = create_access_token(user.user_id, user.username, user.role, pw_version=user.pw_version)
-        new_refresh = create_refresh_token(user.user_id)
+        outcome = self.store.rotate_jti(jti, exp=payload.get("exp"))
+        if outcome == "reused":
+            # An already-rotated token is being replayed: whoever holds it and
+            # whoever holds its successor cannot both be the account owner, and
+            # we cannot tell which is which. Refusing only the replay (the
+            # pre-#105 behaviour) leaves the thief's parallel session alive;
+            # end the whole lineage and make the owner log in again.
+            self.store.revoke_family(family)
+            logger.warning("Refresh token reuse detected for user %s; session family revoked", user.user_id)
+            raise AuthError("token_reuse", "リフレッシュトークンの再利用を検知したため、セッションを終了しました")
+        if outcome != "ok":
+            raise AuthError("token_revoked", "リフレッシュトークンは無効化されました")
+        new_refresh = create_refresh_token(user.user_id, family=family)
+        new_access = create_access_token(user.user_id, user.username, user.role,
+                                         extra={"fam": family}, pw_version=user.pw_version)
         return TokenPair(access_token=new_access, refresh_token=new_refresh)
 
     # --- Password reset ---

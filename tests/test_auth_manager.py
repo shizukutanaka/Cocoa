@@ -1,5 +1,7 @@
 """Tests for main/auth_manager.py"""
 import sys
+import time
+from unittest.mock import patch
 import unittest
 from pathlib import Path
 
@@ -1846,6 +1848,90 @@ class TestAdminActorIdentityFromEndpointPayload(unittest.TestCase):
         """Callers that pass a raw JWT payload must keep working."""
         user = self.auth.ban_user({"sub": self.admin_id, "role": "admin"}, self.subject_id, "spam")
         self.assertEqual(user.banned_by, self.admin_id)
+
+
+class TestRefreshTokenReuseDetection(unittest.TestCase):
+    """A replayed, already-rotated refresh token ends the whole session lineage (#105).
+
+    Before: rotation was atomic (one token rotates once) but a replay was only
+    REFUSED. Whoever stole the old token learned nothing and, more to the point,
+    the thief's other session -- the successor minted from it -- stayed valid.
+    RFC 9700 / the OAuth security BCP: on reuse, revoke the family.
+    """
+
+    def setUp(self):
+        import auth_manager as am
+        self.am = am
+        self.auth = AuthManager()
+        self.auth.register("alice", "alice@x.com", "Alice123!", "user")
+        # Outside the benign-race window unless a test says otherwise.
+        self._grace = patch.object(am, "_REFRESH_REUSE_GRACE_SECONDS", 0)
+        self._grace.start()
+        self.addCleanup(self._grace.stop)
+
+    def _reuse_after_rotation(self):
+        first = self.auth.login("alice", "Alice123!")
+        second = self.auth.refresh(first.refresh_token)
+        time.sleep(0.01)  # move past the (patched-to-zero) grace window
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.refresh(first.refresh_token)  # the replay
+        return first, second, ctx.exception
+
+    def test_replay_is_reported_as_reuse(self):
+        _, _, err = self._reuse_after_rotation()
+        self.assertEqual(err.code, "token_reuse")
+
+    def test_replay_kills_the_successor_refresh_token(self):
+        _, second, _ = self._reuse_after_rotation()
+        with self.assertRaises(AuthError):
+            self.auth.refresh(second.refresh_token)
+
+    def test_replay_kills_the_successor_access_token(self):
+        _, second, _ = self._reuse_after_rotation()
+        with self.assertRaises(AuthError) as ctx:
+            self.auth.verify_access_token(second.access_token)
+        self.assertEqual(ctx.exception.code, "token_revoked")
+
+    def test_normal_rotation_chain_is_unaffected(self):
+        tokens = self.auth.login("alice", "Alice123!")
+        for _ in range(3):
+            tokens = self.auth.refresh(tokens.refresh_token)
+        self.assertEqual(self.auth.verify_access_token(tokens.access_token)["sub"],
+                         self.auth.store.get_by_username("alice").user_id)
+
+    def test_other_logins_of_the_same_user_are_not_collateral(self):
+        # Another device logged in separately is a different family.
+        laptop = self.auth.login("alice", "Alice123!")
+        phone = self.auth.login("alice", "Alice123!")
+        rotated = self.auth.refresh(laptop.refresh_token)
+        time.sleep(0.01)
+        with self.assertRaises(AuthError):
+            self.auth.refresh(laptop.refresh_token)          # theft on the laptop lineage
+        self.assertTrue(self.auth.verify_access_token(phone.access_token))
+        self.assertTrue(self.auth.refresh(phone.refresh_token).access_token)
+        with self.assertRaises(AuthError):
+            self.auth.verify_access_token(rotated.access_token)
+
+    def test_a_replay_inside_the_grace_window_is_a_race_not_theft(self):
+        # Two tabs refreshing together: the loser is refused but the winner's
+        # session must survive, or a double-click would log the user out.
+        self._grace.stop()
+        with patch.object(self.am, "_REFRESH_REUSE_GRACE_SECONDS", 60):
+            first = self.auth.login("alice", "Alice123!")
+            winner = self.auth.refresh(first.refresh_token)
+            with self.assertRaises(AuthError) as ctx:
+                self.auth.refresh(first.refresh_token)
+            self.assertEqual(ctx.exception.code, "token_revoked")
+            self.assertTrue(self.auth.refresh(winner.refresh_token).access_token)
+        self._grace.start()
+
+    def test_pre_105_tokens_without_a_family_still_rotate(self):
+        # A refresh token minted before this change has no "fam" claim.
+        legacy = self.am._encode_token({
+            "sub": self.auth.store.get_by_username("alice").user_id, "type": "refresh",
+            "iat": int(time.time()), "exp": int(time.time()) + 3600, "jti": "legacyjti",
+        })
+        self.assertTrue(self.auth.refresh(legacy).access_token)
 
 
 if __name__ == "__main__":
