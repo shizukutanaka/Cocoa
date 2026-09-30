@@ -3250,5 +3250,59 @@ class TestBrowseMarketplacePriceAndPlatformFilters(unittest.TestCase):
         self.assertEqual(kwargs["platform"], "vrchat")
 
 
+class TestProductionSurfaceHardening(unittest.TestCase):
+    """docs are closed in production; CSP and HSTS are sent (audit #106)."""
+
+    class _Req:
+        def __init__(self, path="/", scheme="http", headers=None):
+            self.url = MagicMock(path=path, scheme=scheme)
+            self.headers = headers or {}
+
+    def _headers(self, **kw):
+        resp = MagicMock(); resp.headers = {}
+        api_server._apply_security_headers(resp, self._Req(**kw))
+        return resp.headers
+
+    def test_docs_are_on_for_local_development_by_default(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("COCOA_ENABLE_DOCS", None); os.environ.pop("COCOA_PUBLIC_URL", None)
+            self.assertTrue(api_server._docs_enabled())
+
+    def test_docs_are_off_when_the_public_url_is_https(self):
+        with patch.dict(os.environ, {"COCOA_PUBLIC_URL": "https://cocoa.example"}):
+            os.environ.pop("COCOA_ENABLE_DOCS", None)
+            self.assertFalse(api_server._docs_enabled())
+
+    def test_explicit_setting_beats_the_https_heuristic(self):
+        with patch.dict(os.environ, {"COCOA_PUBLIC_URL": "https://x", "COCOA_ENABLE_DOCS": "1"}):
+            self.assertTrue(api_server._docs_enabled())
+        with patch.dict(os.environ, {"COCOA_PUBLIC_URL": "http://localhost", "COCOA_ENABLE_DOCS": "0"}):
+            self.assertFalse(api_server._docs_enabled())
+
+    def test_csp_is_sent_and_forbids_foreign_scripts(self):
+        csp = self._headers()["Content-Security-Policy"]
+        self.assertIn("script-src 'self'", csp)
+        self.assertIn("frame-ancestors 'none'", csp)
+        self.assertNotIn("unsafe-eval", csp)
+
+    def test_csp_is_not_applied_to_the_docs_pages(self):
+        for path in ("/docs", "/redoc"):
+            self.assertNotIn("Content-Security-Policy", self._headers(path=path))
+
+    def test_hsts_only_over_https(self):
+        with patch.dict(os.environ, {}):
+            os.environ.pop("COCOA_PUBLIC_URL", None)
+            self.assertNotIn("Strict-Transport-Security", self._headers())
+            self.assertIn("Strict-Transport-Security", self._headers(scheme="https"))
+            self.assertIn("Strict-Transport-Security",
+                          self._headers(headers={"x-forwarded-proto": "https"}))
+
+    def test_csp_can_be_switched_off_or_overridden(self):
+        with patch.dict(os.environ, {"COCOA_CSP": "off"}):
+            self.assertNotIn("Content-Security-Policy", self._headers())
+        with patch.dict(os.environ, {"COCOA_CSP": "default-src 'none'"}):
+            self.assertEqual(self._headers()["Content-Security-Policy"], "default-src 'none'")
+
+
 if __name__ == "__main__":
     unittest.main()
