@@ -169,6 +169,9 @@ python3 scripts/e2e_critical_flows.py --base http://127.0.0.1:8250 \
   これは環境差であり、本番の `requirements.txt` は psycopg2 を含む)。
   検証前に必ず `npm ci` と依存導入を済ませ、smoke の 500 が自分の変更由来かこの
   環境差由来かを切り分けること。
+- **本番設定の環境変数（#106）**: `COCOA_PUBLIC_URL=https://…` で /docs・/redoc・/openapi.json が
+  自動的に OFF、HSTS が付く。開発で本番相当を試すなら `COCOA_ENABLE_DOCS=0`。CSP を緩める/切る場合は
+  `COCOA_CSP`（`off` で無効）。CSP を変えたら Playwright で `securitypolicyviolation` を数えてから出荷すること。
 - **分類器/ツールの一時エラー**: Bash の一時的な失敗は同一コマンドの再試行で通ることがある。
 
 ---

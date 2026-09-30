@@ -365,6 +365,26 @@ def _parse_cors_origins(env_value: Optional[str]) -> List[str]:
     return origins or list(_DEFAULT_CORS_ORIGINS)
 
 
+def _public_url_is_https() -> bool:
+    return os.getenv("COCOA_PUBLIC_URL", "").strip().lower().startswith("https://")
+
+
+def _docs_enabled() -> bool:
+    """Whether /docs, /redoc and /openapi.json are served (#106).
+
+    They hand an attacker a complete, current map of every route, parameter and
+    admin endpoint. Explicit COCOA_ENABLE_DOCS (1/0) always wins; otherwise they
+    are off when COCOA_PUBLIC_URL is https:// -- the only production signal this
+    deployment has -- and on for local development, where they are useful.
+    """
+    explicit = os.getenv("COCOA_ENABLE_DOCS", "").strip().lower()
+    if explicit in ("1", "true", "yes", "on"):
+        return True
+    if explicit in ("0", "false", "no", "off"):
+        return False
+    return not _public_url_is_https()
+
+
 # FastAPIアプリケーション作成
 if FASTAPI_AVAILABLE:
     app = FastAPI(
@@ -381,8 +401,9 @@ if FASTAPI_AVAILABLE:
             "`next_offset` (null when there are no more items)."
         ),
         version="2.0.0",
-        docs_url="/docs",
-        redoc_url="/redoc",
+        docs_url="/docs" if _docs_enabled() else None,
+        redoc_url="/redoc" if _docs_enabled() else None,
+        openapi_url="/openapi.json" if _docs_enabled() else None,
         openapi_tags=[
             {"name": "auth", "description": "Registration, login, token refresh, and profile management"},
             {"name": "marketplace", "description": "Avatar publishing, search, download, ratings, and reviews"},
@@ -783,9 +804,44 @@ if FASTAPI_AVAILABLE:
         "X-API-Version": _API_VERSION,
     }
 
-    def _apply_security_headers(response):
+    # The SPA is same-origin: one module script, inline style attributes (React
+    # `style={{}}`), a data: favicon, and user-supplied https thumbnails. Nothing
+    # else may load. Measured against the real build with a browser before this
+    # was enforced (#106): zero violations across the critical journeys.
+    _DEFAULT_CSP = (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; "
+        "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    )
+    # Swagger UI / ReDoc pull scripts and styles from a CDN and run inline code,
+    # so the SPA policy would blank them; they only exist when docs are enabled.
+    _CSP_EXEMPT_PREFIXES = ("/docs", "/redoc")
+
+    def _content_security_policy(path: str) -> Optional[str]:
+        override = os.getenv("COCOA_CSP", "").strip()
+        if override.lower() == "off" or path.startswith(_CSP_EXEMPT_PREFIXES):
+            return None
+        return override or _DEFAULT_CSP
+
+    def _is_https_request(request) -> bool:
+        if request is None:
+            return False
+        if request.url.scheme == "https":
+            return True
+        return request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower() == "https"
+
+    def _apply_security_headers(response, request=None):
         for k, v in _SECURITY_HEADERS.items():
             response.headers.setdefault(k, v)
+        if request is not None:
+            csp = _content_security_policy(request.url.path)
+            if csp:
+                response.headers.setdefault("Content-Security-Policy", csp)
+            # Only over HTTPS: on plain HTTP browsers ignore it, and a stray
+            # HSTS on a dev host would pin localhost to https.
+            if _is_https_request(request) or _public_url_is_https():
+                response.headers.setdefault(
+                    "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
 
     def _rate_limit_key(request) -> str:
@@ -835,11 +891,11 @@ if FASTAPI_AVAILABLE:
             for k, v in rl_headers.items():
                 response.headers[k] = v
             _record_request_metrics(request, response.status_code, start)
-            return _apply_security_headers(response)
+            return _apply_security_headers(response, request)
 
         response = await call_next(request)
         _record_request_metrics(request, response.status_code, start)
-        return _apply_security_headers(response)
+        return _apply_security_headers(response, request)
 
 # Pydanticモデル定義
 class HealthCheck(BaseModel):
